@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.mapper.InventoryMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="InventoryResultMap" type="com.jiaoyi.entity.Inventory">
+        <id column="id" property="id"/>
+        <result column="product_id" property="productId"/>
+        <result column="product_name" property="productName"/>
+        <result column="current_stock" property="currentStock"/>
+        <result column="locked_stock" property="lockedStock"/>
+        <result column="min_stock" property="minStock"/>
+        <result column="max_stock" property="maxStock"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 根据商品ID查询库存 -->
+    <select id="selectByProductId" parameterType="long" resultMap="InventoryResultMap">
+        SELECT * FROM inventory WHERE product_id = #{productId}
+    </select>
+
+    <!-- 查询库存不足的商品 -->
+    <select id="selectLowStockItems" resultMap="InventoryResultMap">
+        SELECT * FROM inventory WHERE (current_stock - locked_stock) &lt; min_stock
+    </select>
+
+    <!-- 锁定库存（原子操作） -->
+    <update id="lockStock">
+        UPDATE inventory SET 
+            locked_stock = locked_stock + #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND (current_stock - locked_stock) &gt;= #{quantity}
+    </update>
+
+    <!-- 解锁库存（原子操作） -->
+    <update id="unlockStock">
+        UPDATE inventory SET 
+            locked_stock = locked_stock - #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND locked_stock &gt;= #{quantity}
+    </update>
+
+    <!-- 扣减库存（原子操作） -->
+    <update id="deductStock">
+        UPDATE inventory SET 
+            current_stock = current_stock - #{quantity},
+            locked_stock = locked_stock - #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND locked_stock &gt;= #{quantity}
+    </update>
+
+</mapper>

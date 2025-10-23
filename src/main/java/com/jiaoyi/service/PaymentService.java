@@ -1,0 +1,159 @@
+package com.jiaoyi.service;
+
+import com.jiaoyi.dto.PaymentRequest;
+import com.jiaoyi.dto.PaymentResponse;
+import com.jiaoyi.entity.Order;
+import com.jiaoyi.entity.OrderStatus;
+import com.jiaoyi.mapper.OrderMapper;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
+import java.util.UUID;
+
+/**
+ * 支付服务
+ */
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class PaymentService {
+    
+    private final OrderMapper orderMapper;
+    private final AlipayService alipayService;
+    
+    /**
+     * 处理支付
+     */
+    @Transactional
+    public PaymentResponse processPayment(Long orderId, PaymentRequest request) {
+        log.info("处理支付，订单ID: {}, 支付方式: {}", orderId, request.getPaymentMethod());
+        
+        // 1. 查询订单
+        Order order = orderMapper.selectById(orderId);
+        if (order == null) {
+            throw new RuntimeException("订单不存在");
+        }
+        
+        // 2. 检查订单状态
+        if (order.getStatus() != OrderStatus.PENDING) {
+            throw new RuntimeException("订单状态不正确，无法支付");
+        }
+        
+        // 3. 验证支付金额
+        if (order.getTotalAmount().compareTo(request.getAmount())!=0) {
+            throw new RuntimeException("支付金额不匹配");
+        }
+        
+        // 4. 生成支付流水号
+        String paymentNo = generatePaymentNo();
+        
+        // 5. 调用第三方支付平台
+        PaymentResponse paymentResponse = callThirdPartyPayment(order, request, paymentNo);
+        
+        // 6. 如果支付成功，更新订单状态
+        if ("SUCCESS".equals(paymentResponse.getStatus())) {
+            updateOrderStatus(orderId, OrderStatus.PAID);
+            log.info("支付成功，订单ID: {}, 支付流水号: {}", orderId, paymentNo);
+        }
+        
+        return paymentResponse;
+    }
+    
+    /**
+     * 调用第三方支付平台
+     */
+    private PaymentResponse callThirdPartyPayment(Order order, PaymentRequest request, String paymentNo) {
+        log.info("调用第三方支付平台，订单ID: {}, 支付方式: {}", order.getId(), request.getPaymentMethod());
+        
+        // 根据支付方式调用不同的支付服务
+        switch (request.getPaymentMethod().toUpperCase()) {
+            case "ALIPAY":
+                return callAlipayPayment(order, request, paymentNo);
+            case "WECHAT":
+                return callWechatPayment(order, request, paymentNo);
+            case "BANK":
+                return callBankPayment(order, request, paymentNo);
+            default:
+                throw new RuntimeException("不支持的支付方式: " + request.getPaymentMethod());
+        }
+    }
+    
+    /**
+     * 调用支付宝支付
+     */
+    private PaymentResponse callAlipayPayment(Order order, PaymentRequest request, String paymentNo) {
+        log.info("调用支付宝支付，订单ID: {}", order.getId());
+        
+        // 转换金额（分转元）
+        BigDecimal amount = request.getAmount().divide(new BigDecimal("100"));
+        
+        // 调用支付宝服务
+        return alipayService.createPayment(
+            order.getOrderNo(),
+            "订单支付：" + order.getOrderNo(),
+            amount,
+            paymentNo
+        );
+    }
+    
+    /**
+     * 调用微信支付
+     */
+    private PaymentResponse callWechatPayment(Order order, PaymentRequest request, String paymentNo) {
+        log.info("调用微信支付，订单ID: {}", order.getId());
+        
+        // TODO: 集成微信支付
+        PaymentResponse response = new PaymentResponse();
+        response.setPaymentNo(paymentNo);
+        response.setStatus("PENDING");
+        response.setPaymentMethod("WECHAT");
+        response.setAmount(request.getAmount());
+        response.setRemark("微信支付功能待开发");
+        
+        return response;
+    }
+    
+    /**
+     * 调用银行卡支付
+     */
+    private PaymentResponse callBankPayment(Order order, PaymentRequest request, String paymentNo) {
+        log.info("调用银行卡支付，订单ID: {}", order.getId());
+        
+        // TODO: 集成银行卡支付
+        PaymentResponse response = new PaymentResponse();
+        response.setPaymentNo(paymentNo);
+        response.setStatus("PENDING");
+        response.setPaymentMethod("BANK");
+        response.setAmount(request.getAmount());
+        response.setRemark("银行卡支付功能待开发");
+        
+        return response;
+    }
+    
+    /**
+     * 更新订单状态
+     */
+    private void updateOrderStatus(Long orderId, OrderStatus status) {
+        log.info("更新订单状态，订单ID: {}, 状态: {}", orderId, status);
+        Order order = orderMapper.selectById(orderId);
+        if (order != null) {
+            order.setStatus(status);
+            order.setUpdateTime(LocalDateTime.now());
+            orderMapper.updateStatus(orderId, status);
+            log.info("订单状态更新成功，订单ID: {}, 新状态: {}", orderId, status);
+        } else {
+            log.warn("订单不存在，订单ID: {}", orderId);
+        }
+    }
+    
+    /**
+     * 生成支付流水号
+     */
+    private String generatePaymentNo() {
+        return "PAY" + System.currentTimeMillis() + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+    }
+}

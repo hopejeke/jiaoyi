@@ -1,0 +1,78 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.mapper.OrderMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="OrderResultMap" type="com.jiaoyi.entity.Order">
+        <id column="id" property="id"/>
+        <result column="order_no" property="orderNo"/>
+        <result column="user_id" property="userId"/>
+        <result column="status" property="status"/>
+        <result column="total_amount" property="totalAmount"/>
+        <result column="receiver_name" property="receiverName"/>
+        <result column="receiver_phone" property="receiverPhone"/>
+        <result column="receiver_address" property="receiverAddress"/>
+        <result column="remark" property="remark"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入订单 -->
+    <insert id="insert" parameterType="com.jiaoyi.entity.Order" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO orders (
+            order_no, user_id, status, total_amount, receiver_name, 
+            receiver_phone, receiver_address, remark, create_time, update_time
+        ) VALUES (
+            #{orderNo}, #{userId}, #{status}, #{totalAmount}, #{receiverName},
+            #{receiverPhone}, #{receiverAddress}, #{remark}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 根据ID查询订单 -->
+    <select id="selectById" parameterType="long" resultMap="OrderResultMap">
+        SELECT * FROM orders WHERE id = #{id}
+    </select>
+
+    <!-- 查询所有订单 -->
+    <select id="selectAll" resultMap="OrderResultMap">
+        SELECT * FROM orders ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据订单号查询订单 -->
+    <select id="selectByOrderNo" parameterType="string" resultMap="OrderResultMap">
+        SELECT * FROM orders WHERE order_no = #{orderNo}
+    </select>
+
+    <!-- 根据用户ID查询订单列表 -->
+    <select id="selectByUserId" parameterType="long" resultMap="OrderResultMap">
+        SELECT * FROM orders WHERE user_id = #{userId} ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据用户ID和状态查询订单列表 -->
+    <select id="selectByUserIdAndStatus" resultMap="OrderResultMap">
+        SELECT * FROM orders 
+        WHERE user_id = #{userId} AND status = #{status} 
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据状态查询订单列表 -->
+    <select id="selectByStatus" parameterType="com.jiaoyi.entity.OrderStatus" resultMap="OrderResultMap">
+        SELECT * FROM orders WHERE status = #{status} ORDER BY create_time DESC
+    </select>
+
+    <!-- 更新订单状态 -->
+    <update id="updateStatus">
+        UPDATE orders SET status = #{status}, update_time = NOW() WHERE id = #{id}
+    </update>
+
+    <!-- 统计用户订单数量 -->
+    <select id="countByUserId" parameterType="long" resultType="long">
+        SELECT COUNT(*) FROM orders WHERE user_id = #{userId}
+    </select>
+
+    <!-- 统计指定状态的订单数量 -->
+    <select id="countByStatus" parameterType="com.jiaoyi.entity.OrderStatus" resultType="long">
+        SELECT COUNT(*) FROM orders WHERE status = #{status}
+    </select>
+
+</mapper>
