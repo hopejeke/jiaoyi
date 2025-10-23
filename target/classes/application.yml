@@ -1,0 +1,63 @@
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: jiaoyi
+  
+  # 数据库配置
+  datasource:
+    url: jdbc:mysql://localhost:3306/jiaoyi?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: root
+    driver-class-name: com.mysql.cj.jdbc.Driver
+
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: GMT+8
+    serialization:
+      write-dates-as-timestamps: false
+
+# 日志配置
+logging:
+  level:
+    com.jiaoyi: DEBUG
+    org.springframework.web: DEBUG
+    com.jiaoyi.mapper: DEBUG
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/jiaoyi.log
+
+# PageHelper分页配置 - 暂时注释掉
+# pagehelper:
+#   helper-dialect: mysql
+#   reasonable: true
+#   support-methods-arguments: true
+
+# 管理端点配置
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: always
+mybatis:
+  mapper-locations: classpath*:mapper/**/*.xml
+
+# 支付宝配置
+alipay:
+  app-id: 你的应用ID
+  private-key: 你的商户私钥
+  alipay-public-key: 支付宝公钥
+  gateway-url: https://openapi.alipay.com/gateway.do
+  sign-type: RSA2
+  charset: UTF-8
+  format: JSON
+  notify-url: http://localhost:8080/api/payment/alipay/notify
+  return-url: http://localhost:8080/api/payment/alipay/return

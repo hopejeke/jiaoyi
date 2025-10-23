@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>模拟支付宝支付</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .logo {
+            color: #1677ff;
+            font-size: 24px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        .order-info {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 6px;
+            margin-bottom: 30px;
+        }
+        .order-info h3 {
+            margin: 0 0 15px 0;
+            color: #333;
+        }
+        .info-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            padding: 8px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .info-row:last-child {
+            border-bottom: none;
+            font-weight: bold;
+            font-size: 18px;
+            color: #e74c3c;
+        }
+        .amount {
+            font-size: 24px;
+            font-weight: bold;
+            color: #e74c3c;
+        }
+        .buttons {
+            display: flex;
+            gap: 15px;
+            justify-content: center;
+        }
+        .btn {
+            padding: 12px 30px;
+            border: none;
+            border-radius: 6px;
+            font-size: 16px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .btn-success {
+            background: #1677ff;
+            color: white;
+        }
+        .btn-success:hover {
+            background: #0056b3;
+        }
+        .btn-cancel {
+            background: #6c757d;
+            color: white;
+        }
+        .btn-cancel:hover {
+            background: #545b62;
+        }
+        .status {
+            text-align: center;
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 6px;
+            display: none;
+        }
+        .status.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.failed {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <div class="logo">模拟支付宝</div>
+            <p>安全、快捷、便利的支付体验</p>
+        </div>
+        
+        <div class="order-info">
+            <h3>订单信息</h3>
+            <div class="info-row">
+                <span>订单号：</span>
+                <span id="orderNo">-</span>
+            </div>
+            <div class="info-row">
+                <span>商品名称：</span>
+                <span>订单支付</span>
+            </div>
+            <div class="info-row">
+                <span>支付金额：</span>
+                <span class="amount" id="amount">¥0.00</span>
+            </div>
+        </div>
+        
+        <div class="buttons">
+            <button class="btn btn-success" onclick="paySuccess()">确认支付</button>
+            <button class="btn btn-cancel" onclick="payCancel()">取消支付</button>
+        </div>
+        
+        <div id="status" class="status"></div>
+    </div>
+
+    <script>
+        // 获取URL参数
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                orderNo: params.get('orderNo'),
+                amount: params.get('amount')
+            };
+        }
+        
+        // 初始化页面
+        function initPage() {
+            const params = getUrlParams();
+            if (params.orderNo) {
+                document.getElementById('orderNo').textContent = params.orderNo;
+            }
+            if (params.amount) {
+                document.getElementById('amount').textContent = '¥' + params.amount;
+            }
+        }
+        
+        // 支付成功
+        function paySuccess() {
+            const params = getUrlParams();
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status success';
+            statusDiv.innerHTML = '支付成功！正在跳转...';
+            statusDiv.style.display = 'block';
+            
+            // 模拟支付成功后的处理
+            setTimeout(() => {
+                // 这里可以调用后端API通知支付成功
+                // 或者直接跳转到成功页面
+                alert('支付成功！订单号：' + params.orderNo);
+                window.close(); // 关闭支付窗口
+            }, 2000);
+        }
+        
+        // 取消支付
+        function payCancel() {
+            const statusDiv = document.getElementById('status');
+            statusDiv.className = 'status failed';
+            statusDiv.innerHTML = '支付已取消';
+            statusDiv.style.display = 'block';
+            
+            setTimeout(() => {
+                window.close(); // 关闭支付窗口
+            }, 1500);
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', initPage);
+    </script>
+</body>
+</html>
