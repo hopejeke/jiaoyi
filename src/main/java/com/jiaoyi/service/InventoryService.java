@@ -2,9 +2,11 @@ package com.jiaoyi.service;
 
 import com.jiaoyi.entity.Inventory;
 import com.jiaoyi.entity.InventoryTransaction;
+import com.jiaoyi.entity.OrderItem;
 import com.jiaoyi.exception.InsufficientStockException;
 import com.jiaoyi.mapper.InventoryMapper;
 import com.jiaoyi.mapper.InventoryTransactionMapper;
+import com.jiaoyi.mapper.OrderItemMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -23,6 +25,7 @@ public class InventoryService {
     
     private final InventoryMapper inventoryMapper;
     private final InventoryTransactionMapper transactionMapper;
+    private final OrderItemMapper orderItemMapper;
     
     /**
      * 检查并锁定库存（下单时调用）
@@ -202,6 +205,35 @@ public class InventoryService {
      */
     public List<Inventory> getLowStockItems() {
         return inventoryMapper.selectLowStockItems();
+    }
+    
+    /**
+     * 根据订单号扣减库存（支付成功后调用）
+     */
+    @Transactional
+    public void deductStockByOrderNo(String orderNo) {
+        log.info("根据订单号扣减库存，订单号: {}", orderNo);
+        
+        // 查询订单项
+        List<OrderItem> orderItems = orderItemMapper.selectByOrderNo(orderNo);
+        if (orderItems.isEmpty()) {
+            log.warn("订单项不存在，订单号: {}", orderNo);
+            return;
+        }
+        
+        // 遍历订单项，扣减每个商品的库存
+        for (OrderItem orderItem : orderItems) {
+            try {
+                deductStock(orderItem.getProductId(), orderItem.getQuantity(), null);
+                log.info("商品库存扣减成功，商品ID: {}, 数量: {}", orderItem.getProductId(), orderItem.getQuantity());
+            } catch (Exception e) {
+                log.error("商品库存扣减失败，商品ID: {}, 数量: {}, 错误: {}", 
+                         orderItem.getProductId(), orderItem.getQuantity(), e.getMessage());
+                throw new RuntimeException("库存扣减失败: " + e.getMessage());
+            }
+        }
+        
+        log.info("订单库存扣减完成，订单号: {}", orderNo);
     }
     
     /**

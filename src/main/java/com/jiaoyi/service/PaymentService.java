@@ -88,8 +88,8 @@ public class PaymentService {
     private PaymentResponse callAlipayPayment(Order order, PaymentRequest request, String paymentNo) {
         log.info("调用支付宝支付，订单ID: {}", order.getId());
         
-        // 转换金额（分转元）
-        BigDecimal amount = request.getAmount().divide(new BigDecimal("100"));
+        // 直接使用请求中的金额（已经是元为单位）
+        BigDecimal amount = request.getAmount();
         
         // 调用支付宝服务
         return alipayService.createPayment(
@@ -147,6 +147,26 @@ public class PaymentService {
             log.info("订单状态更新成功，订单ID: {}, 新状态: {}", orderId, status);
         } else {
             log.warn("订单不存在，订单ID: {}", orderId);
+        }
+    }
+    
+    /**
+     * 处理支付成功
+     */
+    public void handlePaymentSuccess(String paymentNo, String thirdPartyTradeNo) {
+        log.info("处理支付成功，支付流水号: {}, 第三方交易号: {}", paymentNo, thirdPartyTradeNo);
+        
+        try {
+            // 更新支付状态为成功
+            // 这里可以添加支付记录更新逻辑
+            
+            // 更新订单状态为已支付
+            orderMapper.updateStatusByPaymentNo(paymentNo, OrderStatus.PAID);
+            
+            log.info("支付成功处理完成，支付流水号: {}", paymentNo);
+        } catch (Exception e) {
+            log.error("处理支付成功异常", e);
+            throw new RuntimeException("处理支付成功失败: " + e.getMessage());
         }
     }
     

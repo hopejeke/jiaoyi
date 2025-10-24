@@ -36,4 +36,9 @@ public interface OrderItemMapper {
      * 统计商品销售数量
      */
     Long sumQuantityByProductId(@Param("productId") Long productId);
+    
+    /**
+     * 根据订单号查询订单项列表
+     */
+    List<OrderItem> selectByOrderNo(@Param("orderNo") String orderNo);
 }

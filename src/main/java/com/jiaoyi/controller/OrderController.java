@@ -1,5 +1,6 @@
 package com.jiaoyi.controller;
 
+import com.jiaoyi.annotation.PreventDuplicateSubmission;
 import com.jiaoyi.common.ApiResponse;
 import com.jiaoyi.dto.CreateOrderRequest;
 import com.jiaoyi.dto.OrderResponse;
@@ -8,6 +9,7 @@ import com.jiaoyi.dto.PaymentResponse;
 import com.jiaoyi.entity.OrderStatus;
 import com.jiaoyi.service.OrderService;
 import com.jiaoyi.service.PaymentService;
+import com.jiaoyi.util.CartFingerprintUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 // import com.github.pagehelper.PageInfo;
@@ -36,6 +38,7 @@ public class OrderController {
      * 创建订单
      */
     @PostMapping
+    @PreventDuplicateSubmission(key = "T(com.jiaoyi.util.CartFingerprintUtil).generateFingerprint(#request)", expireTime = 10, message = "请勿重复提交相同订单")
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(@Valid @RequestBody CreateOrderRequest request) {
         log.info("接收到创建订单请求，用户ID: {}", request.getUserId());
         try {
@@ -150,6 +153,7 @@ public class OrderController {
      * 支付订单
      */
     @PostMapping("/{orderId}/pay")
+    @PreventDuplicateSubmission(key = "#orderId + '_pay'", expireTime = 60, message = "请勿重复提交支付")
     public ResponseEntity<ApiResponse<PaymentResponse>> payOrder(
             @PathVariable Long orderId,
             @RequestBody PaymentRequest request) {

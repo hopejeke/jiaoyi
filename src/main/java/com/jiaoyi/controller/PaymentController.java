@@ -2,12 +2,18 @@ package com.jiaoyi.controller;
 
 import com.jiaoyi.common.ApiResponse;
 import com.jiaoyi.dto.PaymentResponse;
+import com.jiaoyi.entity.OrderStatus;
+import com.jiaoyi.mapper.OrderMapper;
 import com.jiaoyi.service.AlipayService;
+import com.jiaoyi.service.PaymentService;
+import com.jiaoyi.service.InventoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
+import java.util.Enumeration;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -20,27 +26,64 @@ import java.util.Map;
 public class PaymentController {
     
     private final AlipayService alipayService;
+    private final PaymentService paymentService;
+    private final OrderMapper orderMapper;
+    private final InventoryService inventoryService;
     
     /**
      * 支付宝支付回调
      */
     @PostMapping("/alipay/notify")
     public String alipayNotify(HttpServletRequest request) {
-        log.info("收到支付宝支付回调");
+        log.info("收到支付宝支付回调通知");
         
         try {
-            // 获取回调参数
-            Map<String, String[]> parameterMap = request.getParameterMap();
-            for (Map.Entry<String, String[]> entry : parameterMap.entrySet()) {
-                log.info("回调参数: {} = {}", entry.getKey(), String.join(",", entry.getValue()));
+            // 获取所有请求参数
+            Map<String, String> params = new HashMap<>();
+            Enumeration<String> parameterNames = request.getParameterNames();
+            while (parameterNames.hasMoreElements()) {
+                String paramName = parameterNames.nextElement();
+                String paramValue = request.getParameter(paramName);
+                params.put(paramName, paramValue);
+                log.info("回调参数: {} = {}", paramName, paramValue);
             }
             
-            // TODO: 验证签名和更新订单状态
-            // 这里需要根据支付宝的回调参数来验证支付结果
+            // 处理支付结果
+            String outTradeNo = params.get("out_trade_no");
+            String tradeStatus = params.get("trade_status");
+            String totalAmount = params.get("total_amount");
+            String tradeNo = params.get("trade_no");
             
-            return "success";
+            log.info("支付回调处理 - 订单号: {}, 状态: {}, 金额: {}, 支付宝交易号: {}", 
+                    outTradeNo, tradeStatus, totalAmount, tradeNo);
+            
+            if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
+                // 支付成功，更新订单状态和库存
+                log.info("开始处理支付成功回调，支付流水号: {}", outTradeNo);
+                
+                try {
+                    // 1. 更新订单状态为已支付
+                    // 现在 outTradeNo 就是订单号
+                    orderMapper.updateStatusByPaymentNo(outTradeNo, OrderStatus.PAID);
+                    log.info("订单状态更新为已支付，订单号: {}", outTradeNo);
+                    
+                    // 2. 扣减库存（将锁定的库存转换为实际扣减）
+                    log.info("开始扣减库存，订单号: {}", outTradeNo);
+                    inventoryService.deductStockByOrderNo(outTradeNo);
+                    
+                    log.info("支付成功处理完成，订单号: {}", outTradeNo);
+                    return "success";
+                } catch (Exception e) {
+                    log.error("处理支付成功回调异常，支付流水号: {}", outTradeNo, e);
+                    return "fail";
+                }
+            } else {
+                log.warn("支付状态异常: {}", tradeStatus);
+                return "fail";
+            }
+            
         } catch (Exception e) {
-            log.error("处理支付宝回调异常", e);
+            log.error("处理支付回调异常", e);
             return "fail";
         }
     }
@@ -50,20 +93,32 @@ public class PaymentController {
      */
     @GetMapping("/alipay/return")
     public String alipayReturn(HttpServletRequest request) {
-        log.info("收到支付宝支付返回");
+        log.info("收到支付宝支付同步返回");
         
         try {
-            // 获取返回参数
-            Map<String, String[]> parameterMap = request.getParameterMap();
-            for (Map.Entry<String, String[]> entry : parameterMap.entrySet()) {
-                log.info("返回参数: {} = {}", entry.getKey(), String.join(",", entry.getValue()));
+            // 获取所有请求参数
+            Map<String, String> params = new HashMap<>();
+            Enumeration<String> parameterNames = request.getParameterNames();
+            while (parameterNames.hasMoreElements()) {
+                String paramName = parameterNames.nextElement();
+                String paramValue = request.getParameter(paramName);
+                params.put(paramName, paramValue);
+                log.info("返回参数: {} = {}", paramName, paramValue);
             }
             
-            // TODO: 处理支付返回结果
+            String outTradeNo = params.get("out_trade_no");
+            String tradeStatus = params.get("trade_status");
             
-            return "支付处理完成";
+            log.info("支付返回处理 - 订单号: {}, 状态: {}", outTradeNo, tradeStatus);
+            
+            if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
+                return "支付成功！订单号: " + outTradeNo;
+            } else {
+                return "支付处理中，请稍后查询订单状态";
+            }
+            
         } catch (Exception e) {
-            log.error("处理支付宝返回异常", e);
+            log.error("处理支付返回异常", e);
             return "支付处理异常";
         }
     }

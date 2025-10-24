@@ -52,4 +52,11 @@
         SELECT COALESCE(SUM(quantity), 0) FROM order_items WHERE product_id = #{productId}
     </select>
 
+    <!-- 根据订单号查询订单项列表 -->
+    <select id="selectByOrderNo" parameterType="string" resultMap="OrderItemResultMap">
+        SELECT oi.* FROM order_items oi 
+        INNER JOIN orders o ON oi.order_id = o.id 
+        WHERE o.order_no = #{orderNo}
+    </select>
+
 </mapper>
