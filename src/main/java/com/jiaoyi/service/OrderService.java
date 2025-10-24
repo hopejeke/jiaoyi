@@ -2,18 +2,19 @@ package com.jiaoyi.service;
 
 import com.jiaoyi.dto.CreateOrderRequest;
 import com.jiaoyi.dto.OrderResponse;
-import com.jiaoyi.dto.PaymentRequest;
-import com.jiaoyi.dto.PaymentResponse;
 import com.jiaoyi.entity.Order;
 import com.jiaoyi.entity.OrderItem;
 import com.jiaoyi.entity.OrderStatus;
 import com.jiaoyi.mapper.OrderMapper;
 import com.jiaoyi.mapper.OrderItemMapper;
 import com.jiaoyi.service.InventoryService;
+import com.jiaoyi.util.CartFingerprintUtil;
 // import com.github.pagehelper.PageHelper;
 // import com.github.pagehelper.PageInfo;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +24,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -36,6 +38,7 @@ public class OrderService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final InventoryService inventoryService;
+    private final RedissonClient redissonClient;
     
     /**
      * 创建订单
@@ -44,60 +47,87 @@ public class OrderService {
     public OrderResponse createOrder(CreateOrderRequest request) {
         log.info("开始创建订单，用户ID: {}", request.getUserId());
         
-        // 1. 检查并锁定库存
-        List<Long> productIds = request.getOrderItems().stream()
-                .map(CreateOrderRequest.OrderItemRequest::getProductId)
-                .collect(Collectors.toList());
-        List<Integer> quantities = request.getOrderItems().stream()
-                .map(CreateOrderRequest.OrderItemRequest::getQuantity)
-                .collect(Collectors.toList());
-        
-        log.info("检查并锁定库存，商品数量: {}", productIds.size());
-        inventoryService.checkAndLockStockBatch(productIds, quantities);
+        // 生成购物车指纹作为分布式锁的key
+        String lockKey = "order:create:" + CartFingerprintUtil.generateFingerprint(request);
+        RLock lock = redissonClient.getLock(lockKey);
         
         try {
-            // 2. 生成订单号
-            String orderNo = generateOrderNo();
+            // 尝试获取分布式锁，最多等待3秒，锁持有时间不超过30秒
+            boolean lockAcquired = lock.tryLock(3, 30, TimeUnit.SECONDS);
             
-            // 3. 计算订单总金额
-            BigDecimal totalAmount = calculateTotalAmount(request.getOrderItems());
-            
-            // 4. 创建订单实体
-            Order order = new Order();
-            order.setOrderNo(orderNo);
-            order.setUserId(request.getUserId());
-            order.setStatus(OrderStatus.PENDING);
-            order.setTotalAmount(totalAmount);
-            order.setReceiverName(request.getReceiverName());
-            order.setReceiverPhone(request.getReceiverPhone());
-            order.setReceiverAddress(request.getReceiverAddress());
-            order.setRemark(request.getRemark());
-            order.setCreateTime(LocalDateTime.now());
-            order.setUpdateTime(LocalDateTime.now());
-            
-            // 5. 保存订单
-            orderMapper.insert(order);
-            log.info("订单创建成功，订单号: {}", orderNo);
-            
-            // 6. 创建订单项
-            List<OrderItem> orderItems = createOrderItems(order.getId(), request.getOrderItems());
-            orderItemMapper.insertBatch(orderItems);
-            
-            // 7. 设置订单项到订单中
-            order.setOrderItems(orderItems);
-            
-            log.info("订单创建完成，订单ID: {}, 订单号: {}", order.getId(), orderNo);
-            return OrderResponse.fromOrder(order);
-            
-        } catch (Exception e) {
-            // 如果订单创建失败，解锁已锁定的库存
-            log.error("订单创建失败，解锁库存", e);
-            try {
-                inventoryService.unlockStockBatch(productIds, quantities, null);
-            } catch (Exception unlockException) {
-                log.error("解锁库存失败", unlockException);
+            if (!lockAcquired) {
+                log.warn("获取分布式锁失败，可能存在重复提交，用户ID: {}", request.getUserId());
+                throw new RuntimeException("请勿重复提交相同订单");
             }
-            throw e;
+            
+            log.info("成功获取分布式锁，开始处理订单创建，用户ID: {}", request.getUserId());
+            
+            // 1. 检查并锁定库存
+            List<Long> productIds = request.getOrderItems().stream()
+                    .map(CreateOrderRequest.OrderItemRequest::getProductId)
+                    .collect(Collectors.toList());
+            List<Integer> quantities = request.getOrderItems().stream()
+                    .map(CreateOrderRequest.OrderItemRequest::getQuantity)
+                    .collect(Collectors.toList());
+            
+            log.info("检查并锁定库存，商品数量: {}", productIds.size());
+            inventoryService.checkAndLockStockBatch(productIds, quantities);
+            
+            try {
+                // 2. 生成订单号
+                String orderNo = generateOrderNo();
+                
+                // 3. 计算订单总金额
+                BigDecimal totalAmount = calculateTotalAmount(request.getOrderItems());
+                
+                // 4. 创建订单实体
+                Order order = new Order();
+                order.setOrderNo(orderNo);
+                order.setUserId(request.getUserId());
+                order.setStatus(OrderStatus.PENDING);
+                order.setTotalAmount(totalAmount);
+                order.setReceiverName(request.getReceiverName());
+                order.setReceiverPhone(request.getReceiverPhone());
+                order.setReceiverAddress(request.getReceiverAddress());
+                order.setRemark(request.getRemark());
+                order.setCreateTime(LocalDateTime.now());
+                order.setUpdateTime(LocalDateTime.now());
+                
+                // 5. 保存订单
+                orderMapper.insert(order);
+                log.info("订单创建成功，订单号: {}", orderNo);
+                
+                // 6. 创建订单项
+                List<OrderItem> orderItems = createOrderItems(order.getId(), request.getOrderItems());
+                orderItemMapper.insertBatch(orderItems);
+                
+                // 7. 设置订单项到订单中
+                order.setOrderItems(orderItems);
+                
+                log.info("订单创建完成，订单ID: {}, 订单号: {}", order.getId(), orderNo);
+                return OrderResponse.fromOrder(order);
+                
+            } catch (Exception e) {
+                // 如果订单创建失败，解锁已锁定的库存
+                log.error("订单创建失败，解锁库存", e);
+                try {
+                    inventoryService.unlockStockBatch(productIds, quantities, null);
+                } catch (Exception unlockException) {
+                    log.error("解锁库存失败", unlockException);
+                }
+                throw e;
+            }
+            
+        } catch (InterruptedException e) {
+            log.error("获取分布式锁被中断，用户ID: {}", request.getUserId(), e);
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("系统繁忙，请稍后重试");
+        } finally {
+            // 释放分布式锁
+            if (lock.isHeldByCurrentThread()) {
+                lock.unlock();
+                log.info("分布式锁已释放，用户ID: {}", request.getUserId());
+            }
         }
     }
     

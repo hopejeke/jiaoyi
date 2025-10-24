@@ -1,8 +1,10 @@
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\InventoryController.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\config\CorsConfig.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\OrderStatus.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\exception\GlobalExceptionHandler.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\dto\OrderResponse.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\Order.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\util\CartFingerprintUtil.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\OrderMapper.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\dto\PaymentResponse.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\exception\InsufficientStockException.java
@@ -20,8 +22,10 @@ D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\InventoryTransactio
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\OrderItem.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\TestController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\OrderService.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\annotation\PreventDuplicateSubmission.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\dto\PaymentRequest.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\PaymentService.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\aspect\PreventDuplicateSubmissionAspect.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\OrderController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\OrderItemMapper.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\PaymentController.java

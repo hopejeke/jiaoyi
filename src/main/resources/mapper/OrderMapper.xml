@@ -75,4 +75,10 @@
         SELECT COUNT(*) FROM orders WHERE status = #{status}
     </select>
 
+    <!-- 根据支付流水号更新订单状态 -->
+    <update id="updateStatusByPaymentNo">
+        UPDATE orders SET status = #{status}, update_time = NOW() 
+        WHERE order_no = #{paymentNo}
+    </update>
+
 </mapper>

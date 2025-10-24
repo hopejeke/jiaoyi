@@ -169,6 +169,8 @@
         });
         
         function showOrderResult(order) {
+            currentOrder = order; // 设置当前订单
+            
             const orderResult = document.getElementById('orderResult');
             const orderInfo = document.getElementById('orderInfo');
             const payButton = document.getElementById('payButton');
@@ -188,11 +190,22 @@
             payButton.style.display = 'inline-block';
         }
         
+        // 防抖标志
+        let isProcessing = false;
+        
         async function payOrder() {
             if (!currentOrder) {
                 showError('请先创建订单');
                 return;
             }
+            
+            // 防重复提交
+            if (isProcessing) {
+                alert('正在处理中，请勿重复提交');
+                return;
+            }
+            
+            isProcessing = true;
             
             const paymentData = {
                 paymentMethod: "ALIPAY",
@@ -228,6 +241,9 @@
                 }
             } catch (error) {
                 showError('支付请求失败: ' + error.message);
+            } finally {
+                // 重置防抖标志
+                isProcessing = false;
             }
         }
         
@@ -236,16 +252,103 @@
             const paymentInfo = document.getElementById('paymentInfo');
             
             paymentInfo.innerHTML = `
-                <p><strong>支付流水号:</strong> ${payment.paymentNo}</p>
-                <p><strong>支付方式:</strong> ${payment.paymentMethod}</p>
-                <p><strong>支付金额:</strong> ${payment.amount}分</p>
-                <p><strong>支付状态:</strong> ${payment.status}</p>
-                <p><strong>备注:</strong> ${payment.remark}</p>
-                ${payment.payUrl ? `<p><strong>支付链接:</strong> <a href="${payment.payUrl}" target="_blank">点击支付</a></p>` : ''}
+                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                    <h3 style="color: #333; margin-bottom: 15px;">支付信息</h3>
+                    <p><strong>支付流水号:</strong> ${payment.paymentNo}</p>
+                    <p><strong>支付方式:</strong> ${payment.paymentMethod}</p>
+                    <p><strong>支付金额:</strong> ¥${payment.amount.toFixed(2)}</p>
+                    <p><strong>支付状态:</strong> <span style="color: ${payment.status === 'PENDING' ? '#ff9500' : payment.status === 'SUCCESS' ? '#28a745' : '#dc3545'}">${getStatusText(payment.status)}</span></p>
+                    <p><strong>备注:</strong> ${payment.remark}</p>
+                </div>
+                <div style="text-align: center; margin: 20px 0;">
+                    <p style="font-size: 18px; color: #333; margin-bottom: 20px;">请选择支付结果进行测试</p>
+                    <div style="display: flex; gap: 20px; justify-content: center;">
+                        <button onclick="simulatePaymentSuccess('${payment.paymentNo}')" 
+                                style="padding: 15px 30px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                            模拟支付成功
+                        </button>
+                        <button onclick="simulatePaymentFail('${payment.paymentNo}')" 
+                                style="padding: 15px 30px; background: #dc3545; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                            模拟支付失败
+                        </button>
+                    </div>
+                </div>
             `;
             
             paymentResult.style.display = 'block';
             paymentResult.className = 'result success';
+        }
+        
+        function getStatusText(status) {
+            switch(status) {
+                case 'PENDING': return '待支付';
+                case 'SUCCESS': return '支付成功';
+                case 'FAILED': return '支付失败';
+                default: return status;
+            }
+        }
+        
+        async function simulatePaymentSuccess(paymentNo) {
+            try {
+                const notifyUrl = 'http://localhost:8080/api/payment/alipay/notify';
+                const params = new URLSearchParams();
+                params.append('out_trade_no', currentOrder.orderNo); // 传递订单号而不是支付流水号
+                params.append('trade_status', 'TRADE_SUCCESS');
+                params.append('total_amount', currentOrder.totalAmount.toString());
+                params.append('trade_no', 'MOCK_SUCCESS_' + Date.now());
+                params.append('seller_id', '2088102146216666');
+                params.append('app_id', '9021000157614744');
+                params.append('timestamp', new Date().toISOString().slice(0, 19).replace('T', ' '));
+                params.append('sign_type', 'RSA2');
+                params.append('sign', 'MOCKED_SIGNATURE');
+
+                const response = await fetch(notifyUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: params.toString()
+                });
+
+                const result = await response.text();
+                if (result === 'success') {
+                    alert('✅ 模拟支付成功！订单已处理完成。');
+                    location.reload();
+                } else {
+                    alert('❌ 支付处理失败，请重试。');
+                }
+            } catch (error) {
+                alert('❌ 网络错误: ' + error.message);
+            }
+        }
+
+        async function simulatePaymentFail(paymentNo) {
+            try {
+                const notifyUrl = 'http://localhost:8080/api/payment/alipay/notify';
+                const params = new URLSearchParams();
+                params.append('out_trade_no', currentOrder.orderNo); // 传递订单号而不是支付流水号
+                params.append('trade_status', 'TRADE_CLOSED');
+                params.append('total_amount', currentOrder.totalAmount.toString());
+                params.append('trade_no', 'MOCK_FAIL_' + Date.now());
+                params.append('seller_id', '2088102146216666');
+                params.append('app_id', '9021000157614744');
+                params.append('timestamp', new Date().toISOString().slice(0, 19).replace('T', ' '));
+                params.append('sign_type', 'RSA2');
+                params.append('sign', 'MOCKED_SIGNATURE');
+
+                const response = await fetch(notifyUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: params.toString()
+                });
+
+                const result = await response.text();
+                alert('❌ 模拟支付失败！订单状态已更新。');
+            } catch (error) {
+                alert('❌ 网络错误: ' + error.message);
+            }
         }
         
         function showError(message) {
@@ -253,6 +356,22 @@
             result.innerHTML = `<h3>错误</h3><p>${message}</p>`;
             result.style.display = 'block';
             result.className = 'result error';
+        }
+        
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function() {
+                alert('支付链接已复制到剪贴板！');
+            }, function(err) {
+                console.error('复制失败: ', err);
+                // 备用方案
+                const textArea = document.createElement('textarea');
+                textArea.value = text;
+                document.body.appendChild(textArea);
+                textArea.select();
+                document.execCommand('copy');
+                document.body.removeChild(textArea);
+                alert('支付链接已复制到剪贴板！');
+            });
         }
     </script>
 </body>

@@ -14,11 +14,20 @@ spring:
     password: root
     driver-class-name: com.mysql.cj.jdbc.Driver
 
-  jackson:
-    date-format: yyyy-MM-dd HH:mm:ss
-    time-zone: GMT+8
-    serialization:
-      write-dates-as-timestamps: false
+  # Redis配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 5000ms
+      lettuce:
+        pool:
+          max-active: 8
+          max-idle: 8
+          min-idle: 0
+          max-wait: -1ms
+
 
 # 日志配置
 logging:
@@ -52,12 +61,12 @@ mybatis:
 
 # 支付宝配置
 alipay:
-  app-id: 你的应用ID
-  private-key: 你的商户私钥
-  alipay-public-key: 支付宝公钥
-  gateway-url: https://openapi.alipay.com/gateway.do
+  app-id: 9021000157614744
+  private-key: MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCpF55H9itcdeWgcOVy1xHz0zQKTWo1lnnakQ2oboGHg0mJJQTVW0hb3QMefN3Z13xXwpY9WA3nFWjlFB6TJ+8Nos9a7kVa0LUx5OsgdcQs9vv9dINdJCi2StwhUXY1L76hNncVTBkNFzpv6NW9GKZ997KhVPJmgxqOQXruY8Wy7KCNHu6NW6PWj1ueZ9ZmP0pTxGuSumCAoqCEyiqGkk+P2lw1Vh2Pt/RT5xJv9N8mcpgMm0UIp9rvOQqldvLnX9/CE2JKnBSKrIR+3j5X2l98g6FMXhhYLYw6s+7SH0RJcnVUDvWZA/dK8I7pcH9SodEcYRawoC8I2JiH5tJc0FyZAgMBAAECggEADgh+w1wjxx2lvAYClOBShhjOJdi86sudO010g7kAGP4FWVNwLkDQJYeXHa2hP9YJZMMqctbe+IGnXfOoge/7f/c2HEbQDLRrhUOJW/1KFa09xpAn4tAAbPiTglRfahSXTovVoDfbkGGQIP+C1Zm5H5UyBv+kymsxBgNbL3OqUan84OfV6JaxFxfJrOR/M/xzpH1bNmCVSBnpppxQEst2aTmyf4bRmsrXE7UnCJOVeOXdsX4fzEh5a+ITR/RX0F1IunAXLKBsiXoiBRioen15rQ/p4UmWgNTkn1RrAAdkORL9huequVtCiAzjMYajQm58+iy2UVrOI3rJSGGNia39zQKBgQDuqo3FlbIV0dRMgMi+tRWcxuGdOCQBcEuqryJOHELAoZfpqPP0MSurYVqwHr33TsK73IA4pqA0SbOencup5ld1V2Sdo02CGO2rj/0nXFVmp+y/NvM5XAXtcgYIN2r02/yQlZSKh/CdGyEnn5nkmQ4NxXDLq6kaXPM//nMU2NxpvwKBgQC1X39glMrYuYXKITzPp/QuAA9kmxRXB7eZ+zeetGq04bwJJ1yZ+Ri9jgxrdgoMTBGjdGi+O1Pd+ykdbQXmpZN+53eTh0XbW0NFmeP7HJAegZTotfFOO5VEHxfhmBjhsP4IDLH5rhfsURExPEpykrYaYhu2kL/xBynLC1Gq0ZbfpwKBgQC+e50fP3Sc+ZVpYbfWjYysTgcvhekmxMt/dLv6f4+/Url+IfxivwPNiqvouQCA63l8mmYz0Lk4QkJ7rBEqjs7qtk91iSqJVQAL16YCzizS+992VZMWCp4ofsLVt/VDbHhNpTSixBCEM2zoxPb8fjO7RgPaai1S/zCduKV81ABG3QKBgD6iQ/Kub354UuOCpuVvMrvP+YDcrSGA4L6kKoj79P2SFsVyemARzaFoNJHHqaClhFHWGXXYNxYpbgFjbO5Br7XbaUfhJxahZZHbmwdUzdA7H5lde39wxBNKSYz2YWFPJerRt4RpwokxVaaTE4KNd6WUy804H5C00JH1zrYWuutxAoGBANM7WD2+ZGoUM+Km+/1PVWxEADJMr9y8RyvYZcA19HSDglcs4s6yo0bJzVRvV1pPJI5rE6w5alqMZTvpbqc1EjvCSut7Zzid8PhlIu7YLPkAV4QXa8BylIlrtP71erSNIa/0Repd9UfVNdRdsuS0OaIF40jwPx3YjuF1leMY3s72
+  alipay-public-key: MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEArwnAv9vI/HO6xFiRcAiZgJcf7nSFeLTZeyO32hsRtzoeWs6Wk6ePNEF/WM1rQG005DNXkc7pt58W6Y3aWb45tChrG/NNoftOdNXp4IYoXb60KtvuepBTLxqPu+zaJrMfz4IC72OkJFijFNyCKFNF81lvkFQigEsY5Iqv0Iy88dKdvAHzQQOEFyh6jVnpuDOWmkdR9PpTCNOCx4GDCa9b1FvxBw/zkoWn/Ln/zUmmyu47d5ZwstPpvWP6fAFyJH5ukcNs+p5mkWZK6e14+7LAUkGcNRNPpeeuRCTVwYBJcQzyffALNn9NtYi/sf5eHMadXazM42jtJ9Kdya1huVhgFwIDAQAB
+  gateway-url: https://openapi-sandbox.dl.alipaydev.com/gateway.do
   sign-type: RSA2
   charset: UTF-8
   format: JSON
-  notify-url: http://localhost:8080/api/payment/alipay/notify
-  return-url: http://localhost:8080/api/payment/alipay/return
+  notify-url:  https://dorotha-gloomful-elfrieda.ngrok-free.dev/api/payment/alipay/notify
+  return-url:  https://dorotha-gloomful-elfrieda.ngrok-free.dev/api/payment/alipay/return

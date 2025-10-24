@@ -62,4 +62,9 @@ public interface OrderMapper {
      * 统计指定状态的订单数量
      */
     long countByStatus(@Param("status") OrderStatus status);
+
+    /**
+     * 根据支付流水号更新订单状态
+     */
+    int updateStatusByPaymentNo(@Param("paymentNo") String paymentNo, @Param("status") OrderStatus status);
 }
