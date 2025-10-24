@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>二维码测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 600px;
+            margin: 0 auto;
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .qr-section {
+            text-align: center;
+            margin: 20px 0;
+        }
+        .qr-code {
+            display: inline-block;
+            padding: 20px;
+            background: white;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        .info {
+            background: #f8f9fa;
+            padding: 15px;
+            border-radius: 6px;
+            margin: 20px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>二维码测试页面</h1>
+        
+        <div class="info">
+            <h3>测试信息</h3>
+            <p><strong>订单号:</strong> <span id="orderNo">-</span></p>
+            <p><strong>金额:</strong> <span id="amount">-</span></p>
+            <p><strong>二维码内容:</strong> <span id="qrContent">-</span></p>
+        </div>
+        
+        <div class="qr-section">
+            <h3>扫描二维码测试</h3>
+            <div class="qr-code">
+                <img id="qrImage" src="" alt="测试二维码" style="width: 200px; height: 200px;">
+            </div>
+            <p>请用手机扫描上面的二维码，应该会跳转到支付测试页面</p>
+        </div>
+        
+        <div class="info">
+            <h3>调试信息</h3>
+            <p>如果二维码扫描后没有跳转，请检查：</p>
+            <ul>
+                <li>二维码内容是否正确</li>
+                <li>支付测试页面是否存在</li>
+                <li>应用是否正常运行在8080端口</li>
+            </ul>
+        </div>
+    </div>
+
+    <script>
+        // 获取URL参数
+        function getUrlParams() {
+            const params = new URLSearchParams(window.location.search);
+            return {
+                orderNo: params.get('orderNo'),
+                amount: params.get('amount')
+            };
+        }
+        
+        // 初始化页面
+        function initPage() {
+            const params = getUrlParams();
+            
+            // 显示参数信息
+            document.getElementById('orderNo').textContent = params.orderNo || '未提供';
+            document.getElementById('amount').textContent = params.amount || '未提供';
+            
+            // 生成二维码内容
+            const qrContent = `http://localhost:8080/payment-test.html?orderNo=${params.orderNo || 'TEST123'}&amount=${params.amount || '10'}`;
+            document.getElementById('qrContent').textContent = qrContent;
+            
+            // 生成二维码图片
+            const qrImage = document.getElementById('qrImage');
+            qrImage.src = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrContent)}`;
+            
+            console.log('二维码内容:', qrContent);
+            console.log('编码后的二维码内容:', encodeURIComponent(qrContent));
+        }
+        
+        // 页面加载完成后初始化
+        document.addEventListener('DOMContentLoaded', initPage);
+    </script>
+</body>
+</html>
