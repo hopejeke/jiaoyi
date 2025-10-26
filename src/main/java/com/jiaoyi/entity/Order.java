@@ -39,6 +39,26 @@ public class Order {
     private BigDecimal totalAmount;
     
     /**
+     * 优惠券ID
+     */
+    private Long couponId;
+    
+    /**
+     * 优惠券代码
+     */
+    private String couponCode;
+    
+    /**
+     * 优惠金额
+     */
+    private BigDecimal discountAmount;
+    
+    /**
+     * 实际支付金额
+     */
+    private BigDecimal actualAmount;
+    
+    /**
      * 收货人姓名
      */
     private String receiverName;

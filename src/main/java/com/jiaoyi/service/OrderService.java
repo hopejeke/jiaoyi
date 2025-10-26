@@ -2,11 +2,13 @@ package com.jiaoyi.service;
 
 import com.jiaoyi.dto.CreateOrderRequest;
 import com.jiaoyi.dto.OrderResponse;
+import com.jiaoyi.entity.Coupon;
 import com.jiaoyi.entity.Order;
 import com.jiaoyi.entity.OrderItem;
 import com.jiaoyi.entity.OrderStatus;
 import com.jiaoyi.mapper.OrderMapper;
 import com.jiaoyi.mapper.OrderItemMapper;
+import com.jiaoyi.service.CouponService;
 import com.jiaoyi.service.InventoryService;
 import com.jiaoyi.util.CartFingerprintUtil;
 // import com.github.pagehelper.PageHelper;
@@ -23,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.Random;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
@@ -38,6 +41,7 @@ public class OrderService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final InventoryService inventoryService;
+    private final CouponService couponService;
     private final RedissonClient redissonClient;
     
     /**
@@ -47,8 +51,8 @@ public class OrderService {
     public OrderResponse createOrder(CreateOrderRequest request) {
         log.info("开始创建订单，用户ID: {}", request.getUserId());
         
-        // 生成购物车指纹作为分布式锁的key
-        String lockKey = "order:create:" + CartFingerprintUtil.generateFingerprint(request);
+        // 同一个用户同一时间只能下一个单
+        String lockKey = "order:create:" + request.getUserId();
         RLock lock = redissonClient.getLock(lockKey);
         
         try {
@@ -80,12 +84,47 @@ public class OrderService {
                 // 3. 计算订单总金额
                 BigDecimal totalAmount = calculateTotalAmount(request.getOrderItems());
                 
-                // 4. 创建订单实体
+                // 4. 处理优惠券
+                BigDecimal discountAmount = BigDecimal.ZERO;
+                BigDecimal actualAmount = totalAmount;
+                Coupon coupon = null;
+                
+                if (request.getCouponId() != null || request.getCouponCode() != null) {
+                    // 获取优惠券
+                    if (request.getCouponId() != null) {
+                        coupon = couponService.getCouponById(request.getCouponId()).orElse(null);
+                    } else if (request.getCouponCode() != null) {
+                        coupon = couponService.getCouponByCode(request.getCouponCode()).orElse(null);
+                    }
+                    
+                    if (coupon != null) {
+                        // 验证优惠券
+                        
+                        if (couponService.validateCoupon(coupon, request.getUserId(), totalAmount, productIds)) {
+                            // 计算优惠金额
+                            discountAmount = couponService.calculateDiscountAmount(coupon, totalAmount);
+                            actualAmount = totalAmount.subtract(discountAmount);
+                            log.info("优惠券验证通过，优惠金额: {}, 实际支付金额: {}", discountAmount, actualAmount);
+                        } else {
+                            log.warn("优惠券验证失败，优惠券ID: {}", coupon.getId());
+                            throw new RuntimeException("优惠券不可用");
+                        }
+                    } else {
+                        log.warn("优惠券不存在，优惠券ID: {}, 优惠券代码: {}", request.getCouponId(), request.getCouponCode());
+                        throw new RuntimeException("优惠券不存在");
+                    }
+                }
+                
+                // 5. 创建订单实体
                 Order order = new Order();
                 order.setOrderNo(orderNo);
                 order.setUserId(request.getUserId());
                 order.setStatus(OrderStatus.PENDING);
                 order.setTotalAmount(totalAmount);
+                order.setCouponId(coupon != null ? coupon.getId() : null);
+                order.setCouponCode(coupon != null ? coupon.getCouponCode() : null);
+                order.setDiscountAmount(discountAmount);
+                order.setActualAmount(actualAmount);
                 order.setReceiverName(request.getReceiverName());
                 order.setReceiverPhone(request.getReceiverPhone());
                 order.setReceiverAddress(request.getReceiverAddress());
@@ -93,18 +132,26 @@ public class OrderService {
                 order.setCreateTime(LocalDateTime.now());
                 order.setUpdateTime(LocalDateTime.now());
                 
-                // 5. 保存订单
+                // 6. 保存订单
                 orderMapper.insert(order);
                 log.info("订单创建成功，订单号: {}", orderNo);
                 
-                // 6. 创建订单项
+                // 7. 创建订单项
                 List<OrderItem> orderItems = createOrderItems(order.getId(), request.getOrderItems());
                 orderItemMapper.insertBatch(orderItems);
                 
-                // 7. 设置订单项到订单中
+                // 8. 使用优惠券（如果存在）
+                if (coupon != null) {
+                    couponService.useCoupon(coupon.getId(), request.getUserId(), order.getId(), 
+                            coupon.getCouponCode(), totalAmount, discountAmount);
+                    log.info("优惠券使用成功，优惠券ID: {}, 优惠金额: {}", coupon.getId(), discountAmount);
+                }
+                
+                // 9. 设置订单项到订单中
                 order.setOrderItems(orderItems);
                 
-                log.info("订单创建完成，订单ID: {}, 订单号: {}", order.getId(), orderNo);
+                log.info("订单创建完成，订单ID: {}, 订单号: {}, 总金额: {}, 优惠金额: {}, 实际支付: {}", 
+                        order.getId(), orderNo, totalAmount, discountAmount, actualAmount);
                 return OrderResponse.fromOrder(order);
                 
             } catch (Exception e) {
@@ -259,15 +306,21 @@ public class OrderService {
     @Transactional
     public boolean cancelOrder(Long orderId) {
         log.info("取消订单，订单ID: {}", orderId);
+        
+        // 退款优惠券
+        couponService.refundCoupon(orderId);
+        
         return updateOrderStatus(orderId, OrderStatus.CANCELLED);
     }
     
     
     /**
      * 生成订单号
+     * 支付宝要求：商户订单号，64个字符以内，只能包含字母、数字、下划线
      */
     private String generateOrderNo() {
-        return "ORD" + System.currentTimeMillis() + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
+        // 使用时间戳 + 随机数，确保唯一性且符合支付宝要求
+        return "ORD" + System.currentTimeMillis() + String.format("%04d", new Random().nextInt(10000));
     }
     
     /**
