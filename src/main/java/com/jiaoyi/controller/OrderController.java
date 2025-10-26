@@ -38,7 +38,7 @@ public class OrderController {
      * 创建订单
      */
     @PostMapping
-    @PreventDuplicateSubmission(key = "T(com.jiaoyi.util.CartFingerprintUtil).generateFingerprint(#request)", expireTime = 10, message = "请勿重复提交相同订单")
+    @PreventDuplicateSubmission(key = "T(com.jiaoyi.util.CartFingerprintUtil).generateFingerprint(#request)", expireTime = 2, message = "请勿重复提交相同订单")
     public ResponseEntity<ApiResponse<OrderResponse>> createOrder(@Valid @RequestBody CreateOrderRequest request) {
         log.info("接收到创建订单请求，用户ID: {}", request.getUserId());
         try {

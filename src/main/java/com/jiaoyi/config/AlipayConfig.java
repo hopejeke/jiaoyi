@@ -21,16 +21,18 @@ public class AlipayConfig {
      * 商户私钥
      */
     private String privateKey;
-    
+
+
+
     /**
      * 支付宝公钥
      */
     private String alipayPublicKey;
     
     /**
-     * 网关地址
+     * 网关地址（沙盒环境）
      */
-    private String gatewayUrl = "https://openapi.alipay.com/gateway.do";
+    private String gatewayUrl = "https://openapi-sandbox.dl.alipaydev.com/gateway.do";
     
     /**
      * 签名算法

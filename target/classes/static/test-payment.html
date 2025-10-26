@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>支付测试页面</title>
+    <title>支付宝二维码支付测试</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -58,7 +58,7 @@
     </style>
 </head>
 <body>
-    <h1>电商支付测试页面</h1>
+    <h1>🛒 支付宝二维码支付测试</h1>
     
     <div class="form-group">
         <h2>1. 创建订单</h2>
@@ -108,6 +108,17 @@
                 <input type="number" id="quantity" value="10" required>
             </div>
             
+            <!-- 优惠券部分 -->
+            <div class="form-group">
+                <label for="couponCode">优惠券代码:</label>
+                <input type="text" id="couponCode" placeholder="请输入优惠券代码（可选）" value="NEWUSER100">
+            </div>
+            
+            <div id="couponResult" class="result" style="display: none;">
+                <h4>优惠券验证结果</h4>
+                <div id="couponInfo"></div>
+            </div>
+            
             <button type="submit">创建订单</button>
         </form>
     </div>
@@ -129,12 +140,15 @@
         document.getElementById('orderForm').addEventListener('submit', async function(e) {
             e.preventDefault();
             
+            const couponCode = document.getElementById('couponCode').value.trim();
+            
             const orderData = {
                 userId: parseInt(document.getElementById('userId').value),
                 receiverName: document.getElementById('receiverName').value,
                 receiverPhone: document.getElementById('receiverPhone').value,
                 receiverAddress: document.getElementById('receiverAddress').value,
                 remark: document.getElementById('remark').value,
+                couponCode: couponCode || null,
                 orderItems: [
                     {
                         productId: parseInt(document.getElementById('productId').value),
@@ -175,10 +189,21 @@
             const orderInfo = document.getElementById('orderInfo');
             const payButton = document.getElementById('payButton');
             
+            // 构建优惠券信息显示
+            let couponInfo = '';
+            if (order.couponCode) {
+                couponInfo = `
+                    <p><strong>优惠券代码:</strong> ${order.couponCode}</p>
+                    <p><strong>优惠金额:</strong> ${order.discountAmount || 0}元</p>
+                    <p><strong>实际支付:</strong> ${order.actualAmount || order.totalAmount}元</p>
+                `;
+            }
+            
             orderInfo.innerHTML = `
                 <p><strong>订单ID:</strong> ${order.id}</p>
                 <p><strong>订单号:</strong> ${order.orderNo}</p>
                 <p><strong>总金额:</strong> ${order.totalAmount}元</p>
+                ${couponInfo}
                 <p><strong>状态:</strong> ${order.status}</p>
                 <p><strong>收货人:</strong> ${order.receiverName}</p>
                 <p><strong>收货电话:</strong> ${order.receiverPhone}</p>
@@ -209,11 +234,11 @@
             
             const paymentData = {
                 paymentMethod: "ALIPAY",
-                amount: Math.round(currentOrder.totalAmount ),
+                amount: Math.round(currentOrder.actualAmount || currentOrder.totalAmount),
                 channel: "WEB",
                 clientIp: "192.168.1.100",
                 userAgent: navigator.userAgent,
-                remark: "支付宝支付"
+                remark: "支付宝支付" + (currentOrder.couponCode ? ` (使用优惠券: ${currentOrder.couponCode})` : "")
             };
             
             try {
@@ -229,13 +254,6 @@
                 
                 if (result.code === 200) {
                     showPaymentResult(result.data);
-                    
-                    if (result.data.payUrl) {
-                        // 跳转到支付宝支付页面
-                        if (confirm('是否跳转到支付宝支付页面？')) {
-                            window.open(result.data.payUrl, '_blank');
-                        }
-                    }
                 } else {
                     showError('支付失败: ' + result.message);
                 }
@@ -251,29 +269,68 @@
             const paymentResult = document.getElementById('paymentResult');
             const paymentInfo = document.getElementById('paymentInfo');
             
-            paymentInfo.innerHTML = `
-                <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
-                    <h3 style="color: #333; margin-bottom: 15px;">支付信息</h3>
-                    <p><strong>支付流水号:</strong> ${payment.paymentNo}</p>
-                    <p><strong>支付方式:</strong> ${payment.paymentMethod}</p>
-                    <p><strong>支付金额:</strong> ¥${payment.amount.toFixed(2)}</p>
-                    <p><strong>支付状态:</strong> <span style="color: ${payment.status === 'PENDING' ? '#ff9500' : payment.status === 'SUCCESS' ? '#28a745' : '#dc3545'}">${getStatusText(payment.status)}</span></p>
-                    <p><strong>备注:</strong> ${payment.remark}</p>
-                </div>
-                <div style="text-align: center; margin: 20px 0;">
-                    <p style="font-size: 18px; color: #333; margin-bottom: 20px;">请选择支付结果进行测试</p>
-                    <div style="display: flex; gap: 20px; justify-content: center;">
-                        <button onclick="simulatePaymentSuccess('${payment.paymentNo}')" 
-                                style="padding: 15px 30px; background: #28a745; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
-                            模拟支付成功
-                        </button>
-                        <button onclick="simulatePaymentFail('${payment.paymentNo}')" 
-                                style="padding: 15px 30px; background: #dc3545; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
-                            模拟支付失败
-                        </button>
+            if (payment.payUrl) {
+                // 显示支付宝二维码支付
+                paymentInfo.innerHTML = `
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+                        <h3 style="color: #333; margin-bottom: 15px;">支付信息</h3>
+                        <p><strong>支付流水号:</strong> ${payment.paymentNo}</p>
+                        <p><strong>支付方式:</strong> ${payment.paymentMethod}</p>
+                        <p><strong>支付金额:</strong> ¥${payment.amount.toFixed(2)}</p>
+                        <p><strong>支付状态:</strong> <span style="color: ${payment.status === 'PENDING' ? '#ff9500' : payment.status === 'SUCCESS' ? '#28a745' : '#dc3545'}">${getStatusText(payment.status)}</span></p>
+                        <p><strong>备注:</strong> ${payment.remark}</p>
                     </div>
-                </div>
-            `;
+                    <div style="text-align: center; margin: 20px 0;">
+                        <h3 style="color: #333; margin-bottom: 20px;">请使用支付宝扫描二维码完成支付</h3>
+                        <div style="display: flex; justify-content: center; gap: 30px; align-items: center; flex-wrap: wrap;">
+                            <div>
+                                <div id="qrcode" style="margin: 0 auto; width: 200px; height: 200px; border: 1px solid #ddd; border-radius: 8px; display: flex; align-items: center; justify-content: center; background: white;">
+                                    <div style="text-align: center; color: #666;">
+                                        <div style="font-size: 14px; margin-bottom: 10px;">正在生成二维码...</div>
+                                        <div style="font-size: 12px;">请稍候</div>
+                                    </div>
+                                </div>
+                                <p style="margin-top: 10px; color: #666; font-size: 14px;">使用支付宝扫描上方二维码</p>
+                            </div>
+                            <div style="text-align: left;">
+                                <h4 style="color: #333; margin-bottom: 15px;">支付步骤：</h4>
+                                <ol style="color: #666; line-height: 1.8; padding-left: 20px;">
+                                    <li>打开支付宝APP</li>
+                                    <li>点击"扫一扫"</li>
+                                    <li>扫描上方二维码</li>
+                                    <li>确认支付金额</li>
+                                    <li>完成支付</li>
+                                </ol>
+                                <div style="margin-top: 20px;">
+                                    <button onclick="checkPaymentStatus('${currentOrder.orderNo}')" 
+                                            style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
+                                        检查支付状态
+                                    </button>
+                                    <button onclick="openAlipayUrl('${payment.payUrl}')" 
+                                            style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">
+                                        打开支付页面
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                
+                // 生成二维码
+                generateQRCode(payment.payUrl);
+                
+                // 开始轮询支付状态
+                startPaymentStatusPolling(currentOrder.orderNo);
+                
+            } else {
+                // 没有支付链接，显示错误信息
+                paymentInfo.innerHTML = `
+                    <div style="background: #f8d7da; padding: 20px; border-radius: 8px; border-left: 4px solid #dc3545;">
+                        <h3 style="color: #721c24; margin-bottom: 15px;">支付失败</h3>
+                        <p style="color: #721c24;">无法生成支付链接，请重试或联系客服</p>
+                    </div>
+                `;
+            }
             
             paymentResult.style.display = 'block';
             paymentResult.className = 'result success';
@@ -288,68 +345,91 @@
             }
         }
         
-        async function simulatePaymentSuccess(paymentNo) {
+        // 生成二维码
+        function generateQRCode(url) {
+            // 使用在线二维码生成服务
+            const qrCodeUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(url)}`;
+            const qrCodeImg = document.createElement('img');
+            qrCodeImg.src = qrCodeUrl;
+            qrCodeImg.style.width = '200px';
+            qrCodeImg.style.height = '200px';
+            qrCodeImg.style.borderRadius = '8px';
+            qrCodeImg.onerror = function() {
+                // 如果在线服务失败，显示备用方案
+                document.getElementById('qrcode').innerHTML = `
+                    <div style="text-align: center; color: #666;">
+                        <div style="font-size: 14px; margin-bottom: 10px;">二维码生成失败</div>
+                        <div style="font-size: 12px;">请点击下方按钮打开支付页面</div>
+                    </div>
+                `;
+            };
+            document.getElementById('qrcode').innerHTML = '';
+            document.getElementById('qrcode').appendChild(qrCodeImg);
+        }
+        
+        // 打开支付宝支付页面
+        function openAlipayUrl(url) {
+            window.open(url, '_blank');
+        }
+        
+        // 检查支付状态
+        async function checkPaymentStatus(paymentNo) {
             try {
-                const notifyUrl = 'http://localhost:8080/api/payment/alipay/notify';
-                const params = new URLSearchParams();
-                params.append('out_trade_no', currentOrder.orderNo); // 传递订单号而不是支付流水号
-                params.append('trade_status', 'TRADE_SUCCESS');
-                params.append('total_amount', currentOrder.totalAmount.toString());
-                params.append('trade_no', 'MOCK_SUCCESS_' + Date.now());
-                params.append('seller_id', '2088102146216666');
-                params.append('app_id', '9021000157614744');
-                params.append('timestamp', new Date().toISOString().slice(0, 19).replace('T', ' '));
-                params.append('sign_type', 'RSA2');
-                params.append('sign', 'MOCKED_SIGNATURE');
-
-                const response = await fetch(notifyUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: params.toString()
-                });
-
-                const result = await response.text();
-                if (result === 'success') {
-                    alert('✅ 模拟支付成功！订单已处理完成。');
-                    location.reload();
+                const response = await fetch(`/api/payment/query/${paymentNo}`);
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    const status = result.data.status;
+                    if (status === 'SUCCESS') {
+                        alert('✅ 支付成功！订单已处理完成。');
+                        location.reload();
+                    } else if (status === 'FAILED') {
+                        alert('❌ 支付失败，请重试。');
+                    } else {
+                        alert('⏳ 支付处理中，请稍候...');
+                    }
                 } else {
-                    alert('❌ 支付处理失败，请重试。');
+                    alert('❌ 检查支付状态失败: ' + result.message);
                 }
             } catch (error) {
                 alert('❌ 网络错误: ' + error.message);
             }
         }
-
-        async function simulatePaymentFail(paymentNo) {
-            try {
-                const notifyUrl = 'http://localhost:8080/api/payment/alipay/notify';
-                const params = new URLSearchParams();
-                params.append('out_trade_no', currentOrder.orderNo); // 传递订单号而不是支付流水号
-                params.append('trade_status', 'TRADE_CLOSED');
-                params.append('total_amount', currentOrder.totalAmount.toString());
-                params.append('trade_no', 'MOCK_FAIL_' + Date.now());
-                params.append('seller_id', '2088102146216666');
-                params.append('app_id', '9021000157614744');
-                params.append('timestamp', new Date().toISOString().slice(0, 19).replace('T', ' '));
-                params.append('sign_type', 'RSA2');
-                params.append('sign', 'MOCKED_SIGNATURE');
-
-                const response = await fetch(notifyUrl, {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: params.toString()
-                });
-
-                const result = await response.text();
-                alert('❌ 模拟支付失败！订单状态已更新。');
-            } catch (error) {
-                alert('❌ 网络错误: ' + error.message);
-            }
+        
+        // 开始轮询支付状态
+        let pollingInterval = null;
+        
+        function startPaymentStatusPolling(orderNo) {
+            // 每5秒检查一次支付状态
+            pollingInterval = setInterval(async () => {
+                try {
+                    const response = await fetch(`/api/payment/query/${orderNo}`);
+                    const result = await response.json();
+                    
+                    if (result.code === 200) {
+                        const status = result.data.status;
+                        if (status === 'SUCCESS') {
+                            clearInterval(pollingInterval);
+                            alert('✅ 支付成功！订单已处理完成。');
+                            location.reload();
+                        } else if (status === 'FAILED') {
+                            clearInterval(pollingInterval);
+                            alert('❌ 支付失败，请重试。');
+                        }
+                    }
+                } catch (error) {
+                    console.error('轮询支付状态失败:', error);
+                }
+            }, 5000);
+            
+            // 30秒后停止轮询
+            setTimeout(() => {
+                if (pollingInterval) {
+                    clearInterval(pollingInterval);
+                }
+            }, 30000);
         }
+        
         
         function showError(message) {
             const result = document.getElementById('orderResult');

@@ -48,6 +48,16 @@ public class CreateOrderRequest {
     private String remark;
     
     /**
+     * 优惠券ID
+     */
+    private Long couponId;
+    
+    /**
+     * 优惠券代码
+     */
+    private String couponCode;
+    
+    /**
      * 订单项列表
      */
     @NotEmpty(message = "订单项不能为空")

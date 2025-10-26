@@ -4,6 +4,7 @@ import com.alipay.api.AlipayApiException;
 import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;
 import com.alipay.api.domain.AlipayTradePrecreateModel;
+import com.alipay.api.domain.AlipayTradeQueryModel;
 import com.alipay.api.request.AlipayTradePrecreateRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
 import com.alipay.api.response.AlipayTradePrecreateResponse;
@@ -28,39 +29,137 @@ public class AlipayService {
     private final AlipayConfig alipayConfig;
     
     /**
-     * 创建支付宝支付订单 (模拟支付)
+     * 创建支付宝支付订单 (真实支付)
      */
     public PaymentResponse createPayment(String orderNo, String subject, BigDecimal amount, String paymentNo) {
-        log.info("创建模拟支付宝支付订单，订单号: {}, 金额: {}", orderNo, amount);
+        log.info("创建真实支付宝支付订单，订单号: {}, 金额: {}", orderNo, amount);
         
-        PaymentResponse paymentResponse = new PaymentResponse();
-        paymentResponse.setPaymentNo(paymentNo);
-        paymentResponse.setPaymentMethod("ALIPAY");
-        paymentResponse.setAmount(amount); // 直接使用传入的金额，不进行转换
-        paymentResponse.setStatus("PENDING");
-        paymentResponse.setRemark("模拟支付宝支付订单创建成功");
-        
-        // 不生成二维码，直接返回支付流水号用于前端处理
-        paymentResponse.setQrCode(null);
-        
-        log.info("模拟支付宝支付订单创建成功，支付流水号: {}", paymentNo);
-        
-        return paymentResponse;
+        try {
+            // 初始化支付宝客户端
+            AlipayClient alipayClient = new DefaultAlipayClient(
+                alipayConfig.getGatewayUrl(),
+                alipayConfig.getAppId(),
+                alipayConfig.getPrivateKey(),
+                "json",
+                "UTF-8",
+                alipayConfig.getAlipayPublicKey(),
+                "RSA2"
+            );
+            
+            // 创建预下单请求
+            AlipayTradePrecreateRequest request = new AlipayTradePrecreateRequest();
+            request.setNotifyUrl(alipayConfig.getNotifyUrl());
+            request.setReturnUrl(alipayConfig.getReturnUrl());
+            
+            // 设置业务参数
+            AlipayTradePrecreateModel model = new AlipayTradePrecreateModel();
+            model.setOutTradeNo(orderNo); // 商户订单号
+            model.setTotalAmount(amount.toString()); // 订单总金额
+            model.setSubject(subject); // 订单标题
+            model.setBody("商品购买"); // 订单描述
+            model.setTimeoutExpress("30m"); // 订单超时时间
+            
+            request.setBizModel(model);
+            
+            // 调用支付宝API
+            log.info("调用支付宝预下单API，订单号: {}, 金额: {}, 网关: {}", orderNo, amount, alipayConfig.getGatewayUrl());
+            AlipayTradePrecreateResponse response = alipayClient.execute(request);
+            
+            log.info("支付宝API响应 - 成功: {}, 错误码: {}, 错误信息: {}, 二维码: {}", 
+                    response.isSuccess(), response.getCode(), response.getMsg(), response.getQrCode());
+            
+            if (response.isSuccess()) {
+                log.info("支付宝预下单成功，订单号: {}, 二维码: {}", orderNo, response.getQrCode());
+                
+                PaymentResponse paymentResponse = new PaymentResponse();
+                paymentResponse.setPaymentNo(paymentNo);
+                paymentResponse.setPaymentMethod("ALIPAY");
+                paymentResponse.setAmount(amount);
+                paymentResponse.setStatus("PENDING");
+                paymentResponse.setQrCode(response.getQrCode()); // 设置二维码
+                paymentResponse.setPayUrl(response.getQrCode()); // 设置支付链接
+                paymentResponse.setRemark("支付宝支付订单创建成功");
+                
+                return paymentResponse;
+            } else {
+                log.error("支付宝预下单失败，错误码: {}, 错误信息: {}, 子错误码: {}, 子错误信息: {}", 
+                        response.getCode(), response.getMsg(), response.getSubCode(), response.getSubMsg());
+                throw new RuntimeException("支付宝预下单失败: " + response.getMsg() + " - " + response.getSubMsg());
+            }
+            
+        } catch (AlipayApiException e) {
+            log.error("调用支付宝API异常，订单号: {}", orderNo, e);
+            throw new RuntimeException("支付宝支付创建失败: " + e.getMessage());
+        }
     }
     
     /**
-     * 查询支付结果 (模拟支付查询)
+     * 查询支付结果 (真实支付查询)
      */
-    public PaymentResponse queryPayment(String paymentNo) {
-        log.info("查询模拟支付宝支付结果，支付流水号: {}", paymentNo);
+    public PaymentResponse queryPayment(String orderNo) {
+        log.info("查询真实支付宝支付结果，订单号: {}", orderNo);
         
-        PaymentResponse paymentResponse = new PaymentResponse();
-        paymentResponse.setPaymentNo(paymentNo);
-        paymentResponse.setPaymentMethod("ALIPAY");
-        paymentResponse.setStatus("PENDING"); // 模拟为待支付状态
-        paymentResponse.setRemark("模拟支付宝支付查询成功");
-        
-        log.info("模拟支付宝支付查询成功，支付流水号: {}", paymentNo);
-        return paymentResponse;
+        try {
+            // 初始化支付宝客户端
+            AlipayClient alipayClient = new DefaultAlipayClient(
+                alipayConfig.getGatewayUrl(),
+                alipayConfig.getAppId(),
+                alipayConfig.getPrivateKey(),
+                "json",
+                "UTF-8",
+                alipayConfig.getAlipayPublicKey(),
+                "RSA2"
+            );
+            
+            // 创建查询请求
+            AlipayTradeQueryRequest request = new AlipayTradeQueryRequest();
+            AlipayTradeQueryModel model = new AlipayTradeQueryModel();
+            model.setOutTradeNo(orderNo);
+            request.setBizModel(model);
+            // 调用支付宝查询API
+            log.info("调用支付宝查询API，订单号: {}, 网关: {}", orderNo, alipayConfig.getGatewayUrl());
+            AlipayTradeQueryResponse response = alipayClient.execute(request);
+            
+            log.info("支付宝查询响应 - 成功: {}, 错误码: {}, 错误信息: {}, 交易状态: {}", 
+                    response.isSuccess(), response.getCode(), response.getMsg(), response.getTradeStatus());
+            
+            if (response.isSuccess()) {
+                log.info("支付宝支付查询成功，订单号: {}, 交易状态: {}, 支付宝交易号: {}", 
+                        orderNo, response.getTradeStatus(), response.getTradeNo());
+                
+                PaymentResponse paymentResponse = new PaymentResponse();
+                paymentResponse.setPaymentNo(orderNo);
+                paymentResponse.setPaymentMethod("ALIPAY");
+                paymentResponse.setStatus(mapTradeStatus(response.getTradeStatus()));
+                paymentResponse.setThirdPartyTradeNo(response.getTradeNo());
+                paymentResponse.setRemark("支付宝支付查询成功");
+                
+                return paymentResponse;
+            } else {
+                log.error("支付宝支付查询失败，错误码: {}, 错误信息: {}, 子错误码: {}, 子错误信息: {}", 
+                        response.getCode(), response.getMsg(), response.getSubCode(), response.getSubMsg());
+                throw new RuntimeException("支付宝支付查询失败: " + response.getMsg() + " - " + response.getSubMsg());
+            }
+            
+        } catch (AlipayApiException e) {
+            log.error("调用支付宝查询API异常，订单号: {}", orderNo, e);
+            throw new RuntimeException("支付宝支付查询失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 映射支付宝交易状态到系统状态
+     */
+    private String mapTradeStatus(String tradeStatus) {
+        switch (tradeStatus) {
+            case "TRADE_SUCCESS":
+            case "TRADE_FINISHED":
+                return "SUCCESS";
+            case "TRADE_CLOSED":
+                return "FAILED";
+            case "WAIT_BUYER_PAY":
+            default:
+                return "PENDING";
+        }
     }
 }
