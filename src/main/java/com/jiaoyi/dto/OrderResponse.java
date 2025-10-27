@@ -25,6 +25,10 @@ public class OrderResponse {
     private Long userId;
     private OrderStatus status;
     private BigDecimal totalAmount;
+    private Long couponId;
+    private String couponCode;
+    private BigDecimal discountAmount;
+    private BigDecimal actualAmount;
     private String receiverName;
     private String receiverPhone;
     private String receiverAddress;
@@ -43,6 +47,10 @@ public class OrderResponse {
         response.setUserId(order.getUserId());
         response.setStatus(order.getStatus());
         response.setTotalAmount(order.getTotalAmount());
+        response.setCouponId(order.getCouponId());
+        response.setCouponCode(order.getCouponCode());
+        response.setDiscountAmount(order.getDiscountAmount());
+        response.setActualAmount(order.getActualAmount());
         response.setReceiverName(order.getReceiverName());
         response.setReceiverPhone(order.getReceiverPhone());
         response.setReceiverAddress(order.getReceiverAddress());

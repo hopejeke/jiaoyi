@@ -6,13 +6,8 @@ import com.jiaoyi.entity.Coupon;
 import com.jiaoyi.entity.Order;
 import com.jiaoyi.entity.OrderItem;
 import com.jiaoyi.entity.OrderStatus;
-import com.jiaoyi.mapper.OrderMapper;
 import com.jiaoyi.mapper.OrderItemMapper;
-import com.jiaoyi.service.CouponService;
-import com.jiaoyi.service.InventoryService;
-import com.jiaoyi.util.CartFingerprintUtil;
-// import com.github.pagehelper.PageHelper;
-// import com.github.pagehelper.PageInfo;
+import com.jiaoyi.mapper.OrderMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -22,11 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Optional;
-import java.util.Random;
-import java.util.UUID;
+import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
@@ -37,35 +28,36 @@ import java.util.stream.Collectors;
 @RequiredArgsConstructor
 @Slf4j
 public class OrderService {
-    
+
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final InventoryService inventoryService;
     private final CouponService couponService;
     private final RedissonClient redissonClient;
-    
+    private final OrderTimeoutMessageService orderTimeoutMessageService;
+
     /**
      * 创建订单
      */
     @Transactional
     public OrderResponse createOrder(CreateOrderRequest request) {
         log.info("开始创建订单，用户ID: {}", request.getUserId());
-        
+
         // 同一个用户同一时间只能下一个单
         String lockKey = "order:create:" + request.getUserId();
         RLock lock = redissonClient.getLock(lockKey);
-        
+
         try {
             // 尝试获取分布式锁，最多等待3秒，锁持有时间不超过30秒
             boolean lockAcquired = lock.tryLock(3, 30, TimeUnit.SECONDS);
-            
+
             if (!lockAcquired) {
                 log.warn("获取分布式锁失败，可能存在重复提交，用户ID: {}", request.getUserId());
                 throw new RuntimeException("请勿重复提交相同订单");
             }
-            
+
             log.info("成功获取分布式锁，开始处理订单创建，用户ID: {}", request.getUserId());
-            
+
             // 1. 检查并锁定库存
             List<Long> productIds = request.getOrderItems().stream()
                     .map(CreateOrderRequest.OrderItemRequest::getProductId)
@@ -73,22 +65,22 @@ public class OrderService {
             List<Integer> quantities = request.getOrderItems().stream()
                     .map(CreateOrderRequest.OrderItemRequest::getQuantity)
                     .collect(Collectors.toList());
-            
+
             log.info("检查并锁定库存，商品数量: {}", productIds.size());
             inventoryService.checkAndLockStockBatch(productIds, quantities);
-            
+
             try {
                 // 2. 生成订单号
                 String orderNo = generateOrderNo();
-                
+
                 // 3. 计算订单总金额
                 BigDecimal totalAmount = calculateTotalAmount(request.getOrderItems());
-                
+
                 // 4. 处理优惠券
                 BigDecimal discountAmount = BigDecimal.ZERO;
                 BigDecimal actualAmount = totalAmount;
                 Coupon coupon = null;
-                
+
                 if (request.getCouponId() != null || request.getCouponCode() != null) {
                     // 获取优惠券
                     if (request.getCouponId() != null) {
@@ -96,10 +88,10 @@ public class OrderService {
                     } else if (request.getCouponCode() != null) {
                         coupon = couponService.getCouponByCode(request.getCouponCode()).orElse(null);
                     }
-                    
+
                     if (coupon != null) {
                         // 验证优惠券
-                        
+
                         if (couponService.validateCoupon(coupon, request.getUserId(), totalAmount, productIds)) {
                             // 计算优惠金额
                             discountAmount = couponService.calculateDiscountAmount(coupon, totalAmount);
@@ -114,7 +106,7 @@ public class OrderService {
                         throw new RuntimeException("优惠券不存在");
                     }
                 }
-                
+
                 // 5. 创建订单实体
                 Order order = new Order();
                 order.setOrderNo(orderNo);
@@ -131,29 +123,34 @@ public class OrderService {
                 order.setRemark(request.getRemark());
                 order.setCreateTime(LocalDateTime.now());
                 order.setUpdateTime(LocalDateTime.now());
-                
+
                 // 6. 保存订单
                 orderMapper.insert(order);
                 log.info("订单创建成功，订单号: {}", orderNo);
-                
+
                 // 7. 创建订单项
                 List<OrderItem> orderItems = createOrderItems(order.getId(), request.getOrderItems());
                 orderItemMapper.insertBatch(orderItems);
-                
+
                 // 8. 使用优惠券（如果存在）
                 if (coupon != null) {
-                    couponService.useCoupon(coupon.getId(), request.getUserId(), order.getId(), 
+                    couponService.useCoupon(coupon.getId(), request.getUserId(), order.getId(),
                             coupon.getCouponCode(), totalAmount, discountAmount);
                     log.info("优惠券使用成功，优惠券ID: {}, 优惠金额: {}", coupon.getId(), discountAmount);
                 }
-                
+
                 // 9. 设置订单项到订单中
                 order.setOrderItems(orderItems);
-                
-                log.info("订单创建完成，订单ID: {}, 订单号: {}, 总金额: {}, 优惠金额: {}, 实际支付: {}", 
+
+                log.info("订单创建完成，订单ID: {}, 订单号: {}, 总金额: {}, 优惠金额: {}, 实际支付: {}",
                         order.getId(), orderNo, totalAmount, discountAmount, actualAmount);
+
+                // 发送订单超时延迟消息（30分钟后自动取消）
+                orderTimeoutMessageService.sendOrderTimeoutMessage(order.getId(), orderNo, request.getUserId(), 1);
+                log.info("订单超时延迟消息已发送，订单将在30分钟后自动取消（如果未支付），订单ID: {}, 订单号: {}", order.getId(), orderNo);
+
                 return OrderResponse.fromOrder(order);
-                
+
             } catch (Exception e) {
                 // 如果订单创建失败，解锁已锁定的库存
                 log.error("订单创建失败，解锁库存", e);
@@ -164,7 +161,7 @@ public class OrderService {
                 }
                 throw e;
             }
-            
+
         } catch (InterruptedException e) {
             log.error("获取分布式锁被中断，用户ID: {}", request.getUserId(), e);
             Thread.currentThread().interrupt();
@@ -177,7 +174,7 @@ public class OrderService {
             }
         }
     }
-    
+
     /**
      * 根据订单号查询订单
      */
@@ -192,7 +189,7 @@ public class OrderService {
         }
         return Optional.empty();
     }
-    
+
     /**
      * 根据订单ID查询订单
      */
@@ -207,7 +204,7 @@ public class OrderService {
         }
         return Optional.empty();
     }
-    
+
     /**
      * 获取所有订单
      */
@@ -222,7 +219,7 @@ public class OrderService {
                 })
                 .collect(Collectors.toList());
     }
-    
+
     /**
      * 根据用户ID查询订单列表
      */
@@ -237,21 +234,21 @@ public class OrderService {
                 })
                 .collect(Collectors.toList());
     }
-    
+
     /**
      * 根据用户ID分页查询订单（简化版本，不使用PageHelper）
      */
     public List<OrderResponse> getOrdersByUserId(Long userId, int pageNum, int pageSize) {
         log.info("分页查询用户订单，用户ID: {}, 页码: {}, 大小: {}", userId, pageNum, pageSize);
         List<Order> orders = orderMapper.selectByUserId(userId);
-        
+
         // 手动分页
         int start = (pageNum - 1) * pageSize;
         int end = Math.min(start + pageSize, orders.size());
         if (start >= orders.size()) {
             return new ArrayList<>();
         }
-        
+
         List<Order> pagedOrders = orders.subList(start, end);
         return pagedOrders.stream()
                 .map(order -> {
@@ -261,7 +258,7 @@ public class OrderService {
                 })
                 .collect(Collectors.toList());
     }
-    
+
     /**
      * 根据用户ID和状态查询订单列表
      */
@@ -276,7 +273,58 @@ public class OrderService {
                 })
                 .collect(Collectors.toList());
     }
-    
+
+    /**
+     * 分页查询订单列表（支持筛选）
+     */
+    public Map<String, Object> getOrdersPage(int pageNum, int pageSize, String orderNo, Long userId,
+                                             String status, String startTime, String endTime) {
+        log.info("分页查询订单列表，页码: {}, 大小: {}, 订单号: {}, 用户ID: {}, 状态: {}",
+                pageNum, pageSize, orderNo, userId, status);
+
+        // 获取所有订单（这里简化处理，实际应该根据条件查询）
+        List<Order> allOrders = orderMapper.selectAll();
+
+        // 应用筛选条件
+        List<Order> filteredOrders = allOrders.stream()
+                .filter(order -> orderNo == null || order.getOrderNo().contains(orderNo))
+                .filter(order -> userId == null || order.getUserId().equals(userId))
+                .filter(order -> status == null || order.getStatus().toString().equals(status))
+                .filter(order -> startTime == null || order.getCreateTime().isAfter(LocalDateTime.parse(startTime + "T00:00:00")))
+                .filter(order -> endTime == null || order.getCreateTime().isBefore(LocalDateTime.parse(endTime + "T23:59:59")))
+                .collect(Collectors.toList());
+
+        // 计算分页信息
+        int total = filteredOrders.size();
+        int totalPages = (total + pageSize - 1) / pageSize;
+        int start = (pageNum - 1) * pageSize;
+        int end = Math.min(start + pageSize, total);
+
+        // 获取当前页数据
+        List<Order> pageOrders = start < total ? filteredOrders.subList(start, end) : new ArrayList<>();
+
+        // 转换为OrderResponse
+        List<OrderResponse> orderResponses = pageOrders.stream()
+                .map(order -> {
+                    List<OrderItem> orderItems = orderItemMapper.selectByOrderId(order.getId());
+                    order.setOrderItems(orderItems);
+                    return OrderResponse.fromOrder(order);
+                })
+                .collect(Collectors.toList());
+
+        // 构建返回结果
+        Map<String, Object> result = new HashMap<>();
+        result.put("orders", orderResponses);
+        result.put("pageNum", pageNum);
+        result.put("pageSize", pageSize);
+        result.put("total", total);
+        result.put("totalPages", totalPages);
+        result.put("hasNext", pageNum < totalPages);
+        result.put("hasPrev", pageNum > 1);
+
+        return result;
+    }
+
     /**
      * 更新订单状态
      */
@@ -289,31 +337,31 @@ public class OrderService {
             order.setStatus(status);
             order.setUpdateTime(LocalDateTime.now());
             orderMapper.updateStatus(orderId, status);
-            
+
             // 处理库存状态变更
             handleInventoryStatusChange(order, oldStatus, status);
-            
+
             log.info("订单状态更新成功，订单ID: {}, 新状态: {}", orderId, status);
             return true;
         }
         log.warn("订单不存在，订单ID: {}", orderId);
         return false;
     }
-    
+
     /**
      * 取消订单
      */
     @Transactional
     public boolean cancelOrder(Long orderId) {
         log.info("取消订单，订单ID: {}", orderId);
-        
+
         // 退款优惠券
         couponService.refundCoupon(orderId);
-        
+
         return updateOrderStatus(orderId, OrderStatus.CANCELLED);
     }
-    
-    
+
+
     /**
      * 生成订单号
      * 支付宝要求：商户订单号，64个字符以内，只能包含字母、数字、下划线
@@ -322,7 +370,7 @@ public class OrderService {
         // 使用时间戳 + 随机数，确保唯一性且符合支付宝要求
         return "ORD" + System.currentTimeMillis() + String.format("%04d", new Random().nextInt(10000));
     }
-    
+
     /**
      * 计算订单总金额
      */
@@ -331,7 +379,7 @@ public class OrderService {
                 .map(item -> item.getUnitPrice().multiply(BigDecimal.valueOf(item.getQuantity())))
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
     }
-    
+
     /**
      * 处理库存状态变更
      */
@@ -339,14 +387,14 @@ public class OrderService {
         if (order.getOrderItems() == null || order.getOrderItems().isEmpty()) {
             return;
         }
-        
+
         List<Long> productIds = order.getOrderItems().stream()
                 .map(OrderItem::getProductId)
                 .collect(Collectors.toList());
         List<Integer> quantities = order.getOrderItems().stream()
                 .map(OrderItem::getQuantity)
                 .collect(Collectors.toList());
-        
+
         // 支付成功：扣减库存
         if (oldStatus == OrderStatus.PENDING && newStatus == OrderStatus.PAID) {
             log.info("订单支付成功，扣减库存，订单ID: {}", order.getId());
@@ -358,7 +406,7 @@ public class OrderService {
             inventoryService.unlockStockBatch(productIds, quantities, order.getId());
         }
     }
-    
+
     /**
      * 创建订单项
      */

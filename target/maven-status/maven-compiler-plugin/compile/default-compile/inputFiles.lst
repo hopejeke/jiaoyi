@@ -1,5 +1,7 @@
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\InventoryController.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\CouponService.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\config\CorsConfig.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\config\RocketMQConfig.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\OrderStatus.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\exception\GlobalExceptionHandler.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\dto\OrderResponse.java
@@ -9,7 +11,9 @@ D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\OrderMapper.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\dto\PaymentResponse.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\exception\InsufficientStockException.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\common\ApiResponse.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\CouponMapper.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\InventoryService.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\OrderTimeoutMessageService.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\dto\CreateOrderRequest.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\InventoryMapper.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\Inventory.java
@@ -19,13 +23,19 @@ D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\config\AlipayConfig.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\exception\BusinessException.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\JiaoyiApplication.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\InventoryTransaction.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\Coupon.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\OrderTimeoutMQController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\OrderItem.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\TestController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\OrderService.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\annotation\PreventDuplicateSubmission.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\CouponController.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\CouponUsage.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\CouponUsageMapper.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\dto\PaymentRequest.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\PaymentService.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\aspect\PreventDuplicateSubmissionAspect.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\OrderController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\OrderItemMapper.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\dto\OrderTimeoutMessage.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\PaymentController.java

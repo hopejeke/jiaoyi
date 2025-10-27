@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>订单超时RocketMQ延迟消息测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f4f7f6;
+        }
+        .container {
+            background: #fff;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+        }
+        h1 {
+            text-align: center;
+            color: #007bff;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background-color: #f8f9fa;
+            border-radius: 8px;
+            border: 1px solid #e9ecef;
+        }
+        .section h2 {
+            color: #007bff;
+            margin-top: 0;
+            margin-bottom: 15px;
+            border-bottom: 1px solid #dee2e6;
+            padding-bottom: 10px;
+        }
+        .form-group {
+            margin-bottom: 15px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input, textarea, select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+            font-size: 14px;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-right: 10px;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        .btn-danger {
+            background-color: #dc3545;
+        }
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        .btn-success {
+            background-color: #28a745;
+        }
+        .btn-success:hover {
+            background-color: #218838;
+        }
+        .btn-warning {
+            background-color: #ffc107;
+            color: #333;
+        }
+        .btn-warning:hover {
+            background-color: #e0a800;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+        }
+        .success {
+            background-color: #d4edda;
+            border-color: #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background-color: #f8d7da;
+            border-color: #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background-color: #d1ecf1;
+            border-color: #bee5eb;
+            color: #0c5460;
+        }
+        .order-list {
+            margin-top: 20px;
+        }
+        .order-item {
+            background: #fff;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .order-info {
+            flex-grow: 1;
+        }
+        .order-actions {
+            display: flex;
+            gap: 10px;
+        }
+        .status-pending {
+            color: #ff9800;
+            font-weight: bold;
+        }
+        .status-paid {
+            color: #4caf50;
+            font-weight: bold;
+        }
+        .status-cancelled {
+            color: #f44336;
+            font-weight: bold;
+        }
+        .mq-info {
+            background: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 4px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 订单超时RocketMQ延迟消息测试</h1>
+        
+        <div class="mq-info">
+            <h3>📋 RocketMQ延迟消息说明</h3>
+            <p><strong>工作原理：</strong>订单创建后发送延迟消息到RocketMQ，30分钟后自动处理超时订单</p>
+            <p><strong>优势：</strong>比定时任务更精确，减少数据库查询，支持分布式部署，无需额外插件</p>
+            <p><strong>延迟级别：</strong>1m 2m 3m 4m 5m 6m 7m 8m 9m 10m 20m 30m 1h 2h</p>
+        </div>
+        
+        <!-- 创建订单测试 -->
+        <div class="section">
+            <h2>1. 创建测试订单（自动发送延迟消息）</h2>
+            <form id="orderForm">
+                <div class="form-group">
+                    <label for="userId">用户ID:</label>
+                    <input type="number" id="userId" value="1001" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="receiverName">收货人姓名:</label>
+                    <input type="text" id="receiverName" value="MQ测试用户" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="receiverPhone">收货人电话:</label>
+                    <input type="tel" id="receiverPhone" value="13800138000" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="receiverAddress">收货地址:</label>
+                    <textarea id="receiverAddress" rows="3" required>MQ测试地址</textarea>
+                </div>
+                
+                <div class="form-group">
+                    <label for="remark">备注:</label>
+                    <input type="text" id="remark" value="MQ延迟消息测试订单">
+                </div>
+                
+                <div class="form-group">
+                    <label for="productId">商品ID:</label>
+                    <input type="number" id="productId" value="2001" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="productName">商品名称:</label>
+                    <input type="text" id="productName" value="MQ测试商品" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="unitPrice">单价:</label>
+                    <input type="number" id="unitPrice" value="100" step="0.01" required>
+                </div>
+                
+                <div class="form-group">
+                    <label for="quantity">数量:</label>
+                    <input type="number" id="quantity" value="1" required>
+                </div>
+                
+                <button type="submit">创建测试订单（自动发送30分钟RocketMQ延迟消息）</button>
+            </form>
+        </div>
+        
+        <!-- 手动发送延迟消息测试 -->
+        <div class="section">
+            <h2>2. 手动发送延迟消息测试</h2>
+            <div class="form-group">
+                <label for="testOrderId">订单ID:</label>
+                <input type="number" id="testOrderId" placeholder="输入订单ID">
+            </div>
+            <div class="form-group">
+                <label for="testOrderNo">订单号:</label>
+                <input type="text" id="testOrderNo" placeholder="输入订单号">
+            </div>
+            <div class="form-group">
+                <label for="testUserId">用户ID:</label>
+                <input type="number" id="testUserId" value="1001">
+            </div>
+            <div class="form-group">
+                <label for="delayMinutes">延迟时间（分钟）:</label>
+                <select id="delayMinutes">
+                    <option value="1">1分钟（快速测试）</option>
+                    <option value="5">5分钟</option>
+                    <option value="10">10分钟</option>
+                    <option value="30" selected>30分钟（正常超时）</option>
+                </select>
+            </div>
+            <button onclick="sendTestMessage()" class="btn-warning">发送RocketMQ测试延迟消息</button>
+        </div>
+        
+        <!-- 订单操作 -->
+        <div class="section">
+            <h2>3. 订单操作</h2>
+            <div class="form-group">
+                <label for="orderId">订单ID:</label>
+                <input type="number" id="orderId" placeholder="输入订单ID">
+            </div>
+            <button onclick="payOrder()" class="btn-success">支付订单</button>
+            <button onclick="cancelOrder()" class="btn-danger">手动取消订单</button>
+            <button onclick="loadOrders()" class="btn-warning">刷新订单列表</button>
+        </div>
+        
+        <!-- 结果显示 -->
+        <div id="result" class="result" style="display: none;">
+            <h3>操作结果</h3>
+            <div id="resultContent"></div>
+        </div>
+        
+        <!-- 订单列表 -->
+        <div class="section">
+            <h2>4. 订单列表</h2>
+            <div id="orderList" class="order-list">
+                <!-- 订单列表将在这里显示 -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let currentOrder = null;
+        
+        // 页面加载时获取订单列表
+        document.addEventListener('DOMContentLoaded', function() {
+            loadOrders();
+        });
+        
+        // 创建订单
+        document.getElementById('orderForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const orderData = {
+                userId: parseInt(document.getElementById('userId').value),
+                receiverName: document.getElementById('receiverName').value,
+                receiverPhone: document.getElementById('receiverPhone').value,
+                receiverAddress: document.getElementById('receiverAddress').value,
+                remark: document.getElementById('remark').value,
+                orderItems: [
+                    {
+                        productId: parseInt(document.getElementById('productId').value),
+                        productName: document.getElementById('productName').value,
+                        productImage: "https://example.com/test.jpg",
+                        unitPrice: parseFloat(document.getElementById('unitPrice').value),
+                        quantity: parseInt(document.getElementById('quantity').value)
+                    }
+                ]
+            };
+            
+            try {
+                const response = await fetch('/api/orders', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(orderData)
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    currentOrder = result.data;
+                    showResult('订单创建成功！已自动发送30分钟RocketMQ延迟消息，订单将在30分钟后自动取消（如果未支付）', 'success');
+                    document.getElementById('orderId').value = currentOrder.id;
+                    document.getElementById('testOrderId').value = currentOrder.id;
+                    document.getElementById('testOrderNo').value = currentOrder.orderNo;
+                    loadOrders();
+                } else {
+                    showResult('订单创建失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showResult('请求失败: ' + error.message, 'error');
+            }
+        });
+        
+        // 发送测试延迟消息
+        async function sendTestMessage() {
+            const orderId = document.getElementById('testOrderId').value;
+            const orderNo = document.getElementById('testOrderNo').value;
+            const userId = document.getElementById('testUserId').value;
+            const delayMinutes = document.getElementById('delayMinutes').value;
+            
+            if (!orderId || !orderNo || !userId) {
+                showResult('请填写完整的订单信息', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/order-timeout-rocketmq/send-test-message?orderId=${orderId}&orderNo=${orderNo}&userId=${userId}&delayMinutes=${delayMinutes}`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    showResult(`RocketMQ测试延迟消息发送成功！订单将在${delayMinutes}分钟后自动取消`, 'info');
+                } else {
+                    showResult('发送RocketMQ测试延迟消息失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showResult('发送RocketMQ测试延迟消息请求失败: ' + error.message, 'error');
+            }
+        }
+        
+        // 支付订单
+        async function payOrder() {
+            const orderId = document.getElementById('orderId').value;
+            if (!orderId) {
+                showResult('请输入订单ID', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/orders/${orderId}/pay`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        paymentMethod: "ALIPAY",
+                        amount: 100,
+                        channel: "WEB",
+                        clientIp: "127.0.0.1",
+                        userAgent: navigator.userAgent,
+                        remark: "MQ测试支付"
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    showResult('支付请求已发送，订单状态已更新，延迟消息将不会执行', 'success');
+                    loadOrders();
+                } else {
+                    showResult('支付失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showResult('支付请求失败: ' + error.message, 'error');
+            }
+        }
+        
+        // 手动取消订单
+        async function cancelOrder() {
+            const orderId = document.getElementById('orderId').value;
+            if (!orderId) {
+                showResult('请输入订单ID', 'error');
+                return;
+            }
+            
+            if (!confirm(`确定要取消订单 ${orderId} 吗？`)) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/order-timeout-rocketmq/cancel/${orderId}`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    showResult('订单取消成功: ' + result.data, 'success');
+                    loadOrders();
+                } else {
+                    showResult('订单取消失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showResult('取消订单请求失败: ' + error.message, 'error');
+            }
+        }
+        
+        // 加载订单列表
+        async function loadOrders() {
+            try {
+                const response = await fetch('/api/orders');
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    displayOrders(result.data);
+                } else {
+                    showResult('获取订单列表失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showResult('获取订单列表请求失败: ' + error.message, 'error');
+            }
+        }
+        
+        // 显示订单列表
+        function displayOrders(orders) {
+            const orderListDiv = document.getElementById('orderList');
+            
+            if (orders.length === 0) {
+                orderListDiv.innerHTML = '<p>暂无订单</p>';
+                return;
+            }
+            
+            // 按创建时间倒序排列
+            orders.sort((a, b) => new Date(b.createTime) - new Date(a.createTime));
+            
+            const ordersHtml = orders.map(order => {
+                const statusClass = `status-${order.status.toLowerCase()}`;
+                const statusText = getStatusText(order.status);
+                const createTime = new Date(order.createTime).toLocaleString();
+                
+                return `
+                    <div class="order-item">
+                        <div class="order-info">
+                            <div><strong>订单ID:</strong> ${order.id} | <strong>订单号:</strong> ${order.orderNo}</div>
+                            <div><strong>状态:</strong> <span class="${statusClass}">${statusText}</span></div>
+                            <div><strong>金额:</strong> ¥${order.totalAmount} | <strong>实际支付:</strong> ¥${order.actualAmount}</div>
+                            <div><strong>创建时间:</strong> ${createTime}</div>
+                            ${order.status === 'PENDING' ? '<div><strong>💡 提示:</strong> 订单已发送RocketMQ延迟消息，30分钟后自动取消</div>' : ''}
+                        </div>
+                        <div class="order-actions">
+                            <button onclick="setOrderId(${order.id})" class="btn-warning">选择</button>
+                            ${order.status === 'PENDING' ? `<button onclick="payOrderById(${order.id})" class="btn-success">支付</button>` : ''}
+                            ${order.status === 'PENDING' ? `<button onclick="cancelOrderById(${order.id})" class="btn-danger">取消</button>` : ''}
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            orderListDiv.innerHTML = ordersHtml;
+        }
+        
+        // 设置订单ID
+        function setOrderId(orderId) {
+            document.getElementById('orderId').value = orderId;
+            document.getElementById('testOrderId').value = orderId;
+        }
+        
+        // 根据ID支付订单
+        async function payOrderById(orderId) {
+            document.getElementById('orderId').value = orderId;
+            await payOrder();
+        }
+        
+        // 根据ID取消订单
+        async function cancelOrderById(orderId) {
+            document.getElementById('orderId').value = orderId;
+            await cancelOrder();
+        }
+        
+        // 获取状态文本
+        function getStatusText(status) {
+            switch (status) {
+                case 'PENDING': return '待支付';
+                case 'PAID': return '已支付';
+                case 'CANCELLED': return '已取消';
+                default: return status;
+            }
+        }
+        
+        // 显示结果
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            const resultContent = document.getElementById('resultContent');
+            
+            resultContent.innerHTML = message;
+            resultDiv.className = `result ${type}`;
+            resultDiv.style.display = 'block';
+            
+            // 5秒后自动隐藏
+            setTimeout(() => {
+                resultDiv.style.display = 'none';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>

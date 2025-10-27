@@ -1,172 +1,238 @@
-# 电商交易系统 (jiaoyi)
+# 🛒 交易系统
 
-一个基于Spring Boot的电商交易系统，提供完整的订单管理功能。
+基于Spring Boot构建的完整电商订单管理系统，包含订单管理、支付处理、库存管理、优惠券系统等功能。
 
-## 功能特性
+## 🚀 功能特性
 
-- ✅ 创建订单（自动检查库存）
-- ✅ 查询订单（按订单号、订单ID、用户ID）
-- ✅ 分页查询订单
-- ✅ 按状态查询订单
-- ✅ 更新订单状态（自动处理库存）
-- ✅ 取消订单（自动解锁库存）
-- ✅ 库存管理（查询、检查、预警）
-- ✅ 库存变动记录
-- ✅ 统一异常处理
-- ✅ 参数校验
-- ✅ 数据库事务管理
+### 核心功能
+- **订单管理**: 完整的订单生命周期管理
+- **支付系统**: 支持支付宝、微信支付等多种支付方式
+- **库存管理**: 智能库存锁定、扣减、释放机制
+- **优惠券系统**: 灵活的优惠券管理和使用
+- **用户管理**: 个人订单查看和管理
+- **数据分析**: 订单统计和分析功能
 
-## 技术栈
+### 技术栈
+- **后端**: Spring Boot 3.2.0, MyBatis, MySQL 8.0
+- **前端**: HTML5, CSS3, JavaScript (ES6+)
+- **缓存**: Redis, Redisson
+- **数据库**: MySQL 8.0
+- **构建工具**: Maven 3.9
 
-- Spring Boot 3.2.0
-- MyBatis 3.0.2
-- PageHelper 1.4.7
-- MySQL 8.0
-- Maven
-- Lombok
-- Jackson
-- Java 21
+## 📱 页面功能
 
-## 快速开始
+### 1. 首页 (`/`)
+- 系统概览和快速导航
+- 实时统计数据展示
+- 功能模块介绍
+
+### 2. 订单创建 (`/test-payment.html`)
+- 创建新订单
+- 优惠券使用
+- 支付流程测试
+- 模拟支付成功/失败
+
+### 3. 我的订单 (`/my-orders.html`)
+- 个人订单列表
+- 订单状态筛选
+- 订单操作（支付、取消、确认收货等）
+- 分页显示
+
+### 4. 订单管理 (`/order-list.html`)
+- 管理员订单列表
+- 多条件搜索筛选
+- 订单状态管理
+- 订单详情查看
+
+### 5. 订单详情 (`/order-detail.html`)
+- 订单详细信息展示
+- 商品清单
+- 收货信息
+- 订单时间线
+- 订单操作
+
+## 🛠️ 快速开始
 
 ### 环境要求
-
-- JDK 21+
-- Maven 3.6+
+- Java 21+
 - MySQL 8.0+
+- Redis 6.0+
+- Maven 3.6+
 
-### 1. 数据库配置
+### 启动步骤
 
-创建数据库：
-```sql
-CREATE DATABASE jiaoyi DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-```
+1. **克隆项目**
+   ```bash
+   git clone <repository-url>
+   cd jiaoyi
+   ```
 
-### 2. 修改配置
+2. **配置数据库**
+   ```bash
+   # 创建数据库
+   mysql -u root -p < src/main/resources/sql/schema.sql
+   
+   # 导入测试数据
+   mysql -u root -p jiaoyi < src/main/resources/sql/data.sql
+   ```
 
-编辑 `src/main/resources/application.yml` 中的数据库连接信息。
+3. **配置Redis**
+   ```bash
+   # 启动Redis服务
+   redis-server
+   ```
 
-### 3. 启动应用
+4. **修改配置**
+   ```yaml
+   # src/main/resources/application.yml
+   spring:
+     datasource:
+       url: jdbc:mysql://localhost:3306/jiaoyi
+       username: your_username
+       password: your_password
+     data:
+       redis:
+         host: localhost
+         port: 6379
+   ```
 
-**方式一：使用Maven**
-```bash
-mvn spring-boot:run
-```
+5. **启动应用**
+   ```bash
+   mvn spring-boot:run
+   ```
 
-**方式二：使用启动脚本（Windows）**
-```bash
-start.bat
-```
+6. **访问系统**
+   - 首页: http://localhost:8080/
+   - 创建订单: http://localhost:8080/test-payment.html
+   - 我的订单: http://localhost:8080/my-orders.html
+   - 订单管理: http://localhost:8080/order-list.html
+   - 订单详情: http://localhost:8080/order-detail.html
 
-**方式三：打包运行**
-```bash
-mvn clean package
-java -jar target/jiaoyi-1.0.0.jar
-```
+## 📊 API接口
 
-### 4. 访问应用
+### 订单相关
+- `GET /api/orders` - 获取所有订单
+- `GET /api/orders/page` - 分页查询订单（支持筛选）
+- `GET /api/orders/{id}` - 获取订单详情
+- `POST /api/orders` - 创建订单
+- `PUT /api/orders/{id}/status` - 更新订单状态
+- `POST /api/orders/{id}/pay` - 支付订单
 
-应用启动后访问：http://localhost:8080
+### 用户订单
+- `GET /api/orders/user/{userId}` - 获取用户订单列表
+- `GET /api/orders/user/{userId}/page` - 分页查询用户订单
+- `GET /api/orders/user/{userId}/status/{status}` - 按状态查询用户订单
 
-## API接口
+### 支付相关
+- `POST /api/payment/alipay/notify` - 支付宝支付回调
+- `GET /api/payment/alipay/return` - 支付宝支付返回
+- `GET /api/payment/query/{paymentNo}` - 查询支付结果
+
+## 🎯 使用说明
 
 ### 创建订单
-```
-POST /api/orders
-```
+1. 访问 `http://localhost:8080/test-payment.html`
+2. 填写订单信息（用户ID、收货信息、商品信息）
+3. 可选择使用优惠券
+4. 点击"创建订单"
+5. 进行支付操作
 
-### 查询订单
-```
-GET /api/orders/{orderId}
-GET /api/orders/orderNo/{orderNo}
-```
+### 查看订单
+1. 访问 `http://localhost:8080/my-orders.html`
+2. 输入用户ID
+3. 查看订单列表，可按状态筛选
+4. 点击"查看详情"查看订单详细信息
 
-### 查询用户订单
-```
-GET /api/orders/user/{userId}
-GET /api/orders/user/{userId}/page
-```
+### 管理订单
+1. 访问 `http://localhost:8080/order-list.html`
+2. 使用搜索条件筛选订单
+3. 查看订单列表和状态
+4. 进行订单状态管理操作
 
-### 更新订单状态
-```
-PUT /api/orders/{orderId}/status?status=PAID
-```
+## 🔧 配置说明
 
-### 取消订单
-```
-PUT /api/orders/{orderId}/cancel
-```
-
-详细API文档请参考 [API文档.md](API文档.md)
-
-## 项目结构
-
-```
-src/main/java/com/jiaoyi/
-├── JiaoyiApplication.java          # 启动类
-├── common/                          # 通用组件
-├── controller/                      # 控制器层
-├── dto/                            # 数据传输对象
-├── entity/                         # 实体类
-├── exception/                      # 异常处理
-├── repository/                     # 数据访问层
-└── service/                       # 服务层
+### 数据库配置
+```yaml
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/jiaoyi?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai
+    username: root
+    password: your_password
+    driver-class-name: com.mysql.cj.jdbc.Driver
 ```
 
-## 故障排除
+### Redis配置
+```yaml
+spring:
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 5000ms
+```
 
-### Maven依赖问题
+### 支付配置
+```yaml
+alipay:
+  app-id: your_app_id
+  private-key: your_private_key
+  alipay-public-key: alipay_public_key
+  gateway-url: https://openapi.alipay.com/gateway.do
+  notify-url: http://your-domain.com/api/payment/alipay/notify
+  return-url: http://your-domain.com/api/payment/alipay/return
+```
 
-如果遇到MySQL依赖下载失败的问题，请按以下步骤解决：
+## 📝 测试数据
 
-1. **快速修复**：
-   ```bash
-   fix-maven.bat
-   ```
+系统预置了以下测试数据：
 
-2. **完全重建**：
-   ```bash
-   rebuild.bat
-   ```
+### 用户
+- 用户ID: 1001 (测试用户)
 
-3. **手动清理**：
-   ```bash
-   # 清理Maven缓存
-   rmdir /s /q "%USERPROFILE%\.m2\repository\mysql"
-   
-   # 强制更新依赖
-   mvn clean compile -U -s settings.xml
-   ```
+### 商品
+- 商品ID: 2001 (iPhone 15 Pro) - 库存: 150
+- 商品ID: 2002 (质朴的钢鞋子) - 库存: 50
 
-### 常见问题
+### 优惠券
+- DISCOUNT10: 10%折扣券
+- FIXED20: 20元固定优惠券
+- NEWUSER: 新用户优惠券
 
-1. **依赖下载失败**：使用 `-U` 参数强制更新
-2. **网络问题**：项目已配置阿里云镜像加速
-3. **版本冲突**：已指定具体版本号避免冲突
-4. **IntelliJ IDEA配置问题**：
-   - 如果遇到 "Source root is duplicated" 错误
-   - 运行 `fix-idea.bat` 或 `reset-idea.bat`
-   - 重新导入项目：File -> Open -> 选择pom.xml -> Open as Project
-5. **Java版本兼容性问题**：
-   - 项目已升级到Java 21和Spring Boot 3.x
-   - 运行 `upgrade-to-java21.bat` 完成升级
-   - 确保使用Java 21 JDK
-   - 注意：包名从javax.*改为jakarta.*
-6. **MyBatis升级**：
-   - 项目已从JPA升级到MyBatis
-   - 运行 `upgrade-to-mybatis.bat` 完成升级
-   - 使用XML文件管理SQL语句
-   - 支持更灵活的SQL控制
+## 🐛 常见问题
 
-## 开发说明
+### 1. 端口被占用
+```bash
+# 查找占用8080端口的进程
+netstat -ano | findstr :8080
+# 结束进程
+taskkill /PID <进程ID> /F
+```
 
-1. 项目使用Spring Boot自动配置
-2. 数据库表结构会在首次启动时自动创建
-3. 支持开发、生产环境配置
-4. 包含完整的异常处理和参数校验
-5. 提供单元测试示例
-6. 已配置阿里云Maven镜像加速下载
+### 2. 数据库连接失败
+- 检查MySQL服务是否启动
+- 确认数据库配置信息正确
+- 检查数据库用户权限
 
-## 许可证
+### 3. Redis连接失败
+- 检查Redis服务是否启动
+- 确认Redis配置信息正确
+- 检查Redis端口是否开放
+
+## 📄 许可证
 
 MIT License
+
+## 🤝 贡献
+
+欢迎提交Issue和Pull Request来改进这个项目！
+
+## 📞 联系方式
+
+如有问题，请通过以下方式联系：
+- 提交Issue
+- 发送邮件
+
+---
+
+**注意**: 这是一个演示项目，生产环境使用前请进行充分的安全测试和性能优化。

@@ -3,7 +3,7 @@
 <mapper namespace="com.jiaoyi.mapper.OrderMapper">
 
     <!-- 结果映射 -->
-    <resultMap id="OrderResultMap" type="com.jiaoyi.entity.Order">
+    <resultMap id="BaseResultMap" type="com.jiaoyi.entity.Order">
         <id column="id" property="id"/>
         <result column="order_no" property="orderNo"/>
         <result column="user_id" property="userId"/>
@@ -35,40 +35,46 @@
     </insert>
 
     <!-- 根据ID查询订单 -->
-    <select id="selectById" parameterType="long" resultMap="OrderResultMap">
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
         SELECT * FROM orders WHERE id = #{id}
     </select>
 
     <!-- 查询所有订单 -->
-    <select id="selectAll" resultMap="OrderResultMap">
+    <select id="selectAll" resultMap="BaseResultMap">
         SELECT * FROM orders ORDER BY create_time DESC
     </select>
 
     <!-- 根据订单号查询订单 -->
-    <select id="selectByOrderNo" parameterType="string" resultMap="OrderResultMap">
+    <select id="selectByOrderNo" parameterType="string" resultMap="BaseResultMap">
         SELECT * FROM orders WHERE order_no = #{orderNo}
     </select>
 
     <!-- 根据用户ID查询订单列表 -->
-    <select id="selectByUserId" parameterType="long" resultMap="OrderResultMap">
+    <select id="selectByUserId" parameterType="long" resultMap="BaseResultMap">
         SELECT * FROM orders WHERE user_id = #{userId} ORDER BY create_time DESC
     </select>
 
     <!-- 根据用户ID和状态查询订单列表 -->
-    <select id="selectByUserIdAndStatus" resultMap="OrderResultMap">
+    <select id="selectByUserIdAndStatus" resultMap="BaseResultMap">
         SELECT * FROM orders 
         WHERE user_id = #{userId} AND status = #{status} 
         ORDER BY create_time DESC
     </select>
 
     <!-- 根据状态查询订单列表 -->
-    <select id="selectByStatus" parameterType="com.jiaoyi.entity.OrderStatus" resultMap="OrderResultMap">
+    <select id="selectByStatus" parameterType="com.jiaoyi.entity.OrderStatus" resultMap="BaseResultMap">
         SELECT * FROM orders WHERE status = #{status} ORDER BY create_time DESC
     </select>
 
     <!-- 更新订单状态 -->
     <update id="updateStatus">
         UPDATE orders SET status = #{status}, update_time = NOW() WHERE id = #{id}
+    </update>
+
+    <!-- 原子更新订单状态：只有当状态为PENDING时才更新为新状态 -->
+    <update id="updateStatusIfPending">
+        UPDATE orders SET status = #{newStatus}, update_time = NOW() 
+        WHERE id = #{id} AND status = 'PENDING'
     </update>
 
     <!-- 统计用户订单数量 -->
@@ -86,5 +92,19 @@
         UPDATE orders SET status = #{status}, update_time = NOW() 
         WHERE order_no = #{paymentNo}
     </update>
+
+    <!-- 原子更新订单状态：只有当状态为PENDING时才更新为PAID -->
+    <update id="updateStatusToPaidIfPending">
+        UPDATE orders SET status = 'PAID', update_time = NOW() 
+        WHERE order_no = #{paymentNo} AND status = 'PENDING'
+    </update>
+
+    <!-- 查询超时订单 -->
+    <select id="selectTimeoutOrders" parameterType="java.time.LocalDateTime" resultMap="BaseResultMap">
+        SELECT * FROM orders 
+        WHERE status = 'PENDING' 
+        AND create_time &lt; #{timeoutThreshold}
+        ORDER BY create_time ASC
+    </select>
 
 </mapper>
