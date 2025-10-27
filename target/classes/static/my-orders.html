@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的订单</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            border-radius: 12px;
+            margin-bottom: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            font-size: 1.1em;
+            opacity: 0.9;
+        }
+        
+        .user-info {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .user-info h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        
+        .user-input {
+            display: flex;
+            gap: 15px;
+            align-items: end;
+        }
+        
+        .form-group {
+            flex: 1;
+        }
+        
+        .form-group label {
+            display: block;
+            font-weight: 500;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 10px 12px;
+            border: 2px solid #e1e8ed;
+            border-radius: 6px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 500;
+            transition: all 0.3s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background-color: #6c757d;
+            color: white;
+        }
+        
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+        
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 14px;
+        }
+        
+        .filter-tabs {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+            overflow: hidden;
+        }
+        
+        .filter-tabs ul {
+            list-style: none;
+            display: flex;
+            margin: 0;
+            padding: 0;
+        }
+        
+        .filter-tabs li {
+            flex: 1;
+        }
+        
+        .filter-tabs a {
+            display: block;
+            padding: 15px 20px;
+            text-decoration: none;
+            color: #666;
+            text-align: center;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+        }
+        
+        .filter-tabs a:hover,
+        .filter-tabs a.active {
+            color: #667eea;
+            border-bottom-color: #667eea;
+            background-color: #f8f9ff;
+        }
+        
+        .orders-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .order-card {
+            border-bottom: 1px solid #eee;
+            padding: 20px;
+            transition: background-color 0.3s;
+        }
+        
+        .order-card:hover {
+            background-color: #f8f9fa;
+        }
+        
+        .order-card:last-child {
+            border-bottom: none;
+        }
+        
+        .order-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .order-info {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .order-no {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .order-time {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .order-status {
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .status-pending {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-paid {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .status-cancelled {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
+        .status-shipped {
+            background-color: #d1ecf1;
+            color: #0c5460;
+        }
+        
+        .status-delivered {
+            background-color: #d4edda;
+            color: #155724;
+        }
+        
+        .order-items {
+            margin-bottom: 15px;
+        }
+        
+        .order-item {
+            display: flex;
+            align-items: center;
+            padding: 10px 0;
+            border-bottom: 1px solid #f0f0f0;
+        }
+        
+        .order-item:last-child {
+            border-bottom: none;
+        }
+        
+        .item-image {
+            width: 60px;
+            height: 60px;
+            background-color: #f8f9fa;
+            border-radius: 6px;
+            margin-right: 15px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #999;
+            font-size: 12px;
+        }
+        
+        .item-info {
+            flex: 1;
+        }
+        
+        .item-name {
+            font-weight: 500;
+            margin-bottom: 5px;
+        }
+        
+        .item-specs {
+            color: #666;
+            font-size: 14px;
+        }
+        
+        .item-price {
+            font-weight: 600;
+            color: #e74c3c;
+        }
+        
+        .order-summary {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding-top: 15px;
+            border-top: 1px solid #eee;
+        }
+        
+        .order-total {
+            font-size: 18px;
+            font-weight: 600;
+            color: #2c3e50;
+        }
+        
+        .order-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: #666;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #999;
+        }
+        
+        .message {
+            padding: 12px 20px;
+            border-radius: 6px;
+            margin-bottom: 20px;
+        }
+        
+        .message.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .message.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+            gap: 10px;
+        }
+        
+        .pagination button {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            background: white;
+            cursor: pointer;
+            border-radius: 4px;
+            transition: all 0.3s;
+        }
+        
+        .pagination button:hover:not(:disabled) {
+            background-color: #f8f9fa;
+            border-color: #667eea;
+        }
+        
+        .pagination button:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        
+        .pagination .active {
+            background-color: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        @media (max-width: 768px) {
+            .container {
+                padding: 10px;
+            }
+            
+            .header h1 {
+                font-size: 2em;
+            }
+            
+            .user-input {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .order-header {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 10px;
+            }
+            
+            .order-summary {
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 15px;
+            }
+            
+            .order-actions {
+                width: 100%;
+                justify-content: flex-start;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📦 我的订单</h1>
+            <p>查看和管理您的订单信息</p>
+        </div>
+        
+        <!-- 用户信息输入 -->
+        <div class="user-info">
+            <h3>👤 用户信息</h3>
+            <div class="user-input">
+                <div class="form-group">
+                    <label for="userId">用户ID</label>
+                    <input type="number" id="userId" placeholder="请输入您的用户ID" value="1001">
+                </div>
+                <button class="btn btn-primary" onclick="loadMyOrders()">🔍 查看我的订单</button>
+            </div>
+        </div>
+        
+        <!-- 消息提示区域 -->
+        <div id="messageArea"></div>
+        
+        <!-- 订单状态筛选 -->
+        <div class="filter-tabs">
+            <ul>
+                <li><a href="#" class="active" onclick="filterOrders('ALL')">全部订单</a></li>
+                <li><a href="#" onclick="filterOrders('PENDING')">待支付</a></li>
+                <li><a href="#" onclick="filterOrders('PAID')">已支付</a></li>
+                <li><a href="#" onclick="filterOrders('SHIPPED')">已发货</a></li>
+                <li><a href="#" onclick="filterOrders('DELIVERED')">已送达</a></li>
+                <li><a href="#" onclick="filterOrders('CANCELLED')">已取消</a></li>
+            </ul>
+        </div>
+        
+        <!-- 订单列表 -->
+        <div class="orders-container">
+            <div id="loadingIndicator" class="loading" style="display: none;">
+                <p>⏳ 正在加载您的订单...</p>
+            </div>
+            
+            <div id="emptyState" class="empty-state" style="display: none;">
+                <h3>😔 暂无订单</h3>
+                <p>您还没有任何订单，快去选购商品吧！</p>
+            </div>
+            
+            <div id="ordersList">
+            </div>
+        </div>
+        
+        <!-- 分页 -->
+        <div class="pagination" id="pagination" style="display: none;">
+        </div>
+    </div>
+    
+    <script>
+        let currentUserId = null;
+        let currentStatus = 'ALL';
+        let currentPage = 1;
+        let pageSize = 5;
+        let totalPages = 1;
+        let allOrders = [];
+        
+        // 页面加载时自动加载订单
+        document.addEventListener('DOMContentLoaded', function() {
+            // 检查URL参数中的用户ID
+            const urlParams = new URLSearchParams(window.location.search);
+            const userId = urlParams.get('userId');
+            if (userId) {
+                document.getElementById('userId').value = userId;
+                loadMyOrders();
+            } else {
+                loadMyOrders();
+            }
+        });
+        
+        // 加载我的订单
+        async function loadMyOrders() {
+            const userId = document.getElementById('userId').value;
+            if (!userId) {
+                showMessage('请输入用户ID', 'error');
+                return;
+            }
+            
+            currentUserId = userId;
+            await loadOrders(1);
+        }
+        
+        // 加载订单列表
+        async function loadOrders(page = 1) {
+            if (!currentUserId) return;
+            
+            showLoading(true);
+            hideMessage();
+            
+            try {
+                let url = `/api/orders/user/${currentUserId}`;
+                
+                // 如果不是全部状态，添加状态筛选
+                if (currentStatus !== 'ALL') {
+                    url += `/status/${currentStatus}`;
+                }
+                
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    allOrders = result.data;
+                    currentPage = page;
+                    totalPages = Math.ceil(allOrders.length / pageSize);
+                    
+                    displayOrders();
+                    displayPagination();
+                    
+                    if (allOrders.length === 0) {
+                        showMessage('暂无订单数据', 'success');
+                    }
+                } else {
+                    showMessage('加载订单失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            } finally {
+                showLoading(false);
+            }
+        }
+        
+        // 筛选订单
+        function filterOrders(status) {
+            // 更新标签状态
+            document.querySelectorAll('.filter-tabs a').forEach(a => a.classList.remove('active'));
+            event.target.classList.add('active');
+            
+            currentStatus = status;
+            currentPage = 1;
+            displayOrders();
+            displayPagination();
+        }
+        
+        // 显示订单列表
+        function displayOrders() {
+            const ordersList = document.getElementById('ordersList');
+            const emptyState = document.getElementById('emptyState');
+            
+            // 应用状态筛选
+            let filteredOrders = allOrders;
+            if (currentStatus !== 'ALL') {
+                filteredOrders = allOrders.filter(order => order.status === currentStatus);
+            }
+            
+            // 应用分页
+            const start = (currentPage - 1) * pageSize;
+            const end = start + pageSize;
+            const pageOrders = filteredOrders.slice(start, end);
+            
+            if (pageOrders.length === 0) {
+                ordersList.innerHTML = '';
+                emptyState.style.display = 'block';
+                return;
+            }
+            
+            emptyState.style.display = 'none';
+            
+            ordersList.innerHTML = pageOrders.map(order => `
+                <div class="order-card">
+                    <div class="order-header">
+                        <div class="order-info">
+                            <div class="order-no">订单号: ${order.orderNo}</div>
+                            <div class="order-time">下单时间: ${formatDateTime(order.createTime)}</div>
+                        </div>
+                        <div class="order-status status-${order.status.toLowerCase()}">
+                            ${getStatusText(order.status)}
+                        </div>
+                    </div>
+                    
+                    <div class="order-items">
+                        ${order.orderItems ? order.orderItems.map(item => `
+                            <div class="order-item">
+                                <div class="item-image">📦</div>
+                                <div class="item-info">
+                                    <div class="item-name">${item.productName}</div>
+                                    <div class="item-specs">数量: ${item.quantity} | 单价: ¥${item.unitPrice}</div>
+                                </div>
+                                <div class="item-price">¥${item.subtotal}</div>
+                            </div>
+                        `).join('') : ''}
+                    </div>
+                    
+                    <div class="order-summary">
+                        <div class="order-total">
+                            总计: ¥${order.actualAmount || order.totalAmount}
+                            ${order.discountAmount > 0 ? `<span style="color: #28a745; font-size: 14px;">(已优惠¥${order.discountAmount})</span>` : ''}
+                        </div>
+                        <div class="order-actions">
+                            ${getOrderActions(order)}
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // 获取订单操作按钮
+        function getOrderActions(order) {
+            let actions = `<button class="btn btn-sm btn-secondary" onclick="viewOrderDetail(${order.id})">查看详情</button>`;
+            
+            switch (order.status) {
+                case 'PENDING':
+                    actions += `<button class="btn btn-sm btn-primary" onclick="payOrder(${order.id})">立即支付</button>`;
+                    actions += `<button class="btn btn-sm btn-danger" onclick="cancelOrder(${order.id})">取消订单</button>`;
+                    break;
+                case 'PAID':
+                    actions += `<button class="btn btn-sm btn-success" onclick="confirmReceived(${order.id})">确认收货</button>`;
+                    break;
+                case 'SHIPPED':
+                    actions += `<button class="btn btn-sm btn-success" onclick="confirmReceived(${order.id})">确认收货</button>`;
+                    break;
+                case 'DELIVERED':
+                    actions += `<button class="btn btn-sm btn-secondary" onclick="reorder(${order.id})">再次购买</button>`;
+                    break;
+                case 'CANCELLED':
+                    actions += `<button class="btn btn-sm btn-secondary" onclick="reorder(${order.id})">重新购买</button>`;
+                    break;
+            }
+            
+            return actions;
+        }
+        
+        // 显示分页
+        function displayPagination() {
+            const pagination = document.getElementById('pagination');
+            
+            if (totalPages <= 1) {
+                pagination.style.display = 'none';
+                return;
+            }
+            
+            let paginationHTML = '';
+            
+            // 上一页按钮
+            paginationHTML += `<button ${currentPage === 1 ? 'disabled' : ''} onclick="goToPage(${currentPage - 1})">上一页</button>`;
+            
+            // 页码按钮
+            const startPage = Math.max(1, currentPage - 2);
+            const endPage = Math.min(totalPages, currentPage + 2);
+            
+            if (startPage > 1) {
+                paginationHTML += `<button onclick="goToPage(1)">1</button>`;
+                if (startPage > 2) {
+                    paginationHTML += `<span>...</span>`;
+                }
+            }
+            
+            for (let i = startPage; i <= endPage; i++) {
+                paginationHTML += `<button class="${i === currentPage ? 'active' : ''}" onclick="goToPage(${i})">${i}</button>`;
+            }
+            
+            if (endPage < totalPages) {
+                if (endPage < totalPages - 1) {
+                    paginationHTML += `<span>...</span>`;
+                }
+                paginationHTML += `<button onclick="goToPage(${totalPages})">${totalPages}</button>`;
+            }
+            
+            // 下一页按钮
+            paginationHTML += `<button ${currentPage === totalPages ? 'disabled' : ''} onclick="goToPage(${currentPage + 1})">下一页</button>`;
+            
+            pagination.innerHTML = paginationHTML;
+            pagination.style.display = 'flex';
+        }
+        
+        // 跳转到指定页面
+        function goToPage(page) {
+            currentPage = page;
+            displayOrders();
+            displayPagination();
+        }
+        
+        // 支付订单
+        function payOrder(orderId) {
+            if (confirm('确定要支付这个订单吗？')) {
+                // 这里可以跳转到支付页面或调用支付接口
+                showMessage('跳转到支付页面...', 'success');
+                // 实际项目中这里应该跳转到支付页面
+                setTimeout(() => {
+                    loadMyOrders(); // 刷新订单列表
+                }, 2000);
+            }
+        }
+        
+        // 取消订单
+        async function cancelOrder(orderId) {
+            if (!confirm('确定要取消这个订单吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/orders/${orderId}/status?status=CANCELLED`, {
+                    method: 'PUT'
+                });
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    showMessage('订单已取消', 'success');
+                    loadMyOrders(); // 刷新订单列表
+                } else {
+                    showMessage('取消订单失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            }
+        }
+        
+        // 确认收货
+        async function confirmReceived(orderId) {
+            if (!confirm('确定已收到商品吗？')) {
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/orders/${orderId}/status?status=DELIVERED`, {
+                    method: 'PUT'
+                });
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    showMessage('确认收货成功', 'success');
+                    loadMyOrders(); // 刷新订单列表
+                } else {
+                    showMessage('确认收货失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            }
+        }
+        
+        // 重新购买
+        function reorder(orderId) {
+            showMessage('重新购买功能开发中...', 'success');
+        }
+        
+        // 查看订单详情
+        async function viewOrderDetail(orderId) {
+            try {
+                const response = await fetch(`/api/orders/${orderId}`);
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    const order = result.data;
+                    alert(`订单详情:\n订单号: ${order.orderNo}\n状态: ${getStatusText(order.status)}\n总金额: ¥${order.totalAmount}\n实际支付: ¥${order.actualAmount || order.totalAmount}\n收货人: ${order.receiverName}\n收货地址: ${order.receiverAddress}`);
+                } else {
+                    showMessage('获取订单详情失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            }
+        }
+        
+        // 显示/隐藏加载指示器
+        function showLoading(show) {
+            document.getElementById('loadingIndicator').style.display = show ? 'block' : 'none';
+            document.getElementById('ordersList').style.display = show ? 'none' : 'block';
+            document.getElementById('emptyState').style.display = 'none';
+            document.getElementById('pagination').style.display = show ? 'none' : 'flex';
+        }
+        
+        // 显示消息
+        function showMessage(message, type) {
+            const messageArea = document.getElementById('messageArea');
+            messageArea.innerHTML = `<div class="message ${type}">${message}</div>`;
+            
+            // 3秒后自动隐藏成功消息
+            if (type === 'success') {
+                setTimeout(() => {
+                    hideMessage();
+                }, 3000);
+            }
+        }
+        
+        // 隐藏消息
+        function hideMessage() {
+            document.getElementById('messageArea').innerHTML = '';
+        }
+        
+        // 获取状态文本
+        function getStatusText(status) {
+            const statusMap = {
+                'PENDING': '待支付',
+                'PAID': '已支付',
+                'SHIPPED': '已发货',
+                'DELIVERED': '已送达',
+                'CANCELLED': '已取消'
+            };
+            return statusMap[status] || status;
+        }
+        
+        // 格式化日期时间
+        function formatDateTime(dateTimeStr) {
+            if (!dateTimeStr) return '-';
+            const date = new Date(dateTimeStr);
+            return date.toLocaleString('zh-CN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+    </script>
+</body>
+</html>

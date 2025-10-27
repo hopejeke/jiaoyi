@@ -70,3 +70,13 @@ alipay:
   format: JSON
   notify-url:  https://dorotha-gloomful-elfrieda.ngrok-free.dev/api/payment/alipay/notify
   return-url:  https://dorotha-gloomful-elfrieda.ngrok-free.dev/api/payment/alipay/return
+
+# RocketMQ配置
+rocketmq:
+  name-server: localhost:9876
+  producer:
+    group: order-timeout-producer-group
+    send-message-timeout: 3000
+    retry-times-when-send-failed: 2
+  consumer:
+    group: order-timeout-consumer-group

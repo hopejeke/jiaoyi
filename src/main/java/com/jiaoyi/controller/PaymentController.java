@@ -9,6 +9,7 @@ import com.jiaoyi.service.PaymentService;
 import com.jiaoyi.service.InventoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
@@ -64,7 +65,11 @@ public class PaymentController {
                 try {
                     // 1. 更新订单状态为已支付
                     // 现在 outTradeNo 就是订单号
-                    orderMapper.updateStatusByPaymentNo(outTradeNo, OrderStatus.PAID);
+                    int updatedRows = orderMapper.updateStatusToPaidIfPending(outTradeNo);
+                    if (updatedRows == 0) {
+                        log.warn("订单状态已变更，支付失败，订单号: {}", outTradeNo);
+                        return "FAIL";
+                    }
                     log.info("订单状态更新为已支付，订单号: {}", outTradeNo);
                     
                     // 2. 扣减库存（将锁定的库存转换为实际扣减）

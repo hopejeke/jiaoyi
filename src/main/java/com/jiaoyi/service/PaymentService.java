@@ -43,8 +43,10 @@ public class PaymentService {
             throw new RuntimeException("订单状态不正确，无法支付");
         }
         
-        // 3. 验证支付金额
-        if (order.getTotalAmount().compareTo(request.getAmount())!=0) {
+        // 3. 验证支付金额（使用实际支付金额进行比较）
+        BigDecimal expectedAmount = order.getActualAmount() != null ? order.getActualAmount() : order.getTotalAmount();
+        if (expectedAmount.compareTo(request.getAmount()) != 0) {
+            log.error("支付金额不匹配，订单ID: {}, 期望金额: {}, 实际金额: {}", orderId, expectedAmount, request.getAmount());
             throw new RuntimeException("支付金额不匹配");
         }
         
@@ -161,7 +163,11 @@ public class PaymentService {
             // 这里可以添加支付记录更新逻辑
             
             // 更新订单状态为已支付
-            orderMapper.updateStatusByPaymentNo(paymentNo, OrderStatus.PAID);
+            int updatedRows = orderMapper.updateStatusToPaidIfPending(paymentNo);
+            if (updatedRows == 0) {
+                log.warn("订单状态已变更，支付失败，订单号: {}", paymentNo);
+                return;
+            }
             
             log.info("支付成功处理完成，支付流水号: {}", paymentNo);
         } catch (Exception e) {

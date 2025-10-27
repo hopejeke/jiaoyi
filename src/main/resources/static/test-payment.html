@@ -100,7 +100,7 @@
             
             <div class="form-group">
                 <label for="unitPrice">单价:</label>
-                <input type="number" id="unitPrice" value="6" step="0.01" required>
+                <input type="number" id="unitPrice" value="600" step="0.01" required>
             </div>
             
             <div class="form-group">
@@ -111,7 +111,7 @@
             <!-- 优惠券部分 -->
             <div class="form-group">
                 <label for="couponCode">优惠券代码:</label>
-                <input type="text" id="couponCode" placeholder="请输入优惠券代码（可选）" value="NEWUSER100">
+                <input type="text" id="couponCode" placeholder="请输入优惠券代码（可选）" value="DISCOUNT10">
             </div>
             
             <div id="couponResult" class="result" style="display: none;">
@@ -132,6 +132,38 @@
     <div id="paymentResult" class="result" style="display: none;">
         <h3>支付结果</h3>
         <div id="paymentInfo"></div>
+    </div>
+    
+    <!-- 支付成功对话框 -->
+    <div id="paymentSuccessModal" class="modal" style="display: none;">
+        <div class="modal-content" style="max-width: 500px;">
+            <div class="modal-header">
+                <h3>🎉 支付成功！</h3>
+            </div>
+            <div style="padding: 20px; text-align: center;">
+                <div style="font-size: 48px; margin-bottom: 20px;">✅</div>
+                <p style="font-size: 18px; margin-bottom: 20px; color: #28a745;">
+                    订单支付成功，订单已处理完成！
+                </p>
+                <p style="color: #666; margin-bottom: 30px;">
+                    订单号：<span id="successOrderNo"></span>
+                </p>
+                <div style="display: flex; gap: 15px; justify-content: center; flex-wrap: wrap;">
+                    <button class="btn btn-primary" onclick="goToOrderDetail()">
+                        📋 查看订单详情
+                    </button>
+                    <button class="btn btn-success" onclick="goToMyOrders()">
+                        📦 我的订单
+                    </button>
+                    <button class="btn btn-secondary" onclick="goToOrderList()">
+                        📊 订单管理
+                    </button>
+                    <button class="btn btn-secondary" onclick="location.reload()">
+                        🔄 继续购物
+                    </button>
+                </div>
+            </div>
+        </div>
     </div>
     
     <script>
@@ -183,11 +215,27 @@
         });
         
         function showOrderResult(order) {
+            console.log('showOrderResult called with order:', order);
             currentOrder = order; // 设置当前订单
             
             const orderResult = document.getElementById('orderResult');
-            const orderInfo = document.getElementById('orderInfo');
-            const payButton = document.getElementById('payButton');
+            let orderInfo = document.getElementById('orderInfo');
+            let payButton = document.getElementById('payButton');
+            
+            console.log('orderInfo element:', orderInfo);
+            console.log('payButton element:', payButton);
+            
+            // 如果元素不存在，重新创建
+            if (!orderInfo || !payButton) {
+                orderResult.innerHTML = `
+                    <h3>订单创建结果</h3>
+                    <div id="orderInfo"></div>
+                    <button onclick="payOrder()" id="payButton" style="display: none;">支付订单</button>
+                `;
+                orderInfo = document.getElementById('orderInfo');
+                payButton = document.getElementById('payButton');
+                console.log('Recreated elements - orderInfo:', orderInfo, 'payButton:', payButton);
+            }
             
             // 构建优惠券信息显示
             let couponInfo = '';
@@ -234,7 +282,7 @@
             
             const paymentData = {
                 paymentMethod: "ALIPAY",
-                amount: Math.round(currentOrder.actualAmount || currentOrder.totalAmount),
+                amount: currentOrder.actualAmount || currentOrder.totalAmount,
                 channel: "WEB",
                 clientIp: "192.168.1.100",
                 userAgent: navigator.userAgent,
@@ -306,9 +354,13 @@
                                             style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
                                         检查支付状态
                                     </button>
-                                    <button onclick="openAlipayUrl('${payment.payUrl}')" 
+                                    <button onclick="simulatePaymentSuccess('${currentOrder.orderNo}', '${payment.paymentNo}', '${payment.amount}')" 
                                             style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">
-                                        打开支付页面
+                                        模拟支付成功
+                                    </button>
+                                    <button onclick="simulatePaymentFail('${currentOrder.orderNo}', '${payment.paymentNo}', '${payment.amount}')" 
+                                            style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">
+                                        模拟支付失败
                                     </button>
                                 </div>
                             </div>
@@ -381,8 +433,7 @@
                 if (result.code === 200) {
                     const status = result.data.status;
                     if (status === 'SUCCESS') {
-                        alert('✅ 支付成功！订单已处理完成。');
-                        location.reload();
+                        showPaymentSuccessDialog();
                     } else if (status === 'FAILED') {
                         alert('❌ 支付失败，请重试。');
                     } else {
@@ -393,6 +444,104 @@
                 }
             } catch (error) {
                 alert('❌ 网络错误: ' + error.message);
+            }
+        }
+        
+        // 显示支付成功对话框
+        function showPaymentSuccessDialog() {
+            if (currentOrder) {
+                document.getElementById('successOrderNo').textContent = currentOrder.orderNo;
+                document.getElementById('paymentSuccessModal').style.display = 'block';
+            } else {
+                alert('✅ 支付成功！订单已处理完成。');
+                location.reload();
+            }
+        }
+        
+        // 关闭支付成功对话框
+        function closePaymentSuccessModal() {
+            document.getElementById('paymentSuccessModal').style.display = 'none';
+            // 默认跳转到订单详情页
+            goToOrderDetail();
+        }
+        
+        // 跳转到订单详情页
+        function goToOrderDetail() {
+            if (currentOrder) {
+                window.location.href = `order-detail.html?orderId=${currentOrder.id}`;
+            } else {
+                window.location.href = 'order-detail.html';
+            }
+        }
+        
+        // 跳转到我的订单页
+        function goToMyOrders() {
+            if (currentOrder) {
+                window.location.href = `my-orders.html?userId=${currentOrder.userId}`;
+            } else {
+                window.location.href = 'my-orders.html';
+            }
+        }
+        
+        // 跳转到订单管理页
+        function goToOrderList() {
+            window.location.href = 'order-list.html';
+        }
+        
+        // 模拟支付成功
+        async function simulatePaymentSuccess(orderNo, paymentNo, amount) {
+            console.log('模拟支付成功回调:', { orderNo, paymentNo, amount });
+            try {
+                const response = await fetch('/api/payment/alipay/notify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        out_trade_no: orderNo,
+                        trade_status: 'TRADE_SUCCESS',
+                        total_amount: amount,
+                        trade_no: 'MOCK_ALIPAY_TRADE_NO_' + Date.now()
+                    }).toString()
+                });
+                const text = await response.text();
+                if (text === 'success') {
+                    showPaymentSuccessDialog();
+                } else {
+                    alert('❌ 模拟支付成功回调处理失败！');
+                }
+            } catch (error) {
+                console.error('模拟支付成功回调请求失败:', error);
+                alert('❌ 模拟支付成功回调请求失败: ' + error.message);
+            }
+        }
+        
+        // 模拟支付失败
+        async function simulatePaymentFail(orderNo, paymentNo, amount) {
+            console.log('模拟支付失败回调:', { orderNo, paymentNo, amount });
+            try {
+                const response = await fetch('/api/payment/alipay/notify', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({
+                        out_trade_no: orderNo,
+                        trade_status: 'TRADE_CLOSED',
+                        total_amount: amount,
+                        trade_no: 'MOCK_ALIPAY_TRADE_NO_FAILED_' + Date.now()
+                    }).toString()
+                });
+                const text = await response.text();
+                if (text === 'success') {
+                    alert('✅ 模拟支付失败回调已发送！');
+                    location.reload();
+                } else {
+                    alert('❌ 模拟支付失败回调处理失败！');
+                }
+            } catch (error) {
+                console.error('模拟支付失败回调请求失败:', error);
+                alert('❌ 模拟支付失败回调请求失败: ' + error.message);
             }
         }
         
@@ -410,8 +559,7 @@
                         const status = result.data.status;
                         if (status === 'SUCCESS') {
                             clearInterval(pollingInterval);
-                            alert('✅ 支付成功！订单已处理完成。');
-                            location.reload();
+                            showPaymentSuccessDialog();
                         } else if (status === 'FAILED') {
                             clearInterval(pollingInterval);
                             alert('❌ 支付失败，请重试。');
@@ -433,7 +581,25 @@
         
         function showError(message) {
             const result = document.getElementById('orderResult');
-            result.innerHTML = `<h3>错误</h3><p>${message}</p>`;
+            const orderInfo = document.getElementById('orderInfo');
+            const payButton = document.getElementById('payButton');
+            
+            // 只更新内容，不删除子元素
+            if (orderInfo) {
+                orderInfo.innerHTML = `<p style="color: #721c24;">${message}</p>`;
+            } else {
+                result.innerHTML = `
+                    <h3>错误</h3>
+                    <div id="orderInfo"><p style="color: #721c24;">${message}</p></div>
+                    <button onclick="payOrder()" id="payButton" style="display: none;">支付订单</button>
+                `;
+            }
+            
+            // 隐藏支付按钮
+            if (payButton) {
+                payButton.style.display = 'none';
+            }
+            
             result.style.display = 'block';
             result.className = 'result error';
         }
@@ -452,6 +618,14 @@
                 document.body.removeChild(textArea);
                 alert('支付链接已复制到剪贴板！');
             });
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const paymentSuccessModal = document.getElementById('paymentSuccessModal');
+            if (event.target === paymentSuccessModal) {
+                closePaymentSuccessModal();
+            }
         }
     </script>
 </body>

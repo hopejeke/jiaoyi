@@ -3,8 +3,16 @@ CREATE DATABASE IF NOT EXISTS jiaoyi DEFAULT CHARACTER SET utf8mb4 COLLATE utf8m
 
 USE jiaoyi;
 
+-- 删除表（如果存在）
+DROP TABLE IF EXISTS coupon_usage;
+DROP TABLE IF EXISTS coupons;
+DROP TABLE IF EXISTS inventory_transactions;
+DROP TABLE IF EXISTS inventory;
+DROP TABLE IF EXISTS order_items;
+DROP TABLE IF EXISTS orders;
+
 -- 创建订单表
-CREATE TABLE IF NOT EXISTS orders (
+CREATE TABLE orders (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     order_no VARCHAR(64) NOT NULL UNIQUE COMMENT '订单号',
     user_id BIGINT NOT NULL COMMENT '用户ID',
@@ -27,7 +35,7 @@ CREATE TABLE IF NOT EXISTS orders (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单表';
 
 -- 创建订单项表
-CREATE TABLE IF NOT EXISTS order_items (
+CREATE TABLE order_items (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     order_id BIGINT NOT NULL COMMENT '订单ID',
     product_id BIGINT NOT NULL COMMENT '商品ID',
@@ -42,7 +50,7 @@ CREATE TABLE IF NOT EXISTS order_items (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单项表';
 
 -- 创建库存表
-CREATE TABLE IF NOT EXISTS inventory (
+CREATE TABLE inventory (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     product_id BIGINT NOT NULL UNIQUE COMMENT '商品ID',
     product_name VARCHAR(200) NOT NULL COMMENT '商品名称',
@@ -56,7 +64,7 @@ CREATE TABLE IF NOT EXISTS inventory (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存表';
 
 -- 创建库存变动记录表
-CREATE TABLE IF NOT EXISTS inventory_transactions (
+CREATE TABLE inventory_transactions (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     product_id BIGINT NOT NULL COMMENT '商品ID',
     order_id BIGINT COMMENT '订单ID',
@@ -75,7 +83,7 @@ CREATE TABLE IF NOT EXISTS inventory_transactions (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存变动记录表';
 
 -- 创建优惠券表
-CREATE TABLE IF NOT EXISTS coupons (
+CREATE TABLE coupons (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     coupon_code VARCHAR(50) NOT NULL UNIQUE COMMENT '优惠券代码',
     coupon_name VARCHAR(100) NOT NULL COMMENT '优惠券名称',
@@ -100,7 +108,7 @@ CREATE TABLE IF NOT EXISTS coupons (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='优惠券表';
 
 -- 创建优惠券使用记录表
-CREATE TABLE IF NOT EXISTS coupon_usage (
+CREATE TABLE coupon_usage (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     coupon_id BIGINT NOT NULL COMMENT '优惠券ID',
     user_id BIGINT NOT NULL COMMENT '用户ID',

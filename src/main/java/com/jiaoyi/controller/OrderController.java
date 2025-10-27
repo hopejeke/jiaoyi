@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 
 import jakarta.validation.Valid;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 /**
@@ -130,6 +131,25 @@ public class OrderController {
         log.info("查询用户指定状态订单，用户ID: {}, 状态: {}", userId, status);
         List<OrderResponse> orders = orderService.getOrdersByUserIdAndStatus(userId, status);
         return ResponseEntity.ok(ApiResponse.success(orders));
+    }
+    
+    /**
+     * 分页查询订单列表（管理员接口）
+     */
+    @GetMapping("/page")
+    public ResponseEntity<ApiResponse<Map<String, Object>>> getOrdersPage(
+            @RequestParam(defaultValue = "1") int pageNum,
+            @RequestParam(defaultValue = "10") int pageSize,
+            @RequestParam(required = false) String orderNo,
+            @RequestParam(required = false) Long userId,
+            @RequestParam(required = false) String status,
+            @RequestParam(required = false) String startTime,
+            @RequestParam(required = false) String endTime) {
+        log.info("分页查询订单列表，页码: {}, 大小: {}, 订单号: {}, 用户ID: {}, 状态: {}", 
+                pageNum, pageSize, orderNo, userId, status);
+        
+        Map<String, Object> result = orderService.getOrdersPage(pageNum, pageSize, orderNo, userId, status, startTime, endTime);
+        return ResponseEntity.ok(ApiResponse.success(result));
     }
     
     /**

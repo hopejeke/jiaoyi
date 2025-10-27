@@ -3,7 +3,7 @@
 <mapper namespace="com.jiaoyi.mapper.InventoryMapper">
 
     <!-- 结果映射 -->
-    <resultMap id="InventoryResultMap" type="com.jiaoyi.entity.Inventory">
+    <resultMap id="BaseResultMap" type="com.jiaoyi.entity.Inventory">
         <id column="id" property="id"/>
         <result column="product_id" property="productId"/>
         <result column="product_name" property="productName"/>
@@ -16,12 +16,12 @@
     </resultMap>
 
     <!-- 根据商品ID查询库存 -->
-    <select id="selectByProductId" parameterType="long" resultMap="InventoryResultMap">
+    <select id="selectByProductId" parameterType="long" resultMap="BaseResultMap">
         SELECT * FROM inventory WHERE product_id = #{productId}
     </select>
 
     <!-- 查询库存不足的商品 -->
-    <select id="selectLowStockItems" resultMap="InventoryResultMap">
+    <select id="selectLowStockItems" resultMap="BaseResultMap">
         SELECT * FROM inventory WHERE (current_stock - locked_stock) &lt; min_stock
     </select>
 
