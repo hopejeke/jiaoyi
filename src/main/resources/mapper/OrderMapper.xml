@@ -9,9 +9,7 @@
         <result column="user_id" property="userId"/>
         <result column="status" property="status"/>
         <result column="total_amount" property="totalAmount"/>
-        <result column="coupon_id" property="couponId"/>
-        <result column="coupon_code" property="couponCode"/>
-        <result column="discount_amount" property="discountAmount"/>
+        <result column="total_discount_amount" property="totalDiscountAmount"/>
         <result column="actual_amount" property="actualAmount"/>
         <result column="receiver_name" property="receiverName"/>
         <result column="receiver_phone" property="receiverPhone"/>
@@ -24,12 +22,12 @@
     <!-- 插入订单 -->
     <insert id="insert" parameterType="com.jiaoyi.entity.Order" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO orders (
-            order_no, user_id, status, total_amount, coupon_id, coupon_code, 
-            discount_amount, actual_amount, receiver_name, receiver_phone, 
+            order_no, user_id, status, total_amount, total_discount_amount, 
+            actual_amount, receiver_name, receiver_phone, 
             receiver_address, remark, create_time, update_time
         ) VALUES (
-            #{orderNo}, #{userId}, #{status}, #{totalAmount}, #{couponId}, #{couponCode},
-            #{discountAmount}, #{actualAmount}, #{receiverName}, #{receiverPhone},
+            #{orderNo}, #{userId}, #{status}, #{totalAmount}, #{totalDiscountAmount},
+            #{actualAmount}, #{receiverName}, #{receiverPhone},
             #{receiverAddress}, #{remark}, #{createTime}, #{updateTime}
         )
     </insert>

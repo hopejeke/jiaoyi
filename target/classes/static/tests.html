@@ -1,0 +1,619 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>系统测试中心</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.3rem;
+            opacity: 0.9;
+        }
+        
+        .test-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .test-card {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+        }
+        
+        .test-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 25px 50px rgba(0,0,0,0.2);
+        }
+        
+        .test-card h3 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .test-card p {
+            color: #7f8c8d;
+            margin-bottom: 20px;
+            line-height: 1.6;
+        }
+        
+        .test-buttons {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .test-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 12px 20px;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .test-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .test-btn.secondary {
+            background: #6c757d;
+        }
+        
+        .test-btn.secondary:hover {
+            background: #5a6268;
+        }
+        
+        .result-section {
+            background: white;
+            border-radius: 20px;
+            padding: 30px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .result-section h3 {
+            color: #2c3e50;
+            margin-bottom: 20px;
+            font-size: 1.3rem;
+        }
+        
+        .result {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 15px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            white-space: pre-wrap;
+            max-height: 300px;
+            overflow-y: auto;
+            border-left: 4px solid #667eea;
+        }
+        
+        .result.error {
+            border-left-color: #e74c3c;
+            background: #fdf2f2;
+        }
+        
+        .result.success {
+            border-left-color: #27ae60;
+            background: #f0f9f0;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        .input-group label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .input-group input, .input-group select {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s ease;
+        }
+        
+        .input-group input:focus, .input-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .hidden {
+            display: none;
+        }
+        
+        @media (max-width: 768px) {
+            .test-grid {
+                grid-template-columns: 1fr;
+                gap: 20px;
+            }
+            
+            .test-card {
+                padding: 20px;
+            }
+            
+            .test-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🧪 系统测试中心</h1>
+            <p>一站式测试所有系统功能</p>
+        </div>
+        
+        <div class="test-grid">
+            <!-- 商品测试 -->
+            <div class="test-card">
+                <h3>🛍️ 商品功能测试</h3>
+                <p>测试商品相关的所有API接口，包括商品列表、搜索、详情等功能</p>
+                <div class="test-buttons">
+                    <button class="test-btn" onclick="testGetAllProducts()">获取所有商品</button>
+                    <button class="test-btn" onclick="testGetProductCount()">商品统计</button>
+                    <a href="product-list.html" class="test-btn secondary" target="_blank">商品列表页</a>
+                </div>
+                <div class="input-group">
+                    <label>搜索商品:</label>
+                    <input type="text" id="searchInput" placeholder="输入商品名称">
+                    <button class="test-btn" onclick="testSearchProducts()" style="margin-top: 10px; width: 100%;">搜索</button>
+                </div>
+                <div class="input-group">
+                    <label>商品ID:</label>
+                    <input type="number" id="productIdInput" placeholder="输入商品ID">
+                    <button class="test-btn" onclick="testGetProductById()" style="margin-top: 10px; width: 100%;">获取详情</button>
+                </div>
+            </div>
+            
+            <!-- 订单测试 -->
+            <div class="test-card">
+                <h3>📦 订单功能测试</h3>
+                <p>测试订单创建、查询、取消等核心业务功能</p>
+                <div class="test-buttons">
+                    <button class="test-btn" onclick="testGetAllOrders()">获取所有订单</button>
+                    <button class="test-btn" onclick="testCreateOrder()">创建测试订单</button>
+                    <a href="orders.html" class="test-btn secondary" target="_blank">订单管理页</a>
+                </div>
+                <div class="input-group">
+                    <label>订单ID:</label>
+                    <input type="number" id="orderIdInput" placeholder="输入订单ID">
+                    <button class="test-btn" onclick="testGetOrderById()" style="margin-top: 10px; width: 100%;">获取订单详情</button>
+                </div>
+            </div>
+            
+            <!-- 支付测试 -->
+            <div class="test-card">
+                <h3>💳 支付功能测试</h3>
+                <p>测试支付宝支付、支付状态查询等支付相关功能</p>
+                <div class="test-buttons">
+                    <button class="test-btn" onclick="testCreatePayment()">创建支付</button>
+                    <button class="test-btn" onclick="testQueryPayment()">查询支付状态</button>
+                    <a href="payment.html" class="test-btn secondary" target="_blank">支付中心</a>
+                </div>
+                <div class="input-group">
+                    <label>订单号:</label>
+                    <input type="text" id="paymentOrderNoInput" placeholder="输入订单号">
+                    <button class="test-btn" onclick="testQueryPaymentByOrderNo()" style="margin-top: 10px; width: 100%;">查询支付</button>
+                </div>
+            </div>
+            
+            <!-- 优惠券测试 -->
+            <div class="test-card">
+                <h3>🎫 优惠券功能测试</h3>
+                <p>测试优惠券验证、计算、使用等优惠券相关功能</p>
+                <div class="test-buttons">
+                    <button class="test-btn" onclick="testGetAllCoupons()">获取所有优惠券</button>
+                    <button class="test-btn" onclick="testValidateCoupon()">验证优惠券</button>
+                    <button class="test-btn" onclick="testCalculateDiscount()">计算优惠金额</button>
+                </div>
+                <div class="input-group">
+                    <label>优惠券代码:</label>
+                    <input type="text" id="couponCodeInput" placeholder="输入优惠券代码" value="NEWUSER100">
+                    <button class="test-btn" onclick="testGetCouponByCode()" style="margin-top: 10px; width: 100%;">获取优惠券</button>
+                </div>
+            </div>
+            
+            <!-- 库存测试 -->
+            <div class="test-card">
+                <h3>📊 库存功能测试</h3>
+                <p>测试库存查询、锁定、释放等库存管理功能</p>
+                <div class="test-buttons">
+                    <button class="test-btn" onclick="testGetAllInventory()">获取所有库存</button>
+                    <button class="test-btn" onclick="testCheckStock()">检查库存</button>
+                    <a href="inventory-cache-test.html" class="test-btn secondary" target="_blank">库存缓存测试</a>
+                </div>
+                <div class="input-group">
+                    <label>商品ID:</label>
+                    <input type="number" id="inventoryProductIdInput" placeholder="输入商品ID">
+                    <button class="test-btn" onclick="testGetInventoryByProductId()" style="margin-top: 10px; width: 100%;">查询库存</button>
+                </div>
+            </div>
+            
+            <!-- 超时测试 -->
+            <div class="test-card">
+                <h3>⏰ 超时处理测试</h3>
+                <p>测试订单超时处理、延迟消息等高级功能</p>
+                <div class="test-buttons">
+                    <button class="test-btn" onclick="testOrderTimeoutFallback()">兜底任务测试</button>
+                    <button class="test-btn" onclick="testOrderTimeoutMQ()">MQ延迟消息测试</button>
+                    <button class="test-btn" onclick="testOrderTimeoutRocketMQ()">RocketMQ测试</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 测试结果区域 -->
+        <div class="result-section">
+            <h3>📋 测试结果</h3>
+            <div id="testResult" class="result hidden">测试结果将显示在这里...</div>
+        </div>
+    </div>
+
+    <script>
+        // 显示测试结果
+        function showResult(data, isError = false) {
+            const resultDiv = document.getElementById('testResult');
+            resultDiv.classList.remove('hidden');
+            resultDiv.className = `result ${isError ? 'error' : 'success'}`;
+            resultDiv.textContent = JSON.stringify(data, null, 2);
+        }
+        
+        // 商品测试函数
+        async function testGetAllProducts() {
+            try {
+                const response = await fetch('/api/products');
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testGetProductCount() {
+            try {
+                const response = await fetch('/api/products/count');
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testSearchProducts() {
+            const searchTerm = document.getElementById('searchInput').value;
+            if (!searchTerm) {
+                alert('请输入搜索关键词');
+                return;
+            }
+            try {
+                const response = await fetch(`/api/products/search?name=${encodeURIComponent(searchTerm)}`);
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testGetProductById() {
+            const productId = document.getElementById('productIdInput').value;
+            if (!productId) {
+                alert('请输入商品ID');
+                return;
+            }
+            try {
+                const response = await fetch(`/api/products/${productId}`);
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        // 订单测试函数
+        async function testGetAllOrders() {
+            try {
+                const response = await fetch('/api/orders');
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testCreateOrder() {
+            const orderData = {
+                userId: 1001,
+                receiverName: "测试用户",
+                receiverPhone: "13800138000",
+                receiverAddress: "测试地址",
+                remark: "测试订单",
+                orderItems: [{
+                    productId: 1,
+                    productName: "测试商品",
+                    productImage: "https://example.com/test.jpg",
+                    unitPrice: 100.00,
+                    quantity: 1
+                }]
+            };
+            
+            try {
+                const response = await fetch('/api/orders', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(orderData)
+                });
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testGetOrderById() {
+            const orderId = document.getElementById('orderIdInput').value;
+            if (!orderId) {
+                alert('请输入订单ID');
+                return;
+            }
+            try {
+                const response = await fetch(`/api/orders/${orderId}`);
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        // 支付测试函数
+        async function testCreatePayment() {
+            const paymentData = {
+                orderNo: "TEST" + Date.now(),
+                amount: 100.00,
+                subject: "测试支付"
+            };
+            
+            try {
+                const response = await fetch('/api/payment/create', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(paymentData)
+                });
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testQueryPayment() {
+            try {
+                const response = await fetch('/api/payment/query/TEST123');
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testQueryPaymentByOrderNo() {
+            const orderNo = document.getElementById('paymentOrderNoInput').value;
+            if (!orderNo) {
+                alert('请输入订单号');
+                return;
+            }
+            try {
+                const response = await fetch(`/api/payment/query/${orderNo}`);
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        // 优惠券测试函数
+        async function testGetAllCoupons() {
+            try {
+                const response = await fetch('/api/coupons');
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testValidateCoupon() {
+            const validationData = {
+                couponCode: "NEWUSER100",
+                userId: 1001,
+                orderAmount: 1000.00,
+                productIds: [1, 2, 3]
+            };
+            
+            try {
+                const response = await fetch('/api/coupons/validate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(validationData)
+                });
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testCalculateDiscount() {
+            const calculationData = {
+                couponId: 1,
+                orderAmount: 1000.00
+            };
+            
+            try {
+                const response = await fetch('/api/coupons/calculate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(calculationData)
+                });
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testGetCouponByCode() {
+            const couponCode = document.getElementById('couponCodeInput').value;
+            if (!couponCode) {
+                alert('请输入优惠券代码');
+                return;
+            }
+            try {
+                const response = await fetch(`/api/coupons/code/${couponCode}`);
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        // 库存测试函数
+        async function testGetAllInventory() {
+            try {
+                const response = await fetch('/api/inventory');
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testCheckStock() {
+            const checkData = {
+                productId: 1,
+                quantity: 1
+            };
+            
+            try {
+                const response = await fetch('/api/inventory/check', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(checkData)
+                });
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testGetInventoryByProductId() {
+            const productId = document.getElementById('inventoryProductIdInput').value;
+            if (!productId) {
+                alert('请输入商品ID');
+                return;
+            }
+            try {
+                const response = await fetch(`/api/inventory/product/${productId}`);
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        // 超时测试函数
+        async function testOrderTimeoutFallback() {
+            try {
+                const response = await fetch('/api/order-timeout/fallback/test');
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testOrderTimeoutMQ() {
+            try {
+                const response = await fetch('/api/order-timeout/mq/test');
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+        
+        async function testOrderTimeoutRocketMQ() {
+            try {
+                const response = await fetch('/api/order-timeout/rocketmq/test');
+                const result = await response.json();
+                showResult(result);
+            } catch (error) {
+                showResult({ error: error.message }, true);
+            }
+        }
+    </script>
+</body>
+</html>

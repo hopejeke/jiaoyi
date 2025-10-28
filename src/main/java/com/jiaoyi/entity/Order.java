@@ -39,19 +39,9 @@ public class Order {
     private BigDecimal totalAmount;
     
     /**
-     * 优惠券ID
+     * 总优惠金额
      */
-    private Long couponId;
-    
-    /**
-     * 优惠券代码
-     */
-    private String couponCode;
-    
-    /**
-     * 优惠金额
-     */
-    private BigDecimal discountAmount;
+    private BigDecimal totalDiscountAmount;
     
     /**
      * 实际支付金额
@@ -92,4 +82,9 @@ public class Order {
      * 订单项列表
      */
     private List<OrderItem> orderItems;
+    
+    /**
+     * 订单使用的优惠券列表
+     */
+    private List<OrderCoupon> orderCoupons;
 }

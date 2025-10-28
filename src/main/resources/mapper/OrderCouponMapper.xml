@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.mapper.OrderCouponMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="OrderCouponResultMap" type="com.jiaoyi.entity.OrderCoupon">
+        <id column="id" property="id"/>
+        <result column="order_id" property="orderId"/>
+        <result column="coupon_id" property="couponId"/>
+        <result column="coupon_code" property="couponCode"/>
+        <result column="applied_amount" property="appliedAmount"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <!-- 插入订单优惠券关联记录 -->
+    <insert id="insert" parameterType="com.jiaoyi.entity.OrderCoupon" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO order_coupons (
+            order_id, coupon_id, coupon_code, applied_amount, create_time
+        ) VALUES (
+            #{orderId}, #{couponId}, #{couponCode}, #{appliedAmount}, #{createTime}
+        )
+    </insert>
+
+    <!-- 批量插入订单优惠券关联记录 -->
+    <insert id="batchInsert" parameterType="java.util.List">
+        INSERT INTO order_coupons (
+            order_id, coupon_id, coupon_code, applied_amount, create_time
+        ) VALUES
+        <foreach collection="orderCoupons" item="item" separator=",">
+            (#{item.orderId}, #{item.couponId}, #{item.couponCode}, #{item.appliedAmount}, #{item.createTime})
+        </foreach>
+    </insert>
+
+    <!-- 根据订单ID查询优惠券关联记录 -->
+    <select id="selectByOrderId" parameterType="java.lang.Long" resultMap="OrderCouponResultMap">
+        SELECT * FROM order_coupons WHERE order_id = #{orderId}
+        ORDER BY create_time ASC
+    </select>
+
+    <!-- 根据优惠券ID查询使用记录 -->
+    <select id="selectByCouponId" parameterType="java.lang.Long" resultMap="OrderCouponResultMap">
+        SELECT * FROM order_coupons WHERE coupon_id = #{couponId}
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据订单ID删除优惠券关联记录 -->
+    <delete id="deleteByOrderId" parameterType="java.lang.Long">
+        DELETE FROM order_coupons WHERE order_id = #{orderId}
+    </delete>
+
+    <!-- 根据优惠券ID删除关联记录 -->
+    <delete id="deleteByCouponId" parameterType="java.lang.Long">
+        DELETE FROM order_coupons WHERE coupon_id = #{couponId}
+    </delete>
+
+    <!-- 统计优惠券使用次数 -->
+    <select id="countByCouponId" parameterType="java.lang.Long" resultType="java.lang.Integer">
+        SELECT COUNT(*) FROM order_coupons WHERE coupon_id = #{couponId}
+    </select>
+
+</mapper>
