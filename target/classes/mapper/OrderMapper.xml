@@ -99,6 +99,12 @@
         WHERE order_no = #{paymentNo} AND status = 'PENDING'
     </update>
 
+    <!-- 原子更新订单状态：从CANCELLED改为PAID（处理已取消订单的支付回调） -->
+    <update id="updateStatusFromCancelledToPaid">
+        UPDATE orders SET status = 'PAID', update_time = NOW() 
+        WHERE id = #{orderId} AND status = 'CANCELLED'
+    </update>
+
     <!-- 查询超时订单 -->
     <select id="selectTimeoutOrders" parameterType="java.time.LocalDateTime" resultMap="BaseResultMap">
         SELECT * FROM orders 

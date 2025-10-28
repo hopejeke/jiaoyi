@@ -5,10 +5,13 @@ import com.alipay.api.AlipayClient;
 import com.alipay.api.DefaultAlipayClient;
 import com.alipay.api.domain.AlipayTradePrecreateModel;
 import com.alipay.api.domain.AlipayTradeQueryModel;
+import com.alipay.api.domain.AlipayTradeRefundModel;
 import com.alipay.api.request.AlipayTradePrecreateRequest;
 import com.alipay.api.request.AlipayTradeQueryRequest;
+import com.alipay.api.request.AlipayTradeRefundRequest;
 import com.alipay.api.response.AlipayTradePrecreateResponse;
 import com.alipay.api.response.AlipayTradeQueryResponse;
+import com.alipay.api.response.AlipayTradeRefundResponse;
 import com.jiaoyi.config.AlipayConfig;
 import com.jiaoyi.dto.PaymentResponse;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +30,25 @@ import java.time.LocalDateTime;
 public class AlipayService {
     
     private final AlipayConfig alipayConfig;
+    private AlipayClient alipayClient;
+    
+    /**
+     * 获取AlipayClient实例
+     */
+    private AlipayClient getAlipayClient() {
+        if (alipayClient == null) {
+            alipayClient = new DefaultAlipayClient(
+                alipayConfig.getGatewayUrl(),
+                alipayConfig.getAppId(),
+                alipayConfig.getPrivateKey(),
+                "json",
+                "UTF-8",
+                alipayConfig.getAlipayPublicKey(),
+                "RSA2"
+            );
+        }
+        return alipayClient;
+    }
     
     /**
      * 创建支付宝支付订单 (真实支付)
@@ -160,6 +182,48 @@ public class AlipayService {
             case "WAIT_BUYER_PAY":
             default:
                 return "PENDING";
+        }
+    }
+    
+    /**
+     * 发起退款
+     * @param outTradeNo 商户订单号
+     * @param refundAmount 退款金额
+     * @param refundReason 退款原因
+     * @return 退款是否成功
+     */
+    public boolean refund(String outTradeNo, BigDecimal refundAmount, String refundReason) {
+        log.info("发起支付宝退款，订单号: {}, 退款金额: {}, 退款原因: {}", outTradeNo, refundAmount, refundReason);
+        
+        try {
+            // 生成退款单号
+            String refundNo = "REF" + System.currentTimeMillis() + (int)(Math.random() * 1000);
+            
+            // 构建退款请求
+            AlipayTradeRefundRequest request = new AlipayTradeRefundRequest();
+            AlipayTradeRefundModel model = new AlipayTradeRefundModel();
+            model.setOutTradeNo(outTradeNo);
+            model.setRefundAmount(refundAmount.toString());
+            model.setRefundReason(refundReason);
+            model.setOutRequestNo(refundNo);
+            request.setBizModel(model);
+            
+            // 调用退款接口
+            AlipayTradeRefundResponse response = getAlipayClient().execute(request);
+            
+            if (response.isSuccess()) {
+                log.info("支付宝退款成功，订单号: {}, 退款单号: {}, 退款金额: {}", 
+                        outTradeNo, refundNo, refundAmount);
+                return true;
+            } else {
+                log.error("支付宝退款失败，订单号: {}, 错误码: {}, 错误信息: {}", 
+                        outTradeNo, response.getCode(), response.getMsg());
+                return false;
+            }
+            
+        } catch (Exception e) {
+            log.error("支付宝退款异常，订单号: {}", outTradeNo, e);
+            return false;
         }
     }
 }

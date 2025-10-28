@@ -80,3 +80,11 @@ rocketmq:
     retry-times-when-send-failed: 2
   consumer:
     group: order-timeout-consumer-group
+
+# 订单超时配置
+order:
+  timeout:
+    minutes: 40  # 订单超时时间（分钟）
+    fallback:
+      enabled: true  # 是否启用兜底定时任务
+      interval: 300000  # 兜底任务执行间隔（毫秒），默认5分钟
