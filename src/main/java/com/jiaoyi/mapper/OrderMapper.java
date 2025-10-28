@@ -85,6 +85,13 @@ public interface OrderMapper {
     int updateStatusToPaidIfPending(@Param("paymentNo") String paymentNo);
     
     /**
+     * 原子更新订单状态：从CANCELLED改为PAID（处理已取消订单的支付回调）
+     * @param orderId 订单ID
+     * @return 更新的行数
+     */
+    int updateStatusFromCancelledToPaid(@Param("orderId") Long orderId);
+    
+    /**
      * 查询超时订单（指定时间之前创建的待支付订单）
      */
     List<Order> selectTimeoutOrders(@Param("timeoutThreshold") LocalDateTime timeoutThreshold);

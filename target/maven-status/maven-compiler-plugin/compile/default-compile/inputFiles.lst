@@ -1,6 +1,7 @@
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\InventoryController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\CouponService.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\config\CorsConfig.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\OrderTimeoutFallbackController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\config\RocketMQConfig.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\OrderStatus.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\exception\GlobalExceptionHandler.java
@@ -9,6 +10,7 @@ D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\Order.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\util\CartFingerprintUtil.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\OrderMapper.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\dto\PaymentResponse.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\OrderTimeoutFallbackService.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\exception\InsufficientStockException.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\common\ApiResponse.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\CouponMapper.java
@@ -25,10 +27,12 @@ D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\JiaoyiApplication.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\InventoryTransaction.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\Coupon.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\OrderTimeoutMQController.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\InventoryCacheService.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\OrderItem.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\TestController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\service\OrderService.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\annotation\PreventDuplicateSubmission.java
+D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\InventoryCacheController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\controller\CouponController.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\entity\CouponUsage.java
 D:\软件\ideaproject\jiaoyi\src\main\java\com\jiaoyi\mapper\CouponUsageMapper.java

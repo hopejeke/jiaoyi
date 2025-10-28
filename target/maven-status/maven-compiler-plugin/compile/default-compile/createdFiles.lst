@@ -3,7 +3,6 @@ com\jiaoyi\mapper\CouponMapper.class
 com\jiaoyi\dto\OrderTimeoutMessage.class
 com\jiaoyi\common\ApiResponse.class
 com\jiaoyi\mapper\CouponUsageMapper.class
-com\jiaoyi\controller\OrderTimeoutMQController.class
 com\jiaoyi\entity\Order.class
 com\jiaoyi\entity\OrderStatus.class
 com\jiaoyi\JiaoyiApplication.class
@@ -14,16 +13,13 @@ com\jiaoyi\dto\PaymentResponse.class
 com\jiaoyi\entity\Coupon$CouponType.class
 com\jiaoyi\entity\Coupon$CouponStatus.class
 com\jiaoyi\util\CartFingerprintUtil.class
-com\jiaoyi\service\OrderService.class
 com\jiaoyi\config\CorsConfig.class
 com\jiaoyi\util\CartFingerprintUtil$FingerprintData.class
 com\jiaoyi\dto\CreateOrderRequest.class
-com\jiaoyi\service\OrderTimeoutMessageService.class
 com\jiaoyi\dto\PaymentRequest.class
 com\jiaoyi\dto\CreateOrderRequest$OrderItemRequest.class
 com\jiaoyi\controller\TestController.class
 com\jiaoyi\service\InventoryService.class
-com\jiaoyi\controller\OrderController.class
 com\jiaoyi\config\AlipayConfig.class
 com\jiaoyi\annotation\PreventDuplicateSubmission.class
 com\jiaoyi\controller\CouponController.class
