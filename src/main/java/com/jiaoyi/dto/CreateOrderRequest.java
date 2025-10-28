@@ -48,14 +48,14 @@ public class CreateOrderRequest {
     private String remark;
     
     /**
-     * 优惠券ID
+     * 优惠券ID列表
      */
-    private Long couponId;
+    private List<Long> couponIds;
     
     /**
-     * 优惠券代码
+     * 优惠券代码列表
      */
-    private String couponCode;
+    private List<String> couponCodes;
     
     /**
      * 订单项列表

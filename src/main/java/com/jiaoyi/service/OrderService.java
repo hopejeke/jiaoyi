@@ -6,8 +6,10 @@ import com.jiaoyi.entity.Coupon;
 import com.jiaoyi.entity.Order;
 import com.jiaoyi.entity.OrderItem;
 import com.jiaoyi.entity.OrderStatus;
+import com.jiaoyi.entity.OrderCoupon;
 import com.jiaoyi.mapper.OrderItemMapper;
 import com.jiaoyi.mapper.OrderMapper;
+import com.jiaoyi.mapper.OrderCouponMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -31,6 +33,7 @@ public class OrderService {
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
+    private final OrderCouponMapper orderCouponMapper;
     private final InventoryService inventoryService;
     private final CouponService couponService;
     private final RedissonClient redissonClient;
@@ -76,36 +79,64 @@ public class OrderService {
                 // 3. 计算订单总金额
                 BigDecimal totalAmount = calculateTotalAmount(request.getOrderItems());
 
-                // 4. 处理优惠券
-                BigDecimal discountAmount = BigDecimal.ZERO;
+                // 4. 处理多优惠券
+                BigDecimal totalDiscountAmount = BigDecimal.ZERO;
                 BigDecimal actualAmount = totalAmount;
-                Coupon coupon = null;
+                List<Coupon> validCoupons = new ArrayList<>();
+                List<OrderCoupon> orderCoupons = new ArrayList<>();
 
-                if (request.getCouponId() != null || request.getCouponCode() != null) {
-                    // 获取优惠券
-                    if (request.getCouponId() != null) {
-                        coupon = couponService.getCouponById(request.getCouponId()).orElse(null);
-                    } else if (request.getCouponCode() != null) {
-                        coupon = couponService.getCouponByCode(request.getCouponCode()).orElse(null);
-                    }
-
-                    if (coupon != null) {
-                        // 验证优惠券
-
-                        if (couponService.validateCoupon(coupon, request.getUserId(), totalAmount, productIds)) {
-                            // 计算优惠金额
-                            discountAmount = couponService.calculateDiscountAmount(coupon, totalAmount);
-                            actualAmount = totalAmount.subtract(discountAmount);
-                            log.info("优惠券验证通过，优惠金额: {}, 实际支付金额: {}", discountAmount, actualAmount);
+                if (request.getCouponIds() != null && !request.getCouponIds().isEmpty()) {
+                    // 处理优惠券ID列表
+                    for (Long couponId : request.getCouponIds()) {
+                        Coupon coupon = couponService.getCouponById(couponId).orElse(null);
+                        if (coupon != null && couponService.validateCoupon(coupon, request.getUserId(), totalAmount, productIds)) {
+                            BigDecimal discountAmount = couponService.calculateDiscountAmount(coupon, totalAmount);
+                            totalDiscountAmount = totalDiscountAmount.add(discountAmount);
+                            validCoupons.add(coupon);
+                            
+                            // 创建订单优惠券关联记录
+                            OrderCoupon orderCoupon = new OrderCoupon();
+                            orderCoupon.setOrderId(null); // 稍后设置
+                            orderCoupon.setCouponId(coupon.getId());
+                            orderCoupon.setCouponCode(coupon.getCouponCode());
+                            orderCoupon.setAppliedAmount(discountAmount);
+                            orderCoupon.setCreateTime(LocalDateTime.now());
+                            orderCoupons.add(orderCoupon);
+                            
+                            log.info("优惠券验证通过，优惠券ID: {}, 优惠金额: {}", coupon.getId(), discountAmount);
                         } else {
-                            log.warn("优惠券验证失败，优惠券ID: {}", coupon.getId());
-                            throw new RuntimeException("优惠券不可用");
+                            log.warn("优惠券验证失败，优惠券ID: {}", couponId);
+                            throw new RuntimeException("优惠券不可用: " + couponId);
                         }
-                    } else {
-                        log.warn("优惠券不存在，优惠券ID: {}, 优惠券代码: {}", request.getCouponId(), request.getCouponCode());
-                        throw new RuntimeException("优惠券不存在");
+                    }
+                } else if (request.getCouponCodes() != null && !request.getCouponCodes().isEmpty()) {
+                    // 处理优惠券代码列表
+                    for (String couponCode : request.getCouponCodes()) {
+                        Coupon coupon = couponService.getCouponByCode(couponCode).orElse(null);
+                        if (coupon != null && couponService.validateCoupon(coupon, request.getUserId(), totalAmount, productIds)) {
+                            BigDecimal discountAmount = couponService.calculateDiscountAmount(coupon, totalAmount);
+                            totalDiscountAmount = totalDiscountAmount.add(discountAmount);
+                            validCoupons.add(coupon);
+                            
+                            // 创建订单优惠券关联记录
+                            OrderCoupon orderCoupon = new OrderCoupon();
+                            orderCoupon.setOrderId(null); // 稍后设置
+                            orderCoupon.setCouponId(coupon.getId());
+                            orderCoupon.setCouponCode(coupon.getCouponCode());
+                            orderCoupon.setAppliedAmount(discountAmount);
+                            orderCoupon.setCreateTime(LocalDateTime.now());
+                            orderCoupons.add(orderCoupon);
+                            
+                            log.info("优惠券验证通过，优惠券代码: {}, 优惠金额: {}", couponCode, discountAmount);
+                        } else {
+                            log.warn("优惠券验证失败，优惠券代码: {}", couponCode);
+                            throw new RuntimeException("优惠券不可用: " + couponCode);
+                        }
                     }
                 }
+
+                actualAmount = totalAmount.subtract(totalDiscountAmount);
+                log.info("总优惠金额: {}, 实际支付金额: {}", totalDiscountAmount, actualAmount);
 
                 // 5. 创建订单实体
                 Order order = new Order();
@@ -113,9 +144,7 @@ public class OrderService {
                 order.setUserId(request.getUserId());
                 order.setStatus(OrderStatus.PENDING);
                 order.setTotalAmount(totalAmount);
-                order.setCouponId(coupon != null ? coupon.getId() : null);
-                order.setCouponCode(coupon != null ? coupon.getCouponCode() : null);
-                order.setDiscountAmount(discountAmount);
+                order.setTotalDiscountAmount(totalDiscountAmount);
                 order.setActualAmount(actualAmount);
                 order.setReceiverName(request.getReceiverName());
                 order.setReceiverPhone(request.getReceiverPhone());
@@ -132,18 +161,31 @@ public class OrderService {
                 List<OrderItem> orderItems = createOrderItems(order.getId(), request.getOrderItems());
                 orderItemMapper.insertBatch(orderItems);
 
-                // 8. 使用优惠券（如果存在）
-                if (coupon != null) {
-                    couponService.useCoupon(coupon.getId(), request.getUserId(), order.getId(),
-                            coupon.getCouponCode(), totalAmount, discountAmount);
-                    log.info("优惠券使用成功，优惠券ID: {}, 优惠金额: {}", coupon.getId(), discountAmount);
+                // 8. 保存订单优惠券关联记录
+                if (!orderCoupons.isEmpty()) {
+                    // 设置订单ID
+                    orderCoupons.forEach(oc -> oc.setOrderId(order.getId()));
+                    orderCouponMapper.batchInsert(orderCoupons);
+                    
+                    // 使用优惠券
+                    for (Coupon coupon : validCoupons) {
+                        OrderCoupon orderCoupon = orderCoupons.stream()
+                                .filter(oc -> oc.getCouponId().equals(coupon.getId()))
+                                .findFirst()
+                                .orElse(null);
+                        if (orderCoupon != null) {
+                            couponService.useCoupon(coupon.getId(), request.getUserId(), order.getId(),
+                                    coupon.getCouponCode(), totalAmount, orderCoupon.getAppliedAmount());
+                            log.info("优惠券使用成功，优惠券ID: {}, 优惠金额: {}", coupon.getId(), orderCoupon.getAppliedAmount());
+                        }
+                    }
                 }
 
                 // 9. 设置订单项到订单中
                 order.setOrderItems(orderItems);
 
                 log.info("订单创建完成，订单ID: {}, 订单号: {}, 总金额: {}, 优惠金额: {}, 实际支付: {}",
-                        order.getId(), orderNo, totalAmount, discountAmount, actualAmount);
+                        order.getId(), orderNo, totalAmount, totalDiscountAmount, actualAmount);
 
                 // 发送订单超时延迟消息（30分钟后自动取消）
                 orderTimeoutMessageService.sendOrderTimeoutMessage(order.getId(), orderNo, request.getUserId(), 1);
@@ -200,6 +242,11 @@ public class OrderService {
             // 查询订单项
             List<OrderItem> orderItems = orderItemMapper.selectByOrderId(order.getId());
             order.setOrderItems(orderItems);
+            
+            // 查询订单优惠券关联记录
+            List<OrderCoupon> orderCoupons = orderCouponMapper.selectByOrderId(order.getId());
+            order.setOrderCoupons(orderCoupons);
+            
             return Optional.of(OrderResponse.fromOrder(order));
         }
         return Optional.empty();
