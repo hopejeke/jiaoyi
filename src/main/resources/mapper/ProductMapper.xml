@@ -79,4 +79,9 @@
         LIMIT #{offset}, #{limit}
     </select>
 
+    <!-- 根据ID删除商品 -->
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM products WHERE id = #{id}
+    </delete>
+
 </mapper>

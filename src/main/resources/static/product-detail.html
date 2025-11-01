@@ -376,33 +376,16 @@
             }
         });
         
-        // 加载商品详情
+        // 加载商品详情（已聚合库存信息）
         async function loadProductDetail(productId) {
             try {
-                // 并行获取商品信息和库存信息
-                const [productResponse, inventoryResponse] = await Promise.all([
-                    fetch(`/api/products/${productId}`),
-                    fetch(`/api/inventory/product/${productId}`)
-                ]);
-                
+                // 只调用商品API，库存信息已由后端聚合
+                const productResponse = await fetch(`/api/products/${productId}`);
                 const productResult = await productResponse.json();
-                const inventoryResult = await inventoryResponse.json();
                 
                 if (productResult.code === 200) {
                     product = productResult.data;
-                    // 合并库存信息到商品对象
-                    if (inventoryResult.code === 200 && inventoryResult.data) {
-                        product.currentStock = inventoryResult.data.currentStock;
-                        product.lockedStock = inventoryResult.data.lockedStock;
-                        product.minStock = inventoryResult.data.minStock;
-                        product.maxStock = inventoryResult.data.maxStock;
-                    } else {
-                        // 如果没有库存信息，设置默认值
-                        product.currentStock = 0;
-                        product.lockedStock = 0;
-                        product.minStock = 0;
-                        product.maxStock = 0;
-                    }
+                    // 库存信息已经由后端聚合，直接渲染
                     renderProductDetail();
                 } else {
                     showError('加载商品详情失败: ' + productResult.message);
@@ -556,8 +539,16 @@
                 return;
             }
             
-            // TODO: 实现立即购买功能
-            alert(`立即购买 ${quantity} 件 ${product.productName}`);
+            // 跳转到创建订单页面，传递商品信息
+            const params = new URLSearchParams({
+                productId: product.id,
+                productName: product.productName,
+                unitPrice: product.unitPrice,
+                quantity: quantity,
+                productImage: product.productImage || ''
+            });
+            
+            window.location.href = `payment.html?${params.toString()}`;
         }
         
         // 返回列表

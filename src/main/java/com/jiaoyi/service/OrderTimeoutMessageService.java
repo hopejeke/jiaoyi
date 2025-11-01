@@ -4,6 +4,7 @@ import com.jiaoyi.config.RocketMQConfig;
 import com.jiaoyi.dto.OrderTimeoutMessage;
 import com.jiaoyi.entity.Order;
 import com.jiaoyi.entity.OrderStatus;
+import com.jiaoyi.entity.OrderCoupon;
 import com.jiaoyi.mapper.OrderMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -195,9 +196,12 @@ public class OrderTimeoutMessageService implements RocketMQListener<OrderTimeout
             }
             
             // 3. 退还优惠券
-            if (order.getCouponId() != null) {
-                couponService.refundCoupon(order.getId());
-                log.info("超时订单优惠券退还成功，订单ID: {}, 优惠券ID: {}", order.getId(), order.getCouponId());
+            if (order.getOrderCoupons() != null && !order.getOrderCoupons().isEmpty()) {
+                for (OrderCoupon orderCoupon : order.getOrderCoupons()) {
+                    couponService.refundCoupon(orderCoupon.getCouponId());
+                    log.info("超时订单优惠券退还成功，订单ID: {}, 优惠券ID: {}, 优惠券代码: {}", 
+                            order.getId(), orderCoupon.getCouponId(), orderCoupon.getCouponCode());
+                }
             }
             
             return true;

@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>支付中心</title>
+    <title>创建订单</title>
     <style>
         body {
             font-family: Arial, sans-serif;
@@ -58,7 +58,7 @@
     </style>
 </head>
 <body>
-    <h1>🛒 支付宝二维码支付测试</h1>
+    <h1>🛒 创建订单</h1>
     
     <div class="form-group">
         <h2>1. 创建订单</h2>
@@ -168,6 +168,57 @@
     
     <script>
         let currentOrder = null;
+        
+        // 页面加载时解析URL参数并填充表单
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            
+            // 如果URL中有商品参数，自动填充表单
+            if (urlParams.has('productId')) {
+                document.getElementById('productId').value = urlParams.get('productId');
+            }
+            if (urlParams.has('productName')) {
+                document.getElementById('productName').value = urlParams.get('productName');
+            }
+            if (urlParams.has('unitPrice')) {
+                document.getElementById('unitPrice').value = urlParams.get('unitPrice');
+            }
+            if (urlParams.has('quantity')) {
+                document.getElementById('quantity').value = urlParams.get('quantity');
+            }
+            
+            // 如果有商品信息，显示商品预览
+            if (urlParams.has('productName') && urlParams.has('unitPrice')) {
+                showProductPreview(urlParams);
+            }
+        });
+        
+        // 显示商品预览
+        function showProductPreview(params) {
+            const productName = params.get('productName');
+            const unitPrice = params.get('unitPrice');
+            const quantity = params.get('quantity') || '1';
+            
+            const previewHtml = `
+                <div style="background: #f8f9fa; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid #dee2e6;">
+                    <h3 style="margin-top: 0; color: #333;">📦 商品信息</h3>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <div style="flex: 1;">
+                            <div style="font-weight: bold; font-size: 16px; margin-bottom: 5px;">${productName}</div>
+                            <div style="color: #666; font-size: 14px;">单价: ¥${unitPrice}</div>
+                        </div>
+                        <div style="text-align: right;">
+                            <div style="font-size: 18px; font-weight: bold; color: #e74c3c;">¥${(parseFloat(unitPrice) * parseInt(quantity)).toFixed(2)}</div>
+                            <div style="color: #666; font-size: 14px;">数量: ${quantity} 件</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 在表单前插入商品预览
+            const form = document.getElementById('orderForm');
+            form.insertAdjacentHTML('beforebegin', previewHtml);
+        }
         
         document.getElementById('orderForm').addEventListener('submit', async function(e) {
             e.preventDefault();
