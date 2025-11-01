@@ -57,6 +57,27 @@ public class Product {
      */
     private LocalDateTime updateTime;
     
+    // 库存相关字段（从库存服务聚合而来）
+    /**
+     * 当前库存数量
+     */
+    private Integer currentStock;
+    
+    /**
+     * 锁定库存数量（已下单但未支付）
+     */
+    private Integer lockedStock;
+    
+    /**
+     * 最低库存预警线
+     */
+    private Integer minStock;
+    
+    /**
+     * 最大库存容量
+     */
+    private Integer maxStock;
+    
     /**
      * 商品状态枚举
      */

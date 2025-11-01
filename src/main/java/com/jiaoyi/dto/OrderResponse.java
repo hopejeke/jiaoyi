@@ -3,6 +3,7 @@ package com.jiaoyi.dto;
 import com.jiaoyi.entity.Order;
 import com.jiaoyi.entity.OrderItem;
 import com.jiaoyi.entity.OrderStatus;
+import com.jiaoyi.entity.OrderCoupon;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -25,9 +26,8 @@ public class OrderResponse {
     private Long userId;
     private OrderStatus status;
     private BigDecimal totalAmount;
-    private Long couponId;
-    private String couponCode;
-    private BigDecimal discountAmount;
+    private BigDecimal totalDiscountAmount;
+    private List<OrderCouponResponse> orderCoupons;
     private BigDecimal actualAmount;
     private String receiverName;
     private String receiverPhone;
@@ -47,9 +47,15 @@ public class OrderResponse {
         response.setUserId(order.getUserId());
         response.setStatus(order.getStatus());
         response.setTotalAmount(order.getTotalAmount());
-        response.setCouponId(order.getCouponId());
-        response.setCouponCode(order.getCouponCode());
-        response.setDiscountAmount(order.getDiscountAmount());
+        response.setTotalDiscountAmount(order.getTotalDiscountAmount());
+        
+        if (order.getOrderCoupons() != null) {
+            response.setOrderCoupons(
+                order.getOrderCoupons().stream()
+                    .map(OrderCouponResponse::fromOrderCoupon)
+                    .collect(Collectors.toList())
+            );
+        }
         response.setActualAmount(order.getActualAmount());
         response.setReceiverName(order.getReceiverName());
         response.setReceiverPhone(order.getReceiverPhone());
@@ -96,6 +102,35 @@ public class OrderResponse {
             response.setUnitPrice(orderItem.getUnitPrice());
             response.setQuantity(orderItem.getQuantity());
             response.setSubtotal(orderItem.getSubtotal());
+            return response;
+        }
+    }
+    
+    /**
+     * 订单优惠券响应DTO
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class OrderCouponResponse {
+        private Long id;
+        private Long orderId;
+        private Long couponId;
+        private String couponCode;
+        private BigDecimal appliedAmount;
+        private LocalDateTime createTime;
+        
+        /**
+         * 从OrderCoupon实体转换为OrderCouponResponse
+         */
+        public static OrderCouponResponse fromOrderCoupon(OrderCoupon orderCoupon) {
+            OrderCouponResponse response = new OrderCouponResponse();
+            response.setId(orderCoupon.getId());
+            response.setOrderId(orderCoupon.getOrderId());
+            response.setCouponId(orderCoupon.getCouponId());
+            response.setCouponCode(orderCoupon.getCouponCode());
+            response.setAppliedAmount(orderCoupon.getAppliedAmount());
+            response.setCreateTime(orderCoupon.getCreateTime());
             return response;
         }
     }

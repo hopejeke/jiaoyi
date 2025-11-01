@@ -189,10 +189,28 @@ public class CouponService {
     }
     
     /**
-     * 退款优惠券
+     * 退款优惠券（根据优惠券ID）
      */
     @Transactional
-    public boolean refundCoupon(Long orderId) {
+    public boolean refundCoupon(Long couponId) {
+        log.info("退款优惠券，优惠券ID: {}", couponId);
+        
+        // 减少优惠券使用数量
+        int updatedRows = couponMapper.updateUsedQuantity(couponId, -1);
+        if (updatedRows == 0) {
+            log.warn("优惠券使用数量更新失败，优惠券ID: {}", couponId);
+            return false;
+        }
+        
+        log.info("优惠券退款成功，优惠券ID: {}", couponId);
+        return true;
+    }
+    
+    /**
+     * 退款优惠券（根据订单ID，兼容旧版本）
+     */
+    @Transactional
+    public boolean refundCouponByOrderId(Long orderId) {
         log.info("退款优惠券，订单ID: {}", orderId);
         
         CouponUsage couponUsage = couponUsageMapper.selectByOrderId(orderId);

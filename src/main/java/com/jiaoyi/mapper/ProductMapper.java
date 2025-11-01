@@ -54,4 +54,9 @@ public interface ProductMapper {
      * 分页查询商品
      */
     List<Product> selectByPage(@Param("offset") int offset, @Param("limit") int limit);
+    
+    /**
+     * 根据ID删除商品
+     */
+    int deleteById(Long id);
 }
