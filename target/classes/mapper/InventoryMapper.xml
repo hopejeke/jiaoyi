@@ -5,6 +5,7 @@
     <!-- 结果映射 -->
     <resultMap id="BaseResultMap" type="com.jiaoyi.entity.Inventory">
         <id column="id" property="id"/>
+        <result column="store_id" property="storeId"/>
         <result column="product_id" property="productId"/>
         <result column="product_name" property="productName"/>
         <result column="current_stock" property="currentStock"/>
@@ -15,14 +16,46 @@
         <result column="update_time" property="updateTime"/>
     </resultMap>
 
-    <!-- 根据商品ID查询库存 -->
+    <!-- 插入库存记录 -->
+    <insert id="insert" parameterType="com.jiaoyi.entity.Inventory" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO inventory (
+            store_id, product_id, product_name, current_stock, locked_stock, min_stock, max_stock
+            <if test="createTime != null">
+                , create_time
+            </if>
+            <if test="updateTime != null">
+                , update_time
+            </if>
+        ) VALUES (
+            #{storeId}, #{productId}, #{productName}, #{currentStock}, #{lockedStock}, #{minStock}, #{maxStock}
+            <if test="createTime != null">
+                , #{createTime}
+            </if>
+            <if test="updateTime != null">
+                , #{updateTime}
+            </if>
+        )
+    </insert>
+
+    <!-- 根据商品ID查询库存（兼容旧接口） -->
     <select id="selectByProductId" parameterType="long" resultMap="BaseResultMap">
-        SELECT * FROM inventory WHERE product_id = #{productId}
+        SELECT * FROM inventory WHERE product_id = #{productId} LIMIT 1
+    </select>
+
+    <!-- 根据店铺ID和商品ID查询库存 -->
+    <select id="selectByStoreIdAndProductId" resultMap="BaseResultMap">
+        SELECT * FROM inventory WHERE store_id = #{storeId} AND product_id = #{productId}
     </select>
 
     <!-- 查询库存不足的商品 -->
     <select id="selectLowStockItems" resultMap="BaseResultMap">
         SELECT * FROM inventory WHERE (current_stock - locked_stock) &lt; min_stock
+    </select>
+
+    <!-- 根据店铺ID查询库存不足的商品 -->
+    <select id="selectLowStockItemsByStoreId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM inventory 
+        WHERE store_id = #{storeId} AND (current_stock - locked_stock) &lt; min_stock
     </select>
 
     <!-- 锁定库存（原子操作） -->

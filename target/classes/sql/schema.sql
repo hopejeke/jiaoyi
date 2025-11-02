@@ -9,9 +9,10 @@ DROP TABLE IF EXISTS order_coupons;
 DROP TABLE IF EXISTS inventory_transactions;
 DROP TABLE IF EXISTS order_items;
 DROP TABLE IF EXISTS orders;
+DROP TABLE IF EXISTS store_products;
+DROP TABLE IF EXISTS stores;
 DROP TABLE IF EXISTS inventory;
 DROP TABLE IF EXISTS coupons;
-DROP TABLE IF EXISTS products;
 
 -- 创建优惠券表（被依赖表，需要先创建）
 CREATE TABLE coupons (
@@ -30,8 +31,8 @@ CREATE TABLE coupons (
     applicable_products TEXT COMMENT '适用商品ID列表，JSON格式',
     start_time DATETIME NOT NULL COMMENT '开始时间',
     end_time DATETIME NOT NULL COMMENT '结束时间',
-    create_time DATETIME NOT NULL COMMENT '创建时间',
-    update_time DATETIME COMMENT '更新时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_coupon_code (coupon_code),
     INDEX idx_status (status),
     INDEX idx_start_time (start_time),
@@ -51,8 +52,8 @@ CREATE TABLE orders (
     receiver_phone VARCHAR(20) NOT NULL COMMENT '收货人电话',
     receiver_address VARCHAR(500) NOT NULL COMMENT '收货地址',
     remark TEXT COMMENT '备注',
-    create_time DATETIME NOT NULL COMMENT '创建时间',
-    update_time DATETIME COMMENT '更新时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_user_id (user_id),
     INDEX idx_status (status),
     INDEX idx_create_time (create_time)
@@ -65,7 +66,7 @@ CREATE TABLE order_coupons (
     coupon_id BIGINT NOT NULL COMMENT '优惠券ID',
     coupon_code VARCHAR(50) NOT NULL COMMENT '优惠券代码',
     applied_amount DECIMAL(10,2) NOT NULL COMMENT '该优惠券实际抵扣金额',
-    create_time DATETIME NOT NULL COMMENT '创建时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     INDEX idx_order_id (order_id),
     INDEX idx_coupon_id (coupon_id),
     INDEX idx_coupon_code (coupon_code),
@@ -91,15 +92,21 @@ CREATE TABLE order_items (
 -- 创建库存表
 CREATE TABLE inventory (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
-    product_id BIGINT NOT NULL UNIQUE COMMENT '商品ID',
+    store_id BIGINT NOT NULL COMMENT '店铺ID',
+    product_id BIGINT NOT NULL COMMENT '商品ID（关联store_products.id）',
     product_name VARCHAR(200) NOT NULL COMMENT '商品名称',
     current_stock INT NOT NULL COMMENT '当前库存数量',
     locked_stock INT NOT NULL DEFAULT 0 COMMENT '锁定库存数量',
     min_stock INT NOT NULL DEFAULT 0 COMMENT '最低库存预警线',
     max_stock INT COMMENT '最大库存容量',
-    create_time DATETIME NOT NULL COMMENT '创建时间',
-    update_time DATETIME COMMENT '更新时间',
-    INDEX idx_product_id (product_id)
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_store_product (store_id, product_id),
+    INDEX idx_store_id (store_id),
+    INDEX idx_product_id (product_id),
+    INDEX idx_store_product (store_id, product_id),
+    FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE,
+    FOREIGN KEY (product_id) REFERENCES store_products(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存表';
 
 -- 创建库存变动记录表
@@ -114,7 +121,7 @@ CREATE TABLE inventory_transactions (
     before_locked INT NOT NULL DEFAULT 0 COMMENT '变动前锁定库存',
     after_locked INT NOT NULL DEFAULT 0 COMMENT '变动后锁定库存',
     remark TEXT COMMENT '备注',
-    create_time DATETIME NOT NULL COMMENT '创建时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     INDEX idx_product_id (product_id),
     INDEX idx_order_id (order_id),
     INDEX idx_transaction_type (transaction_type),
@@ -134,7 +141,7 @@ CREATE TABLE coupon_usage (
     actual_amount DECIMAL(10,2) NOT NULL COMMENT '实际支付金额（使用优惠券后的金额）',
     status VARCHAR(20) NOT NULL DEFAULT 'USED' COMMENT '使用状态：USED-已使用，REFUNDED-已退款',
     remark TEXT COMMENT '备注',
-    create_time DATETIME NOT NULL COMMENT '创建时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     INDEX idx_coupon_id (coupon_id),
     INDEX idx_user_id (user_id),
     INDEX idx_order_id (order_id),
@@ -145,18 +152,41 @@ CREATE TABLE coupon_usage (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='优惠券使用记录表';
 
 -- 创建商品表
-CREATE TABLE IF NOT EXISTS products (
+
+-- 创建店铺表
+CREATE TABLE stores (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    store_name VARCHAR(200) NOT NULL COMMENT '店铺名称',
+    store_code VARCHAR(50) NOT NULL UNIQUE COMMENT '店铺编码',
+    description TEXT COMMENT '店铺描述',
+    owner_name VARCHAR(100) COMMENT '店主姓名',
+    owner_phone VARCHAR(20) COMMENT '店主电话',
+    address VARCHAR(500) COMMENT '店铺地址',
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT '店铺状态：ACTIVE-营业中，INACTIVE-已关闭',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_store_code (store_code),
+    INDEX idx_store_name (store_name),
+    INDEX idx_status (status),
+    INDEX idx_create_time (create_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='店铺表';
+
+-- 创建店铺商品表（包含所有商品字段 + store_id）
+CREATE TABLE store_products (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    store_id BIGINT NOT NULL COMMENT '店铺ID',
     product_name VARCHAR(200) NOT NULL COMMENT '商品名称',
     description TEXT COMMENT '商品描述',
     unit_price DECIMAL(10,2) NOT NULL COMMENT '商品单价',
     product_image VARCHAR(500) COMMENT '商品图片',
     category VARCHAR(100) COMMENT '商品分类',
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT '商品状态：ACTIVE-上架，INACTIVE-下架',
-    create_time DATETIME NOT NULL COMMENT '创建时间',
-    update_time DATETIME COMMENT '更新时间',
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    INDEX idx_store_id (store_id),
     INDEX idx_product_name (product_name),
     INDEX idx_category (category),
     INDEX idx_status (status),
-    INDEX idx_create_time (create_time)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品表';
+    INDEX idx_create_time (create_time),
+    FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='店铺商品表';

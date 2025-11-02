@@ -17,7 +17,12 @@ public class Inventory {
     private Long id;
     
     /**
-     * 商品ID
+     * 店铺ID
+     */
+    private Long storeId;
+    
+    /**
+     * 商品ID（关联store_products.id）
      */
     private Long productId;
     
