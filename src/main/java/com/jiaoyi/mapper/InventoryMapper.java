@@ -13,14 +13,29 @@ import java.util.List;
 public interface InventoryMapper {
     
     /**
-     * 根据商品ID查询库存
+     * 插入库存记录
+     */
+    void insert(Inventory inventory);
+    
+    /**
+     * 根据商品ID查询库存（兼容旧接口，建议使用 selectByStoreIdAndProductId）
      */
     Inventory selectByProductId(@Param("productId") Long productId);
+    
+    /**
+     * 根据店铺ID和商品ID查询库存
+     */
+    Inventory selectByStoreIdAndProductId(@Param("storeId") Long storeId, @Param("productId") Long productId);
     
     /**
      * 查询库存不足的商品
      */
     List<Inventory> selectLowStockItems();
+    
+    /**
+     * 根据店铺ID查询库存不足的商品
+     */
+    List<Inventory> selectLowStockItemsByStoreId(@Param("storeId") Long storeId);
     
     /**
      * 锁定库存（原子操作）

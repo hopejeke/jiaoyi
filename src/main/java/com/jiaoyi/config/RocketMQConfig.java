@@ -1,7 +1,5 @@
 package com.jiaoyi.config;
 
-import org.apache.rocketmq.spring.annotation.RocketMQMessageListener;
-import org.apache.rocketmq.spring.core.RocketMQListener;
 import org.springframework.context.annotation.Configuration;
 
 /**
@@ -26,4 +24,14 @@ public class RocketMQConfig {
     
     // 商品缓存更新消费者组
     public static final String PRODUCT_CACHE_UPDATE_CONSUMER_GROUP = "product-cache-update-consumer-group";
+    
+    // 库存缓存更新相关Topic
+    public static final String INVENTORY_CACHE_UPDATE_TOPIC = "inventory-cache-update-topic";
+    public static final String INVENTORY_CACHE_UPDATE_TAG = "update";
+    
+    // 库存缓存更新生产者组
+    public static final String INVENTORY_CACHE_UPDATE_PRODUCER_GROUP = "inventory-cache-update-producer-group";
+    
+    // 库存缓存更新消费者组
+    public static final String INVENTORY_CACHE_UPDATE_CONSUMER_GROUP = "inventory-cache-update-consumer-group";
 }

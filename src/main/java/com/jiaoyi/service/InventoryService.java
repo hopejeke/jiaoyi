@@ -29,6 +29,39 @@ public class InventoryService {
     private final InventoryCacheService inventoryCacheService;
     
     /**
+     * 创建库存记录（商品创建时调用）
+     */
+    @Transactional
+    public Inventory createInventory(Long storeId, Long productId, String productName) {
+        log.info("创建库存记录，店铺ID: {}, 商品ID: {}, 商品名称: {}", storeId, productId, productName);
+        
+        // 检查是否已存在库存记录
+        Inventory existing = inventoryMapper.selectByStoreIdAndProductId(storeId, productId);
+        if (existing != null) {
+            log.warn("库存记录已存在，店铺ID: {}, 商品ID: {}", storeId, productId);
+            return existing;
+        }
+        
+        // 创建新的库存记录
+        Inventory inventory = new Inventory();
+        inventory.setStoreId(storeId);
+        inventory.setProductId(productId);
+        inventory.setProductName(productName);
+        inventory.setCurrentStock(0); // 默认库存为0
+        inventory.setLockedStock(0);
+        inventory.setMinStock(0); // 默认最低库存预警线为0
+        inventory.setMaxStock(null); // 最大库存容量不限制
+        
+        inventoryMapper.insert(inventory);
+        log.info("库存记录创建成功，库存ID: {}, 店铺ID: {}, 商品ID: {}", inventory.getId(), storeId, productId);
+        
+        // 缓存新创建的库存记录
+        inventoryCacheService.cacheInventory(inventory);
+        
+        return inventory;
+    }
+    
+    /**
      * 检查并锁定库存（下单时调用）
      */
     @Transactional
