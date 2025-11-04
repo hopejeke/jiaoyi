@@ -1,0 +1,68 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.mapper.OutboxMapper">
+    
+    <resultMap id="OutboxResultMap" type="com.jiaoyi.entity.Outbox">
+        <id property="id" column="id"/>
+        <result property="topic" column="topic"/>
+        <result property="tag" column="tag"/>
+        <result property="messageKey" column="message_key"/>
+        <result property="messageBody" column="message_body"/>
+        <result property="status" column="status" 
+                typeHandler="com.jiaoyi.handler.OutboxStatusTypeHandler"/>
+        <result property="retryCount" column="retry_count"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="sentAt" column="sent_at"/>
+    </resultMap>
+    
+    <insert id="insert" parameterType="com.jiaoyi.entity.Outbox" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO outbox (
+            topic, tag, message_key, message_body, status, retry_count, error_message, created_at, sent_at
+        ) VALUES (
+            #{topic}, 
+            #{tag}, 
+            #{messageKey}, 
+            #{messageBody}, 
+            #{status, typeHandler=com.jiaoyi.handler.OutboxStatusTypeHandler}, 
+            #{retryCount}, 
+            #{errorMessage}, 
+            #{createdAt}, 
+            #{sentAt}
+        )
+    </insert>
+    
+    <select id="selectById" resultMap="OutboxResultMap">
+        SELECT * FROM outbox WHERE id = #{id}
+    </select>
+    
+    <select id="selectPendingMessages" resultMap="OutboxResultMap">
+        SELECT * FROM outbox 
+        WHERE status = 'PENDING' 
+        ORDER BY created_at ASC 
+        LIMIT #{limit}
+    </select>
+    
+    <update id="updateStatusToSent">
+        UPDATE outbox 
+        SET status = 'SENT',
+            sent_at = #{sentAt}
+        WHERE id = #{id}
+    </update>
+    
+    <update id="updateStatusToFailed">
+        UPDATE outbox 
+        SET status = 'FAILED',
+            error_message = #{errorMessage},
+            retry_count = #{retryCount}
+        WHERE id = #{id}
+    </update>
+    
+    <update id="incrementRetryCount">
+        UPDATE outbox 
+        SET retry_count = retry_count + 1
+        WHERE id = #{id}
+    </update>
+    
+</mapper>
+

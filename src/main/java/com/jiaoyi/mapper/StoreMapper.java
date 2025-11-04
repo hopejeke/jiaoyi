@@ -59,5 +59,16 @@ public interface StoreMapper {
      * 根据ID删除店铺
      */
     int deleteById(Long id);
+    
+    /**
+     * 递增店铺的商品列表版本号（原子操作）
+     * 用于在商品创建/删除时更新版本号
+     */
+    int incrementProductListVersion(Long storeId);
+    
+    /**
+     * 获取店铺的商品列表版本号
+     */
+    Long getProductListVersion(Long storeId);
 }
 

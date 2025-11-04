@@ -12,6 +12,7 @@
         <result column="product_image" property="productImage"/>
         <result column="category" property="category"/>
         <result column="status" property="status"/>
+        <result column="is_delete" property="isDelete"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
     </resultMap>
@@ -49,42 +50,42 @@
         WHERE id = #{id}
     </update>
 
-    <!-- 根据ID查询店铺商品关联 -->
+    <!-- 根据ID查询店铺商品关联（逻辑删除过滤） -->
     <select id="selectById" parameterType="long" resultMap="StoreProductResultMap">
-        SELECT * FROM store_products WHERE id = #{id}
+        SELECT * FROM store_products WHERE id = #{id} AND is_delete = 0
     </select>
 
-    <!-- 根据店铺ID和商品名称查询（用于检查重复） -->
+    <!-- 根据店铺ID和商品名称查询（用于检查重复，逻辑删除过滤） -->
     <select id="selectByStoreIdAndProductName" resultMap="StoreProductResultMap">
         SELECT * FROM store_products 
-        WHERE store_id = #{storeId} AND product_name = #{productName}
+        WHERE store_id = #{storeId} AND product_name = #{productName} AND is_delete = 0
     </select>
 
-    <!-- 根据店铺ID查询所有商品关联 -->
+    <!-- 根据店铺ID查询所有商品关联（逻辑删除过滤） -->
     <select id="selectByStoreId" parameterType="long" resultMap="StoreProductResultMap">
         SELECT * FROM store_products 
-        WHERE store_id = #{storeId} 
+        WHERE store_id = #{storeId} AND is_delete = 0
         ORDER BY create_time DESC
     </select>
 
-    <!-- 根据店铺ID和状态查询商品 -->
+    <!-- 根据店铺ID和状态查询商品（逻辑删除过滤） -->
     <select id="selectByStoreIdAndStatus" resultMap="StoreProductResultMap">
         SELECT * FROM store_products 
-        WHERE store_id = #{storeId} AND status = #{status}
+        WHERE store_id = #{storeId} AND status = #{status} AND is_delete = 0
         ORDER BY create_time DESC
     </select>
 
-    <!-- 根据商品名称模糊查询（跨店铺） -->
+    <!-- 根据商品名称模糊查询（跨店铺，逻辑删除过滤） -->
     <select id="selectByProductName" parameterType="string" resultMap="StoreProductResultMap">
         SELECT * FROM store_products 
-        WHERE product_name LIKE CONCAT('%', #{productName}, '%')
+        WHERE product_name LIKE CONCAT('%', #{productName}, '%') AND is_delete = 0
         ORDER BY create_time DESC
     </select>
 
-    <!-- 删除店铺商品 -->
-    <delete id="deleteById" parameterType="long">
-        DELETE FROM store_products WHERE id = #{id}
-    </delete>
+    <!-- 逻辑删除店铺商品 -->
+    <update id="deleteById" parameterType="long">
+        UPDATE store_products SET is_delete = 1 WHERE id = #{id} AND is_delete = 0
+    </update>
 
     <!-- 根据店铺ID删除所有商品 -->
     <delete id="deleteByStoreId" parameterType="long">
