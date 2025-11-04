@@ -53,6 +53,11 @@ public class StoreProduct {
     private StoreProductStatus status;
     
     /**
+     * 是否删除：0-未删除，1-已删除（逻辑删除）
+     */
+    private Boolean isDelete;
+    
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;

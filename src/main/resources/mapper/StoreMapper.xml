@@ -12,6 +12,7 @@
         <result column="owner_phone" property="ownerPhone"/>
         <result column="address" property="address"/>
         <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="product_list_version" property="productListVersion"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
     </resultMap>
@@ -93,6 +94,18 @@
     <delete id="deleteById" parameterType="long">
         DELETE FROM stores WHERE id = #{id}
     </delete>
+    
+    <!-- 递增店铺的商品列表版本号（原子操作） -->
+    <update id="incrementProductListVersion" parameterType="long">
+        UPDATE stores 
+        SET product_list_version = product_list_version + 1
+        WHERE id = #{storeId}
+    </update>
+    
+    <!-- 获取店铺的商品列表版本号 -->
+    <select id="getProductListVersion" parameterType="long" resultType="long">
+        SELECT product_list_version FROM stores WHERE id = #{storeId}
+    </select>
 
 </mapper>
 

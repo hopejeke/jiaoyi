@@ -1,17 +1,16 @@
 package com.jiaoyi.service;
 
+import com.jiaoyi.config.RocketMQConfig;
+import com.jiaoyi.dto.StoreProductCacheUpdateMessage;
 import com.jiaoyi.entity.StoreProduct;
 import com.jiaoyi.mapper.StoreProductMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.redisson.api.RLock;
-import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Optional;
-import java.util.concurrent.TimeUnit;
 
 /**
  * 店铺商品服务层
@@ -23,19 +22,20 @@ public class StoreProductService {
 
     private final StoreProductMapper storeProductMapper;
     private final InventoryService inventoryService;
-    private final RedissonClient redissonClient;
     private final StoreProductCacheService storeProductCacheService;
-
-    // 分布式锁key前缀（与消息更新缓存使用相同的key格式，便于协调）
-    private static final String CREATE_PRODUCT_LOCK_PREFIX = "store:product:create:lock:";
-    private static final String CACHE_LOCK_PREFIX = "store:product:cache:lock:"; // 与 StoreProductCacheUpdateMessageService 保持一致
-    private static final int LOCK_WAIT_TIME = 3; // 等待锁的时间（秒）
-    private static final int LOCK_LEASE_TIME = 30; // 锁持有时间（秒）
-    private static final int INIT_CACHE_LOCK_LEASE_TIME = 60; // 初始化缓存的锁持有时间（秒）
+    private final OutboxService outboxService;
+    private final com.jiaoyi.mapper.StoreMapper storeMapper;
 
     /**
-     * 为店铺创建商品（内部方法，用于executeLocalTransaction中执行数据库操作）
-     * 这个方法会在事务监听器的executeLocalTransaction中被调用
+     * 为店铺创建商品（使用Outbox模式）
+     * 
+     * 【Outbox模式流程】：
+     * 1. 在同一个本地事务中：
+     *    - 插入商品到store_products表
+     *    - 创建库存记录
+     *    - 写入outbox表
+     * 2. 事务提交后，定时任务扫描outbox表并发送消息到RocketMQ
+     * 3. 消费者接收消息并更新缓存
      *
      * @param storeId      店铺ID
      * @param storeProduct 店铺商品对象
@@ -43,12 +43,10 @@ public class StoreProductService {
      * @throws RuntimeException 如果插入失败
      */
     @Transactional
-    public StoreProduct createStoreProductInternal(Long storeId, StoreProduct storeProduct) {
-        log.info("执行数据库INSERT操作，店铺ID: {}, 商品名称: {}", storeId, storeProduct.getProductName());
+    public StoreProduct createStoreProduct(Long storeId, StoreProduct storeProduct) {
+        log.info("创建店铺商品（Outbox模式），店铺ID: {}, 商品名称: {}", storeId, storeProduct.getProductName());
 
-        // 使用 storeId + productName 作为锁key，防止同一店铺同时创建同名商品
         String productName = storeProduct.getProductName();
-
 
         try {
             // 检查同一店铺中是否已存在同名商品
@@ -83,24 +81,36 @@ public class StoreProductService {
             inventoryService.createInventory(storeId, productId, productName);
             log.info("库存记录创建成功，店铺ID: {}, 商品ID: {}", storeId, productId);
 
-            log.info("数据库INSERT成功，店铺商品ID: {}", productId);
+            // 递增店铺的商品列表版本号（原子操作，在同一个事务中）
+            storeMapper.incrementProductListVersion(storeId);
+            log.info("店铺商品列表版本号已递增，店铺ID: {}", storeId);
+
+            // 在同一个事务中写入outbox表
+            StoreProductCacheUpdateMessage message = new StoreProductCacheUpdateMessage();
+            message.setProductId(productId);
+            message.setStoreId(storeId);
+            message.setOperationType(StoreProductCacheUpdateMessage.OperationType.CREATE);
+            message.setTimestamp(System.currentTimeMillis());
+            message.setEnrichInventory(true);
+            message.setStoreProduct(storeProduct);
+            
+            // 写入outbox表（在同一个事务中）
+            String messageKey = String.valueOf(productId); // 使用productId作为messageKey
+            outboxService.saveMessage(
+                    RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC,
+                    RocketMQConfig.PRODUCT_CACHE_UPDATE_TAG,
+                    messageKey,
+                    message
+            );
+            log.info("已写入outbox表，商品ID: {}，定时任务将异步发送消息", productId);
+
+            log.info("店铺商品创建成功（Outbox模式），商品ID: {}", productId);
             return storeProduct;
 
         } catch (Exception e) {
             log.error("创建店铺商品失败，店铺ID: {}, 商品名称: {}", storeId, productName, e);
             throw new RuntimeException("创建店铺商品失败: " + e.getMessage(), e);
         }
-    }
-
-    /**
-     * 为店铺创建商品（公共方法，用于Controller直接调用，不使用事务消息）
-     *
-     * @deprecated 建议使用事务消息方式创建商品，通过 StoreProductMsgTransactionService
-     */
-    @Deprecated
-    @Transactional
-    public StoreProduct createStoreProduct(Long storeId, StoreProduct storeProduct) {
-        return createStoreProductInternal(storeId, storeProduct);
     }
 
     /**
@@ -148,46 +158,105 @@ public class StoreProductService {
     }
 
     /**
-     * 更新店铺商品（公共方法，用于Controller直接调用，不使用事务消息）
-     *
-     * @deprecated 建议使用事务消息方式更新商品，通过 StoreProductMsgTransactionService
+     * 更新店铺商品（使用Outbox模式）
      */
-    @Deprecated
     @Transactional
     public void updateStoreProduct(StoreProduct storeProduct) {
+        Long productId = storeProduct.getId();
+        Long storeId = storeProduct.getStoreId();
+        
+        // 如果storeId为空，从数据库查询
+        if (storeId == null && productId != null) {
+            Optional<StoreProduct> existing = storeProductMapper.selectById(productId);
+            if (existing.isPresent()) {
+                storeId = existing.get().getStoreId();
+                storeProduct.setStoreId(storeId);
+            }
+        }
+        
+        // 执行数据库更新
         updateStoreProductInternal(storeProduct);
+        
+        // 在同一个事务中写入outbox表
+        StoreProductCacheUpdateMessage message = new StoreProductCacheUpdateMessage();
+        message.setProductId(productId);
+        message.setStoreId(storeId);
+        message.setOperationType(StoreProductCacheUpdateMessage.OperationType.UPDATE);
+        message.setTimestamp(System.currentTimeMillis());
+        message.setEnrichInventory(true);
+        message.setStoreProduct(storeProduct);
+        
+        // 写入outbox表（在同一个事务中）
+        String messageKey = String.valueOf(productId);
+        outboxService.saveMessage(
+                RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC,
+                RocketMQConfig.PRODUCT_CACHE_UPDATE_TAG,
+                messageKey,
+                message
+        );
+        log.info("已写入outbox表（UPDATE），商品ID: {}，定时任务将异步发送消息", productId);
     }
 
     /**
-     * 删除店铺商品（内部方法，用于executeLocalTransaction中执行数据库操作）
-     * 这个方法会在事务监听器的executeLocalTransaction中被调用
-     *
+     * 删除店铺商品（内部方法，逻辑删除）
+     * 
      * @param storeProductId 店铺商品ID
      * @throws RuntimeException 如果删除失败或商品不存在
      */
     public void deleteStoreProductInternal(Long storeProductId) {
-        log.info("执行数据库DELETE操作，店铺商品ID: {}", storeProductId);
-        int deleted = storeProductMapper.deleteById(storeProductId);
-        if (deleted == 0) {
-            throw new RuntimeException("删除店铺商品失败：商品不存在，商品ID: " + storeProductId);
+        log.info("执行数据库逻辑删除操作，店铺商品ID: {}", storeProductId);
+        int updated = storeProductMapper.deleteById(storeProductId);
+        if (updated == 0) {
+            throw new RuntimeException("删除店铺商品失败：商品不存在或已删除，商品ID: " + storeProductId);
         }
-        log.info("数据库DELETE成功，店铺商品ID: {}", storeProductId);
+        log.info("数据库逻辑删除成功，店铺商品ID: {}", storeProductId);
     }
 
     /**
-     * 删除店铺商品（公共方法，用于Controller直接调用，不使用事务消息）
-     *
-     * @deprecated 建议使用事务消息方式删除商品，通过 StoreProductMsgTransactionService
+     * 删除店铺商品（使用Outbox模式）
      */
-    @Deprecated
     @Transactional
-    public void deleteStoreProduct(Long storeProductId) {
+    public void deleteStoreProduct(Long storeProductId, Long storeId) {
+        // 如果storeId为空，从数据库查询
+        if (storeId == null && storeProductId != null) {
+            Optional<StoreProduct> existing = storeProductMapper.selectById(storeProductId);
+            if (existing.isPresent()) {
+                storeId = existing.get().getStoreId();
+            }
+        }
+        
+        // 执行数据库删除
         deleteStoreProductInternal(storeProductId);
+        
+        // 递增店铺的商品列表版本号（原子操作，在同一个事务中）
+        if (storeId != null) {
+            storeMapper.incrementProductListVersion(storeId);
+            log.info("店铺商品列表版本号已递增（DELETE），店铺ID: {}", storeId);
+        }
+        
+        // 在同一个事务中写入outbox表
+        StoreProductCacheUpdateMessage message = new StoreProductCacheUpdateMessage();
+        message.setProductId(storeProductId);
+        message.setStoreId(storeId);
+        message.setOperationType(StoreProductCacheUpdateMessage.OperationType.DELETE);
+        message.setTimestamp(System.currentTimeMillis());
+        message.setEnrichInventory(false);
+        
+        // 写入outbox表（在同一个事务中）
+        String messageKey = String.valueOf(storeProductId);
+        outboxService.saveMessage(
+                RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC,
+                RocketMQConfig.PRODUCT_CACHE_UPDATE_TAG,
+                messageKey,
+                message
+        );
+        log.info("已写入outbox表（DELETE），商品ID: {}，定时任务将异步发送消息", storeProductId);
     }
 
     /**
      * 获取店铺的所有商品
      * 优先从关系缓存获取商品ID列表，然后批量获取商品详情
+     * 使用Lua脚本保证缓存更新的原子性，无需加锁
      */
     public List<StoreProduct> getStoreProducts(Long storeId) {
         log.info("查询店铺商品，店铺ID: {}", storeId);
@@ -199,82 +268,54 @@ public class StoreProductService {
             return cachedProducts;
         }
         
-        // 2. 缓存未命中，使用分布式锁保护"查询数据库并初始化缓存"的逻辑
-        // 使用与消息更新缓存相同的锁key，便于协调两者操作
-        String lockKey = CACHE_LOCK_PREFIX + storeId;
-        RLock lock = redissonClient.getLock(lockKey);
+        // 2. 缓存未命中，从数据库查询并初始化缓存
+        // Lua脚本会原子性地比较update_time，只更新更新的数据，无需加锁
+        log.debug("缓存未命中，从数据库查询店铺商品列表，店铺ID: {}", storeId);
+        List<StoreProduct> products = storeProductMapper.selectByStoreId(storeId);
         
-        try {
-            // 尝试获取分布式锁，最多等待3秒，锁持有时间不超过60秒
-            // 如果消息正在更新缓存，这里会等待消息更新完成
-            boolean lockAcquired = lock.tryLock(LOCK_WAIT_TIME, INIT_CACHE_LOCK_LEASE_TIME, TimeUnit.SECONDS);
-            
-            if (!lockAcquired) {
-                log.warn("获取缓存锁失败，可能消息正在更新缓存或存在并发初始化，店铺ID: {}", storeId);
-                // 如果获取锁失败，再次尝试从缓存获取（可能消息更新已完成）
-                List<StoreProduct> retryCachedProducts = storeProductCacheService.getStoreProductsFromCache(storeId);
-                if (!retryCachedProducts.isEmpty()) {
-                    log.debug("重试从缓存获取店铺商品列表成功，店铺ID: {}, 商品数量: {}", storeId, retryCachedProducts.size());
-                    return retryCachedProducts;
-                }
-                // 如果仍然没有缓存，降级到数据库查询（不加锁，因为可能已经有其他线程在初始化）
-                log.warn("获取锁失败且重试缓存仍为空，降级到数据库查询，店铺ID: {}", storeId);
-                return storeProductMapper.selectByStoreId(storeId);
+        // 3. 初始化关系缓存和单个商品缓存（使用Lua脚本，会自动比较时间戳）
+        if (products != null && !products.isEmpty()) {
+            // 初始化关系缓存
+            storeProductCacheService.initStoreProductIdsCache(storeId, products);
+            // 缓存每个商品的详情（Lua脚本会原子性地比较update_time，只更新更新的数据）
+            for (StoreProduct product : products) {
+                storeProductCacheService.cacheStoreProduct(product);
             }
-            
-            log.info("成功获取缓存锁，开始查询数据库并初始化缓存，店铺ID: {}", storeId);
-            
-            try {
-                // 双重检查：获取锁后再次检查缓存（可能消息更新已完成）
-                List<StoreProduct> doubleCheckCachedProducts = storeProductCacheService.getStoreProductsFromCache(storeId);
-                if (!doubleCheckCachedProducts.isEmpty()) {
-                    log.debug("双重检查：缓存已存在，店铺ID: {}, 商品数量: {}", storeId, doubleCheckCachedProducts.size());
-                    return doubleCheckCachedProducts;
-                }
-                
-                // 3. 缓存确实不存在，从数据库查询
-                log.debug("缓存未命中，从数据库查询店铺商品列表，店铺ID: {}", storeId);
-                List<StoreProduct> products = storeProductMapper.selectByStoreId(storeId);
-                
-                // 4. 初始化关系缓存和单个商品缓存（会进行时间戳比较，只缓存更新的数据）
-                if (products != null && !products.isEmpty()) {
-                    // 初始化关系缓存
-                    storeProductCacheService.initStoreProductIdsCache(storeId, products);
-                    // 缓存每个商品的详情（会自动比较时间戳，只更新更新的数据）
-                    for (StoreProduct product : products) {
-                        storeProductCacheService.cacheStoreProduct(product);
-                    }
-                    log.debug("初始化店铺商品缓存完成，店铺ID: {}, 商品数量: {}", storeId, products.size());
-                }
-                
-                return products;
-                
-            } finally {
-                // 释放锁
-                if (lock.isHeldByCurrentThread()) {
-                    lock.unlock();
-                    log.debug("释放初始化缓存锁，店铺ID: {}", storeId);
-                }
-            }
-            
-        } catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            log.error("获取初始化缓存锁被中断，店铺ID: {}", storeId, e);
-            // 中断时降级到数据库查询
-            return storeProductMapper.selectByStoreId(storeId);
-        } catch (Exception e) {
-            log.error("初始化店铺商品缓存失败，店铺ID: {}", storeId, e);
-            // 异常时降级到数据库查询
-            return storeProductMapper.selectByStoreId(storeId);
+            log.debug("初始化店铺商品缓存完成，店铺ID: {}, 商品数量: {}", storeId, products.size());
         }
+        
+        return products;
     }
 
     /**
      * 根据ID获取店铺商品
+     * 优先从缓存获取，缓存未命中则从数据库查询并缓存
      */
     public Optional<StoreProduct> getStoreProductById(Long storeProductId) {
+        if (storeProductId == null) {
+            return Optional.empty();
+        }
+        
         log.info("查询店铺商品，商品ID: {}", storeProductId);
-        return storeProductMapper.selectById(storeProductId);
+        
+        // 1. 优先从缓存获取
+        Optional<StoreProduct> cachedProduct = storeProductCacheService.getStoreProductById(storeProductId);
+        if (cachedProduct.isPresent()) {
+            log.debug("从缓存获取店铺商品，商品ID: {}", storeProductId);
+            return cachedProduct;
+        }
+        
+        // 2. 缓存未命中，从数据库查询
+        log.debug("缓存未命中，从数据库查询店铺商品，商品ID: {}", storeProductId);
+        Optional<StoreProduct> productOpt = storeProductMapper.selectById(storeProductId);
+        
+        // 3. 如果数据库中有数据，缓存起来
+        if (productOpt.isPresent()) {
+            storeProductCacheService.cacheStoreProduct(productOpt.get());
+            log.debug("已将店铺商品缓存，商品ID: {}", storeProductId);
+        }
+        
+        return productOpt;
     }
 
     /**

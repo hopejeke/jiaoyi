@@ -4,6 +4,7 @@ CREATE DATABASE IF NOT EXISTS jiaoyi DEFAULT CHARACTER SET utf8mb4 COLLATE utf8m
 USE jiaoyi;
 
 -- 删除表（如果存在）- 按依赖关系逆序删除
+DROP TABLE IF EXISTS outbox;
 DROP TABLE IF EXISTS coupon_usage;
 DROP TABLE IF EXISTS order_coupons;
 DROP TABLE IF EXISTS inventory_transactions;
@@ -163,6 +164,7 @@ CREATE TABLE stores (
     owner_phone VARCHAR(20) COMMENT '店主电话',
     address VARCHAR(500) COMMENT '店铺地址',
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT '店铺状态：ACTIVE-营业中，INACTIVE-已关闭',
+    product_list_version BIGINT NOT NULL DEFAULT 0 COMMENT '商品列表版本号（用于缓存一致性控制）',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_store_code (store_code),
@@ -181,12 +183,31 @@ CREATE TABLE store_products (
     product_image VARCHAR(500) COMMENT '商品图片',
     category VARCHAR(100) COMMENT '商品分类',
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT '商品状态：ACTIVE-上架，INACTIVE-下架',
+    is_delete TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否删除：0-未删除，1-已删除（逻辑删除）',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_store_id (store_id),
     INDEX idx_product_name (product_name),
     INDEX idx_category (category),
     INDEX idx_status (status),
+    INDEX idx_is_delete (is_delete),
     INDEX idx_create_time (create_time),
     FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='店铺商品表';
+
+-- 创建消息发件箱表（Outbox Pattern）
+CREATE TABLE outbox (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    topic VARCHAR(100) NOT NULL COMMENT 'RocketMQ Topic',
+    tag VARCHAR(50) NOT NULL COMMENT 'RocketMQ Tag',
+    message_key VARCHAR(255) COMMENT '消息Key（用于消息追踪）',
+    message_body TEXT NOT NULL COMMENT '消息体（JSON格式）',
+    status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '状态：PENDING-待发送，SENT-已发送，FAILED-发送失败',
+    retry_count INT NOT NULL DEFAULT 0 COMMENT '重试次数',
+    error_message TEXT COMMENT '错误信息（发送失败时记录）',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    sent_at DATETIME COMMENT '发送时间',
+    INDEX idx_status (status),
+    INDEX idx_created_at (created_at),
+    INDEX idx_topic_tag (topic, tag)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息发件箱表（Outbox Pattern）';

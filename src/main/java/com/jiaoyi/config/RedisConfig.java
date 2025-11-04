@@ -56,5 +56,8 @@ public class RedisConfig {
         template.afterPropertiesSet();
         return template;
     }
+
+    // 注意：stringRedisTemplate 由 Redisson 自动配置提供，无需手动定义
+    // StoreProductCacheService 会自动注入 Redisson 提供的 stringRedisTemplate
 }
 

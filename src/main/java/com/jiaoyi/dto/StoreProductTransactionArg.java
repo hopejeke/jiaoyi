@@ -31,5 +31,11 @@ public class StoreProductTransactionArg {
      * StoreProduct对象（用于CREATE和UPDATE操作）
      */
     private com.jiaoyi.entity.StoreProduct storeProduct;
+    
+    /**
+     * 临时ID（用于CREATE操作）
+     * 在发送半消息前生成UUID，在executeLocalTransaction中获取productId后存储Redis映射
+     */
+    private String tempId;
 }
 

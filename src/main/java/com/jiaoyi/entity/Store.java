@@ -52,6 +52,12 @@ public class Store {
     private StoreStatus status;
     
     /**
+     * 商品列表版本号（用于缓存一致性控制）
+     * 当店铺的商品列表发生变化时（新增/删除商品），此版本号会递增
+     */
+    private Long productListVersion;
+    
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;
