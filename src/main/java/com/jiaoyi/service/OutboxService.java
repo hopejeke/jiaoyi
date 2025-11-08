@@ -74,9 +74,16 @@ public class OutboxService {
     
     /**
      * 定时任务：扫描outbox表并发送消息到RocketMQ
-     * 每5秒执行一次
+     * 执行间隔从配置文件读取（outbox.interval），默认2000ms（2秒）
+     * 
+     * 【执行频率建议】：
+     * - 高频场景（商品操作频繁）：1000-3000ms（1-3秒）
+     * - 中频场景（一般业务）：3000-5000ms（3-5秒）
+     * - 低频场景（商品操作较少）：5000-10000ms（5-10秒）
+     * 
+     * 默认2秒，平衡实时性和数据库负载
      */
-    @Scheduled(fixedDelay = 5000)
+    @Scheduled(fixedDelayString = "${outbox.interval:2000}")
     public void processOutboxMessages() {
         try {
             if (rocketMQTemplate == null) {

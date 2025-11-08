@@ -58,6 +58,12 @@ public class StoreProduct {
     private Boolean isDelete;
     
     /**
+     * 版本号（用于缓存一致性控制）
+     * 当商品信息发生变化时，此版本号会递增
+     */
+    private Long version;
+    
+    /**
      * 创建时间
      */
     private LocalDateTime createTime;

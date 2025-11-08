@@ -28,12 +28,12 @@ public class StoreProductService {
 
     /**
      * 为店铺创建商品（使用Outbox模式）
-     * 
+     * <p>
      * 【Outbox模式流程】：
      * 1. 在同一个本地事务中：
-     *    - 插入商品到store_products表
-     *    - 创建库存记录
-     *    - 写入outbox表
+     * - 插入商品到store_products表
+     * - 创建库存记录
+     * - 写入outbox表
      * 2. 事务提交后，定时任务扫描outbox表并发送消息到RocketMQ
      * 3. 消费者接收消息并更新缓存
      *
@@ -62,20 +62,21 @@ public class StoreProductService {
             }
 
             // 注意：create_time 和 update_time 由数据库自动生成，不需要手动设置
+            // INSERT时version直接设置为1，插入后通过selectKey自动返回version值到storeProduct对象中，无需再查询
             storeProductMapper.insert(storeProduct);
 
             Long productId = storeProduct.getId();
+            Long version = storeProduct.getVersion();
+
             if (productId == null) {
                 throw new RuntimeException("店铺商品创建失败：未获取到productId，可能数据库INSERT失败");
             }
 
-            // INSERT后需要重新查询以获取数据库生成的时间戳
-            Optional<StoreProduct> insertedProduct = storeProductMapper.selectById(productId);
-            if (insertedProduct.isPresent()) {
-                // 更新storeProduct对象的时间字段，以便后续使用update_time作为版本号
-                storeProduct.setCreateTime(insertedProduct.get().getCreateTime());
-                storeProduct.setUpdateTime(insertedProduct.get().getUpdateTime());
+            if (version == null) {
+                throw new RuntimeException("店铺商品创建失败：未获取到version");
             }
+
+            log.info("商品创建成功，商品ID: {}, 版本号: {}", productId, version);
 
             // 创建商品后，调用库存服务创建库存记录
             inventoryService.createInventory(storeId, productId, productName);
@@ -92,8 +93,9 @@ public class StoreProductService {
             message.setOperationType(StoreProductCacheUpdateMessage.OperationType.CREATE);
             message.setTimestamp(System.currentTimeMillis());
             message.setEnrichInventory(true);
-            message.setStoreProduct(storeProduct);
-            
+            message.setVersion(storeProduct.getVersion()); // 设置版本号
+            message.setStoreProduct(storeProduct); // 包含完整的商品信息
+
             // 写入outbox表（在同一个事务中）
             String messageKey = String.valueOf(productId); // 使用productId作为messageKey
             outboxService.saveMessage(
@@ -128,7 +130,7 @@ public class StoreProductService {
         Long productId = storeProduct.getId();
         log.info("执行数据库UPDATE操作，店铺商品ID: {}", productId);
 
-        // 先查询商品是否存在
+        // 先查询商品是否存在（获取当前version用于乐观锁校验）
         Optional<StoreProduct> existingProductOpt = storeProductMapper.selectById(productId);
         if (!existingProductOpt.isPresent()) {
             throw new RuntimeException("更新店铺商品失败：商品不存在，商品ID: " + productId);
@@ -145,16 +147,25 @@ public class StoreProductService {
             }
         }
 
-        // 注意：update_time 由数据库自动更新（ON UPDATE CURRENT_TIMESTAMP），不需要手动设置
-        // 执行更新
-        storeProductMapper.update(storeProduct);
+        // 使用乐观锁：设置当前version到storeProduct对象中，用于WHERE条件校验
 
-        // UPDATE后重新查询以获取数据库更新的update_time（用于版本号）
-        Optional<StoreProduct> updatedProduct = storeProductMapper.selectById(productId);
-        if (updatedProduct.isPresent()) {
-            storeProduct.setUpdateTime(updatedProduct.get().getUpdateTime());
+        storeProduct.setVersion(existing.getVersion());
+
+
+        // 注意：update_time 由数据库自动更新（ON UPDATE CURRENT_TIMESTAMP），不需要手动设置
+        // 使用乐观锁：UPDATE时WHERE条件中加上version校验，只有version匹配才更新
+        // 如果version不匹配（affected rows = 0），说明数据已被其他事务修改
+        int affectedRows = storeProductMapper.update(storeProduct);
+        if (affectedRows == 0) {
+            throw new RuntimeException("店铺商品更新失败：乐观锁冲突，数据已被其他事务修改，商品ID: " + productId);
         }
-        log.info("数据库UPDATE成功，店铺商品ID: {}", productId);
+
+        Long version = storeProduct.getVersion();
+        if (version == null) {
+            throw new RuntimeException("店铺商品更新失败：未获取到version");
+        }
+
+        log.info("数据库UPDATE成功（乐观锁），店铺商品ID: {}, 版本号: {}", productId, version);
     }
 
     /**
@@ -164,7 +175,7 @@ public class StoreProductService {
     public void updateStoreProduct(StoreProduct storeProduct) {
         Long productId = storeProduct.getId();
         Long storeId = storeProduct.getStoreId();
-        
+
         // 如果storeId为空，从数据库查询
         if (storeId == null && productId != null) {
             Optional<StoreProduct> existing = storeProductMapper.selectById(productId);
@@ -173,10 +184,10 @@ public class StoreProductService {
                 storeProduct.setStoreId(storeId);
             }
         }
-        
-        // 执行数据库更新
+
+        // 执行数据库更新（内部会递增版本号）
         updateStoreProductInternal(storeProduct);
-        
+
         // 在同一个事务中写入outbox表
         StoreProductCacheUpdateMessage message = new StoreProductCacheUpdateMessage();
         message.setProductId(productId);
@@ -184,8 +195,9 @@ public class StoreProductService {
         message.setOperationType(StoreProductCacheUpdateMessage.OperationType.UPDATE);
         message.setTimestamp(System.currentTimeMillis());
         message.setEnrichInventory(true);
-        message.setStoreProduct(storeProduct);
-        
+        message.setVersion(storeProduct.getVersion()); // 设置版本号
+        message.setStoreProduct(storeProduct); // 包含完整的商品信息
+
         // 写入outbox表（在同一个事务中）
         String messageKey = String.valueOf(productId);
         outboxService.saveMessage(
@@ -199,17 +211,34 @@ public class StoreProductService {
 
     /**
      * 删除店铺商品（内部方法，逻辑删除）
-     * 
-     * @param storeProductId 店铺商品ID
-     * @throws RuntimeException 如果删除失败或商品不存在
+     *
+     * @param storeProductId  店铺商品ID
+     * @param expectedVersion 期望的版本号（用于乐观锁校验）
+     * @return 删除后的版本号
+     * @throws RuntimeException 如果删除失败、商品不存在或乐观锁冲突
      */
-    public void deleteStoreProductInternal(Long storeProductId) {
-        log.info("执行数据库逻辑删除操作，店铺商品ID: {}", storeProductId);
-        int updated = storeProductMapper.deleteById(storeProductId);
+    public Long deleteStoreProductInternal(Long storeProductId, Long expectedVersion) {
+        log.info("执行数据库逻辑删除操作（乐观锁），店铺商品ID: {}, 期望版本号: {}", storeProductId, expectedVersion);
+
+        // 创建一个临时对象用于接收selectKey返回的version值
+        StoreProduct tempProduct = new StoreProduct();
+        tempProduct.setId(storeProductId);
+        tempProduct.setVersion(expectedVersion);
+
+        // 使用乐观锁：DELETE时WHERE条件中加上version校验，只有version匹配才删除
+        // 如果version不匹配（affected rows = 0），说明数据已被其他事务修改
+        int updated = storeProductMapper.deleteById(tempProduct);
         if (updated == 0) {
-            throw new RuntimeException("删除店铺商品失败：商品不存在或已删除，商品ID: " + storeProductId);
+            throw new RuntimeException("删除店铺商品失败：商品不存在、已删除或乐观锁冲突（数据已被其他事务修改），商品ID: " + storeProductId);
         }
-        log.info("数据库逻辑删除成功，店铺商品ID: {}", storeProductId);
+
+        Long version = tempProduct.getVersion();
+        if (version == null) {
+            throw new RuntimeException("删除店铺商品失败：未获取到version，商品ID: " + storeProductId);
+        }
+
+        log.info("数据库逻辑删除成功（乐观锁），店铺商品ID: {}, 版本号: {}", storeProductId, version);
+        return version;
     }
 
     /**
@@ -217,23 +246,32 @@ public class StoreProductService {
      */
     @Transactional
     public void deleteStoreProduct(Long storeProductId, Long storeId) {
-        // 如果storeId为空，从数据库查询
-        if (storeId == null && storeProductId != null) {
-            Optional<StoreProduct> existing = storeProductMapper.selectById(storeProductId);
-            if (existing.isPresent()) {
-                storeId = existing.get().getStoreId();
-            }
+        // 删除前先查询商品信息（获取版本号和店铺ID，用于乐观锁校验）
+        Optional<StoreProduct> existingProduct = storeProductMapper.selectById(storeProductId);
+        if (!existingProduct.isPresent()) {
+            throw new RuntimeException("删除店铺商品失败：商品不存在，商品ID: " + storeProductId);
         }
-        
-        // 执行数据库删除
-        deleteStoreProductInternal(storeProductId);
-        
+
+        StoreProduct product = existingProduct.get();
+        if (storeId == null) {
+            storeId = product.getStoreId();
+        }
+
+        // 使用乐观锁：执行数据库删除时校验version，只有version匹配才删除
+        Long expectedVersion = product.getVersion();
+        if (expectedVersion == null) {
+            throw new RuntimeException("删除店铺商品失败：未获取到当前版本号，商品ID: " + storeProductId);
+        }
+
+        // 执行数据库删除（内部会校验version并递增版本号，返回新version）
+        Long version = deleteStoreProductInternal(storeProductId, expectedVersion);
+
         // 递增店铺的商品列表版本号（原子操作，在同一个事务中）
         if (storeId != null) {
             storeMapper.incrementProductListVersion(storeId);
             log.info("店铺商品列表版本号已递增（DELETE），店铺ID: {}", storeId);
         }
-        
+
         // 在同一个事务中写入outbox表
         StoreProductCacheUpdateMessage message = new StoreProductCacheUpdateMessage();
         message.setProductId(storeProductId);
@@ -241,7 +279,9 @@ public class StoreProductService {
         message.setOperationType(StoreProductCacheUpdateMessage.OperationType.DELETE);
         message.setTimestamp(System.currentTimeMillis());
         message.setEnrichInventory(false);
-        
+        message.setVersion(version); // 设置版本号
+        message.setStoreProduct(product); // 包含商品信息（用于消费消息时使用）
+
         // 写入outbox表（在同一个事务中）
         String messageKey = String.valueOf(storeProductId);
         outboxService.saveMessage(
@@ -250,7 +290,7 @@ public class StoreProductService {
                 messageKey,
                 message
         );
-        log.info("已写入outbox表（DELETE），商品ID: {}，定时任务将异步发送消息", storeProductId);
+        log.info("已写入outbox表（DELETE），商品ID: {}，版本号: {}，定时任务将异步发送消息", storeProductId, version);
     }
 
     /**
@@ -260,10 +300,10 @@ public class StoreProductService {
      */
     public List<StoreProduct> getStoreProducts(Long storeId) {
         log.info("查询店铺商品，店铺ID: {}", storeId);
-        
+
         // 1. 优先从关系缓存获取商品列表
         List<StoreProduct> cachedProducts = storeProductCacheService.getStoreProductsFromCache(storeId);
-        if (!cachedProducts.isEmpty()) {
+       if (!cachedProducts.isEmpty()) {
             log.debug("从缓存获取店铺商品列表，店铺ID: {}, 商品数量: {}", storeId, cachedProducts.size());
             return cachedProducts;
         }
@@ -295,26 +335,26 @@ public class StoreProductService {
         if (storeProductId == null) {
             return Optional.empty();
         }
-        
+
         log.info("查询店铺商品，商品ID: {}", storeProductId);
-        
+
         // 1. 优先从缓存获取
         Optional<StoreProduct> cachedProduct = storeProductCacheService.getStoreProductById(storeProductId);
         if (cachedProduct.isPresent()) {
             log.debug("从缓存获取店铺商品，商品ID: {}", storeProductId);
             return cachedProduct;
         }
-        
+
         // 2. 缓存未命中，从数据库查询
         log.debug("缓存未命中，从数据库查询店铺商品，商品ID: {}", storeProductId);
         Optional<StoreProduct> productOpt = storeProductMapper.selectById(storeProductId);
-        
+
         // 3. 如果数据库中有数据，缓存起来
         if (productOpt.isPresent()) {
             storeProductCacheService.cacheStoreProduct(productOpt.get());
             log.debug("已将店铺商品缓存，商品ID: {}", storeProductId);
         }
-        
+
         return productOpt;
     }
 

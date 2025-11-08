@@ -49,8 +49,12 @@ public class StoreProductCacheUpdateMessage {
     private Boolean enrichInventory;
     
     /**
-     * 店铺商品数据（用于CREATE和UPDATE操作，在executeLocalTransaction中执行数据库操作）
-     * 注意：对于CREATE操作，如果ID是自增的，productId可能为null
+     * 商品版本号（从数据库读取，用于缓存更新时的版本控制）
+     */
+    private Long version;
+    
+    /**
+     * 店铺商品数据（包含完整的商品信息，消费消息时直接使用，不再查数据库）
      */
     private StoreProduct storeProduct;
 }

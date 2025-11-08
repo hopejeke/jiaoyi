@@ -184,6 +184,7 @@ CREATE TABLE store_products (
     category VARCHAR(100) COMMENT '商品分类',
     status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT '商品状态：ACTIVE-上架，INACTIVE-下架',
     is_delete TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否删除：0-未删除，1-已删除（逻辑删除）',
+    version BIGINT NOT NULL DEFAULT 0 COMMENT '版本号（用于缓存一致性控制）',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
     INDEX idx_store_id (store_id),

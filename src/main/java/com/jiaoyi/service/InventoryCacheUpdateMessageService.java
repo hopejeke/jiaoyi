@@ -202,3 +202,4 @@ public class InventoryCacheUpdateMessageService implements RocketMQListener<Inve
     }
 }
 
+
