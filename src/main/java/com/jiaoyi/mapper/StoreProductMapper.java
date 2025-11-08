@@ -16,9 +16,11 @@ public interface StoreProductMapper {
     void insert(StoreProduct storeProduct);
     
     /**
-     * 更新店铺商品
+     * 更新店铺商品（使用乐观锁）
+     * @param storeProduct 商品对象，必须包含id和version（用于乐观锁校验）
+     * @return 受影响的行数，如果为0表示乐观锁冲突
      */
-    void update(StoreProduct storeProduct);
+    int update(StoreProduct storeProduct);
     
     /**
      * 根据ID查询店铺商品
@@ -46,13 +48,25 @@ public interface StoreProductMapper {
     List<StoreProduct> selectByProductName(@Param("productName") String productName);
     
     /**
-     * 删除店铺商品
+     * 删除店铺商品（逻辑删除）
+     * @param storeProduct 商品对象，删除后version会通过selectKey自动设置到此对象中
      */
-    int deleteById(Long id);
+    int deleteById(StoreProduct storeProduct);
     
     /**
      * 根据店铺ID删除所有商品
      */
     int deleteByStoreId(Long storeId);
+    
+    /**
+     * 递增商品的版本号（原子操作）
+     * 用于在商品创建/更新/删除时更新版本号
+     */
+    int incrementVersion(Long productId);
+    
+    /**
+     * 获取商品的版本号
+     */
+    Long getVersion(Long productId);
 }
 

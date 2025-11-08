@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 
@@ -92,65 +93,49 @@ public class StoreProductCacheUpdateMessageService implements RocketMQListener<M
         StoreProductCacheUpdateMessage.OperationType operationType = message.getOperationType();
         
         switch (operationType) {
-                case CREATE: {
-                    // CREATE操作：从数据库重新查询关系表
-                    // 1. 更新单个商品缓存
-                    if (productId != null) {
-                        Optional<StoreProduct> storeProductOpt = storeProductMapper.selectById(productId);
-                        if (storeProductOpt.isPresent()) {
-                            StoreProduct storeProduct = storeProductOpt.get();
-                            storeProductCacheService.cacheStoreProduct(storeProduct);
-                        } else {
-                            // 商品不存在，删除缓存
-                            storeProductCacheService.evictStoreProductCache(productId);
-                        }
+                case CREATE:
+                case UPDATE: {
+                    // CREATE/UPDATE操作：使用消息中的商品信息和版本号，不再查数据库
+                    StoreProduct storeProduct = message.getStoreProduct();
+                    Long version = message.getVersion();
+                    
+                    if (storeProduct != null && version != null) {
+                        // 使用消息中的商品信息和版本号更新缓存
+                        storeProductCacheService.cacheStoreProductWithVersion(storeProduct, version);
+                        log.info("店铺商品缓存更新成功（{}），店铺ID: {}, 商品ID: {}, 版本号: {}", 
+                                operationType, storeId, productId, version);
+                    } else {
+                        log.warn("消息中缺少商品信息或版本号，操作类型: {}, 商品ID: {}", operationType, productId);
                     }
                     
-                    // 2. 从数据库查询店铺的所有商品ID列表（关系表）
+                    // 从数据库查询店铺的所有商品ID列表（关系表）
                     if (storeId != null) {
                         refreshStoreProductRelationCache(storeId);
                     }
-                    
-                    log.info("店铺商品缓存更新成功（CREATE），店铺ID: {}, 商品ID: {}", storeId, productId);
                     break;
                 }
                     
                 case DELETE: {
-                    // DELETE操作：逻辑删除，商品在数据库中还存在（is_delete=1），但查询时会被过滤
-                    // 1. 删除单个商品缓存（逻辑删除后不应该再被查询到）
-                    if (productId != null) {
-                        storeProductCacheService.evictStoreProductCache(productId);
-                    }
+                    // DELETE操作：逻辑删除
+                    Long version = message.getVersion();
                     
-                    // 2. 从数据库查询店铺的所有商品ID列表（关系表，自动过滤is_delete=1的商品）
-                    if (storeId != null) {
-                        refreshStoreProductRelationCache(storeId);
-                    }
-                    
-                    log.info("店铺商品缓存删除成功（逻辑删除），店铺ID: {}, 商品ID: {}", storeId, productId);
-                    break;
-                }
-                    
-                case UPDATE: {
-                    // UPDATE操作：更新商品信息和店铺关系缓存
-                    // 1. 更新单个商品缓存（从数据库查询最新的商品信息）
-                    if (productId != null) {
-                        Optional<StoreProduct> storeProductOpt = storeProductMapper.selectById(productId);
-                        if (storeProductOpt.isPresent()) {
-                            StoreProduct storeProduct = storeProductOpt.get();
-                            storeProductCacheService.cacheStoreProduct(storeProduct);
-                        } else {
-                            // 商品不存在，删除缓存
-                            storeProductCacheService.evictStoreProductCache(productId);
+                    // 使用版本号控制删除缓存（防止删除操作覆盖掉更高版本的更新）
+                    // 只有当缓存中的版本号 <= 删除操作的版本号时，才删除缓存
+                    if (productId != null && version != null) {
+                        boolean deleted = storeProductCacheService.evictStoreProductCacheWithVersion(productId, version);
+                        if (!deleted) {
+                            log.warn("删除商品缓存跳过（版本号不匹配，缓存中有更新版本），店铺ID: {}, 商品ID: {}, 删除版本号: {}", 
+                                    storeId, productId, version);
                         }
                     }
                     
-                    // 2. 从数据库查询店铺的所有商品ID列表（关系表）
+                    // 从数据库查询店铺的所有商品ID列表（关系表，自动过滤is_delete=1的商品）
                     if (storeId != null) {
                         refreshStoreProductRelationCache(storeId);
                     }
                     
-                    log.info("店铺商品缓存更新成功（UPDATE），店铺ID: {}, 商品ID: {}", storeId, productId);
+                    log.info("店铺商品缓存删除处理完成（逻辑删除），店铺ID: {}, 商品ID: {}, 版本号: {}", 
+                            storeId, productId, version);
                     break;
                 }
                     
@@ -190,20 +175,21 @@ public class StoreProductCacheUpdateMessageService implements RocketMQListener<M
      */
     private void refreshStoreProductRelationCache(Long storeId) {
         try {
-            // 1. 从数据库查询店铺的所有商品ID列表
-            List<StoreProduct> storeProducts = storeProductMapper.selectByStoreId(storeId);
-            Set<Long> productIds = storeProducts.stream()
-                    .map(StoreProduct::getId)
-                    .filter(id -> id != null)
-                    .collect(java.util.stream.Collectors.toSet());
-            
+
             // 2. 从stores表读取版本号
             Long version = storeMapper.getProductListVersion(storeId);
             if (version == null) {
                 version = 0L;
                 log.warn("无法获取店铺商品列表版本号，使用默认值0，店铺ID: {}", storeId);
             }
-            
+
+            // 1. 从数据库查询店铺的所有商品ID列表
+            List<StoreProduct> storeProducts = storeProductMapper.selectByStoreId(storeId);
+            Set<Long> productIds = storeProducts.stream()
+                    .map(StoreProduct::getId)
+                    .filter(Objects::nonNull)
+                    .collect(java.util.stream.Collectors.toSet());
+
             // 3. 使用版本号更新缓存（Lua脚本保证原子性，防止并发脏写）
             storeProductCacheService.updateStoreProductIdsCacheWithVersion(storeId, productIds, version);
             

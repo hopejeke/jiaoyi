@@ -25,32 +25,32 @@ public class StoreProductCacheService {
     private final ObjectMapper objectMapper;
     private final com.jiaoyi.mapper.StoreMapper storeMapper;
     
-    // Lua脚本：根据update_time比较并更新缓存（原子操作）
-    // 使用Redis Hash结构：{data: "商品JSON数据", ver: "更新时间戳"}
+    // Lua脚本：根据版本号比较并更新缓存（原子操作）
+    // 使用Redis Hash结构：{data: "商品JSON数据", ver: "版本号"}
     private static final String CACHE_UPDATE_LUA_SCRIPT = 
         "local cacheKey = KEYS[1]\n" +
         "local newData = ARGV[1]\n" +
-        "local newUpdateTime = ARGV[2]\n" +
+        "local newVersion = ARGV[2]\n" +
         "local expireSeconds = tonumber(ARGV[3])\n" +
         "\n" +
         "-- 从Hash中获取现有的版本号（ver字段）\n" +
         "local existingVer = redis.call('HGET', cacheKey, 'ver')\n" +
         "\n" +
-        "-- 如果存在现有版本号，比较时间戳（转换为数字比较）\n" +
+        "-- 如果存在现有版本号，比较版本号（转换为数字比较）\n" +
         "if existingVer then\n" +
-        "    local existingTime = tonumber(existingVer)\n" +
-        "    local newTime = tonumber(newUpdateTime)\n" +
+        "    local existingVersion = tonumber(existingVer)\n" +
+        "    local newVer = tonumber(newVersion)\n" +
         "    \n" +
-        "    -- 如果新时间不晚于现有时间，不更新\n" +
-        "    if newTime <= existingTime then\n" +
-        "        return 0  -- 返回0表示未更新（因为时间不更新）\n" +
+        "    -- 如果新版本不高于现有版本，不更新（防止脏写）\n" +
+        "    if newVer <= existingVersion then\n" +
+        "        return 0  -- 返回0表示未更新（因为版本号不够新）\n" +
         "    end\n" +
         "end\n" +
         "\n" +
-        "-- 更新时间更新，执行更新操作（使用Hash结构）\n" +
+        "-- 版本号更新，执行更新操作（使用Hash结构）\n" +
         "-- 分别设置data和ver字段，避免多参数HSET的问题\n" +
         "redis.call('HSET', cacheKey, 'data', newData)\n" +
-        "redis.call('HSET', cacheKey, 'ver', newUpdateTime)\n" +
+        "redis.call('HSET', cacheKey, 'ver', newVersion)\n" +
         "redis.call('EXPIRE', cacheKey, expireSeconds)\n" +
         "\n" +
         "return 1  -- 返回1表示更新成功\n";
@@ -145,11 +145,38 @@ public class StoreProductCacheService {
     }
     
     /**
-     * 缓存店铺商品信息（使用Lua脚本根据update_time原子更新）
-     * 使用Redis Hash结构：HGETALL product:{productId} -> {data: "商品JSON数据", ver: "更新时间戳"}
+     * 缓存店铺商品信息（使用Lua脚本根据版本号原子更新）
+     * 使用Redis Hash结构：HGETALL product:{productId} -> {data: "商品JSON数据", ver: "版本号"}
+     * 
+     * 注意：此方法会从商品的version字段获取版本号，如果version为null则使用update_time
      */
     public void cacheStoreProduct(StoreProduct storeProduct) {
         if (storeProduct == null || storeProduct.getId() == null) {
+            return;
+        }
+        
+        // 优先使用version字段，如果为null则使用update_time（兼容旧逻辑）
+        Long version = storeProduct.getVersion();
+        if (version == null && storeProduct.getUpdateTime() != null) {
+            version = storeProduct.getUpdateTime().toInstant(ZoneOffset.UTC).toEpochMilli();
+        }
+        
+        if (version == null) {
+            version = 0L;
+        }
+        
+        cacheStoreProductWithVersion(storeProduct, version);
+    }
+    
+    /**
+     * 使用指定的版本号缓存店铺商品信息（使用Lua脚本根据版本号原子更新）
+     * 使用Redis Hash结构：HGETALL product:{productId} -> {data: "商品JSON数据", ver: "版本号"}
+     * 
+     * @param storeProduct 商品信息
+     * @param version 版本号（从数据库读取，用于版本控制）
+     */
+    public void cacheStoreProductWithVersion(StoreProduct storeProduct, Long version) {
+        if (storeProduct == null || storeProduct.getId() == null || version == null) {
             return;
         }
         
@@ -159,29 +186,22 @@ public class StoreProductCacheService {
             // 序列化商品数据
             String jsonData = objectMapper.writeValueAsString(storeProduct);
             
-            // 将 updateTime 转换为时间戳（毫秒数）用于比较
-            long updateTimeTimestamp = 0;
-            if (storeProduct.getUpdateTime() != null) {
-                updateTimeTimestamp = storeProduct.getUpdateTime().toInstant(ZoneOffset.UTC).toEpochMilli();
-            }
-            
-            // 使用 Lua 脚本原子性地比较并更新缓存（Hash结构）
+            // 使用 Lua 脚本原子性地比较版本号并更新缓存（Hash结构）
             List<String> keys = Collections.singletonList(cacheKey);
-            // 直接传递参数，不要转换为Object[]，让Spring Data Redis正确处理
             Long result = redisTemplate.execute(
                     cacheUpdateScript, 
                     keys, 
                     jsonData,
-                    String.valueOf(updateTimeTimestamp),
+                    String.valueOf(version),
                     String.valueOf(CACHE_EXPIRE_TIME.getSeconds())
             );
             
             if (result != null && result == 1) {
-                log.debug("缓存店铺商品信息成功（Lua脚本更新Hash），商品ID: {}, 更新时间戳: {}", 
-                        storeProduct.getId(), updateTimeTimestamp);
+                log.debug("缓存店铺商品信息成功（Lua脚本更新Hash），商品ID: {}, 版本号: {}", 
+                        storeProduct.getId(), version);
             } else if (result != null && result == 0) {
-                log.debug("缓存中的商品更新时间更新或相同，跳过更新（Lua脚本），商品ID: {}, 更新时间戳: {}", 
-                        storeProduct.getId(), updateTimeTimestamp);
+                log.debug("缓存中的商品版本号不够新，跳过更新（Lua脚本），商品ID: {}, 版本号: {}", 
+                        storeProduct.getId(), version);
             } else {
                 log.warn("Lua脚本返回未知结果，商品ID: {}, 返回值: {}", storeProduct.getId(), result);
             }
@@ -194,15 +214,11 @@ public class StoreProductCacheService {
     }
     
     /**
-     * 更新缓存中的店铺商品信息（带时间戳比较）
-     */
-    public void updateStoreProductCache(StoreProduct storeProduct) {
-        // 使用相同的缓存方法，会自动比较时间戳
-        cacheStoreProduct(storeProduct);
-    }
+
     
     /**
      * 删除缓存中的店铺商品信息（删除整个Hash）
+     * 注意：直接删除，不校验版本号，适用于明确需要删除缓存的场景
      */
     public void evictStoreProductCache(Long productId) {
         if (productId == null) {
@@ -212,6 +228,64 @@ public class StoreProductCacheService {
         String cacheKey = STORE_PRODUCT_KEY_PREFIX + productId;
         redisTemplate.delete(cacheKey);
         log.debug("删除店铺商品缓存（Hash），商品ID: {}", productId);
+    }
+    
+    /**
+     * 根据版本号删除缓存（使用乐观锁机制）
+     * 只有当缓存中的版本号 <= 指定的版本号时，才删除缓存
+     * 这样可以防止删除操作覆盖掉更高版本的更新
+     * 
+     * @param productId 商品ID
+     * @param version 删除操作的版本号
+     * @return true表示删除成功，false表示版本号不匹配或缓存不存在
+     */
+    public boolean evictStoreProductCacheWithVersion(Long productId, Long version) {
+        if (productId == null || version == null) {
+            return false;
+        }
+        
+        String cacheKey = STORE_PRODUCT_KEY_PREFIX + productId;
+        
+        // Lua脚本：检查版本号，只有版本号匹配或更旧时才删除
+        String deleteWithVersionScript = 
+            "local cacheKey = KEYS[1]\n" +
+            "local deleteVersion = tonumber(ARGV[1])\n" +
+            "\n" +
+            "-- 从Hash中获取现有的版本号（ver字段）\n" +
+            "local existingVer = redis.call('HGET', cacheKey, 'ver')\n" +
+            "\n" +
+            "-- 如果缓存不存在，直接返回成功（已经删除）\n" +
+            "if not existingVer then\n" +
+            "    return 1\n" +
+            "end\n" +
+            "\n" +
+            "-- 如果存在现有版本号，比较版本号\n" +
+            "local existingVersion = tonumber(existingVer)\n" +
+            "\n" +
+            "-- 如果删除操作的版本号 >= 现有版本号，才删除缓存（防止覆盖更高版本的更新）\n" +
+            "if deleteVersion >= existingVersion then\n" +
+            "    redis.call('DEL', cacheKey)\n" +
+            "    return 1  -- 返回1表示删除成功\n" +
+            "else\n" +
+            "    return 0  -- 返回0表示版本号不匹配（缓存中有更新版本）\n" +
+            "end\n";
+        
+        try {
+            DefaultRedisScript<Long> script = new DefaultRedisScript<>(deleteWithVersionScript, Long.class);
+            List<String> keys = Collections.singletonList(cacheKey);
+            Long result = redisTemplate.execute(script, keys, String.valueOf(version));
+            
+            if (result != null && result == 1) {
+                log.debug("删除店铺商品缓存成功（版本号控制），商品ID: {}, 版本号: {}", productId, version);
+                return true;
+            } else {
+                log.debug("删除店铺商品缓存跳过（版本号不匹配，缓存中有更新版本），商品ID: {}, 删除版本号: {}", productId, version);
+                return false;
+            }
+        } catch (Exception e) {
+            log.error("删除店铺商品缓存失败（版本号控制），商品ID: {}, 版本号: {}", productId, version, e);
+            return false;
+        }
     }
     
     
@@ -265,37 +339,7 @@ public class StoreProductCacheService {
         }
     }
     
-    /**
-     * 将商品ID添加到店铺的商品ID集合中（关系缓存）
-     * 使用版本号和Lua脚本防止脏写
-     */
-    public void addProductIdToStore(Long storeId, Long productId) {
-        if (storeId == null || productId == null) {
-            return;
-        }
-        
-        // 获取当前的商品ID列表
-        Set<Long> currentIds = getStoreProductIds(storeId);
-        
-        // 如果商品ID已存在，直接返回
-        if (currentIds.contains(productId)) {
-            log.debug("商品ID已在关系缓存中，店铺ID: {}, 商品ID: {}", storeId, productId);
-            return;
-        }
-        
-        // 添加新商品ID
-        currentIds.add(productId);
-        
-        // 从数据库获取店铺的商品列表版本号
-        Long version = storeMapper.getProductListVersion(storeId);
-        if (version == null) {
-            version = 0L; // 如果查询失败，使用0作为默认值
-            log.warn("无法获取店铺商品列表版本号，使用默认值0，店铺ID: {}", storeId);
-        }
-        updateStoreProductIdsCacheWithVersion(storeId, currentIds, version);
-        
-        log.debug("添加商品ID到店铺关系缓存，店铺ID: {}, 商品ID: {}", storeId, productId);
-    }
+
     
     /**
      * 从店铺的商品ID集合中移除商品ID（关系缓存）
@@ -399,20 +443,10 @@ public class StoreProductCacheService {
      * 使用版本号和Lua脚本防止脏写
      */
     public void initStoreProductIdsCache(Long storeId, List<StoreProduct> storeProducts) {
-        if (storeId == null || storeProducts == null || storeProducts.isEmpty()) {
+        if (storeId == null) {
             return;
         }
-        
-        // 提取商品ID列表
-        Set<Long> productIds = storeProducts.stream()
-                .map(StoreProduct::getId)
-                .filter(id -> id != null)
-                .collect(Collectors.toSet());
-        
-        if (productIds.isEmpty()) {
-            return;
-        }
-        
+
         // 从数据库获取店铺的商品列表版本号，通过Lua脚本更新缓存
         // Lua脚本会检查版本号，如果缓存中的版本号更新，则不会覆盖
         Long version = storeMapper.getProductListVersion(storeId);
@@ -420,88 +454,20 @@ public class StoreProductCacheService {
             version = 0L; // 如果查询失败，使用0作为默认值
             log.warn("无法获取店铺商品列表版本号，使用默认值0，店铺ID: {}", storeId);
         }
+        // 提取商品ID列表
+        Set<Long> productIds = storeProducts.stream()
+                .map(StoreProduct::getId)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         updateStoreProductIdsCacheWithVersion(storeId, productIds, version);
         
         log.debug("初始化店铺商品ID关系缓存，店铺ID: {}, 商品数量: {}, 版本号: {}", 
                 storeId, productIds.size(), version);
     }
     
-    /**
-     * 删除店铺的商品ID关系缓存
-     */
-    public void evictStoreProductIdsCache(Long storeId) {
-        if (storeId == null) {
-            return;
-        }
-        
-        String relationKey = STORE_PRODUCT_IDS_KEY_PREFIX + storeId + ":products";
-        redisTemplate.delete(relationKey);
-        log.debug("删除店铺商品ID关系缓存，店铺ID: {}", storeId);
-    }
+
     
-    /**
-     * 存储临时ID到商品ID的映射
-     * 用于RocketMQ事务消息：CREATE操作时，在半消息中放入临时ID（UUID），
-     * 在executeLocalTransaction中获取productId后，存储此映射
-     * 消费者从消息keys中获取临时ID，查询此映射得到productId
-     * 
-     * @param tempId 临时ID（UUID）
-     * @param productId 商品ID（数据库自增生成的ID）
-     */
-    public void storeTempIdMapping(String tempId, Long productId) {
-        if (tempId == null || productId == null) {
-            log.warn("存储临时ID映射失败：tempId或productId为空，tempId: {}, productId: {}", tempId, productId);
-            return;
-        }
-        
-        String key = TEMP_ID_MAPPING_KEY_PREFIX + tempId;
-        redisTemplate.opsForValue().set(key, String.valueOf(productId), TEMP_ID_MAPPING_EXPIRE_TIME);
-        log.info("存储临时ID映射：{} -> {}", tempId, productId);
-    }
-    
-    /**
-     * 根据临时ID查询商品ID
-     * 用于消费者从消息keys中获取临时ID后，查询此映射得到productId
-     * 
-     * @param tempId 临时ID（UUID）
-     * @return 商品ID，如果不存在返回null
-     */
-    public Long getProductIdByTempId(String tempId) {
-        if (tempId == null) {
-            return null;
-        }
-        
-        String key = TEMP_ID_MAPPING_KEY_PREFIX + tempId;
-        String productIdStr = redisTemplate.opsForValue().get(key);
-        
-        if (productIdStr == null) {
-            log.warn("临时ID映射不存在：{}", tempId);
-            return null;
-        }
-        
-        try {
-            Long productId = Long.parseLong(productIdStr);
-            log.info("根据临时ID查询到商品ID：{} -> {}", tempId, productId);
-            return productId;
-        } catch (NumberFormatException e) {
-            log.error("临时ID映射的值格式错误：{} -> {}", tempId, productIdStr, e);
-            return null;
-        }
-    }
-    
-    /**
-     * 删除临时ID映射（可选，通常在消费完成后或TTL自动过期）
-     * 
-     * @param tempId 临时ID（UUID）
-     */
-    public void deleteTempIdMapping(String tempId) {
-        if (tempId == null) {
-            return;
-        }
-        
-        String key = TEMP_ID_MAPPING_KEY_PREFIX + tempId;
-        redisTemplate.delete(key);
-        log.debug("删除临时ID映射：{}", tempId);
-    }
+
 }
 

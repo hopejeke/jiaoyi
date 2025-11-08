@@ -82,3 +82,4 @@ public class InventoryCacheUpdateMessage implements Serializable {
     private Inventory beforeInventory;
 }
 
+

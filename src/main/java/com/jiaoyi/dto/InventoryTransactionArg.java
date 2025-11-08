@@ -34,3 +34,4 @@ public class InventoryTransactionArg implements Serializable {
     private Long orderId;
 }
 
+
