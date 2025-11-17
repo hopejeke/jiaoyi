@@ -393,5 +393,57 @@ public class StoreProductService {
         List<StoreProduct> products = storeProductMapper.selectByStoreId(storeId);
         return products.size();
     }
+
+    // ==================== B端商家专用方法（直接读DB，不走缓存） ====================
+
+    /**
+     * B端商家：根据店铺ID获取该店铺的所有商品（直接读DB，不走缓存）
+     * 用于商家后台页面，确保修改后立即看到最新数据
+     */
+    public List<StoreProduct> getStoreProductsFromDb(Long storeId) {
+        log.info("B端商家查询店铺商品（直接读DB），店铺ID: {}", storeId);
+        return storeProductMapper.selectByStoreId(storeId);
+    }
+
+    /**
+     * B端商家：根据ID获取店铺商品详情（直接读DB，不走缓存）
+     * 用于商家后台页面，确保修改后立即看到最新数据
+     */
+    public Optional<StoreProduct> getStoreProductByIdFromDb(Long storeProductId) {
+        if (storeProductId == null) {
+            return Optional.empty();
+        }
+        log.info("B端商家查询店铺商品详情（直接读DB），商品ID: {}", storeProductId);
+        return storeProductMapper.selectById(storeProductId);
+    }
+
+    /**
+     * B端商家：根据店铺ID和状态获取商品列表（直接读DB，不走缓存）
+     */
+    public List<StoreProduct> getStoreProductsByStatusFromDb(Long storeId, StoreProduct.StoreProductStatus status) {
+        log.info("B端商家根据状态查询店铺商品（直接读DB），店铺ID: {}, 状态: {}", storeId, status);
+        return storeProductMapper.selectByStoreIdAndStatus(storeId, status);
+    }
+
+    /**
+     * B端商家：搜索店铺商品（按店铺ID和商品名称，直接读DB，不走缓存）
+     */
+    public List<StoreProduct> searchStoreProductsFromDb(Long storeId, String name) {
+        log.info("B端商家搜索店铺商品（直接读DB），店铺ID: {}, 关键词: {}", storeId, name);
+        List<StoreProduct> allProducts = storeProductMapper.selectByStoreId(storeId);
+        return allProducts.stream()
+                .filter(p -> p.getProductName() != null && 
+                           p.getProductName().toLowerCase().contains(name.toLowerCase()))
+                .toList();
+    }
+
+    /**
+     * B端商家：获取店铺商品总数（直接读DB，不走缓存）
+     */
+    public int getStoreProductCountFromDb(Long storeId) {
+        log.info("B端商家查询店铺商品总数（直接读DB），店铺ID: {}", storeId);
+        List<StoreProduct> products = storeProductMapper.selectByStoreId(storeId);
+        return products.size();
+    }
 }
 

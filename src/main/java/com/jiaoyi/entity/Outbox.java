@@ -23,6 +23,11 @@ public class Outbox {
     private Long id;
     
     /**
+     * 分片ID（用于分片处理）
+     */
+    private Integer shardId;
+    
+    /**
      * RocketMQ Topic
      */
     private String topic;

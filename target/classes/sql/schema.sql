@@ -196,9 +196,24 @@ CREATE TABLE store_products (
     FOREIGN KEY (store_id) REFERENCES stores(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='店铺商品表';
 
+-- 创建调度节点表（用于节点注册和分片分配）
+CREATE TABLE sched_node (
+    id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    ip VARCHAR(50) NOT NULL COMMENT '节点IP地址',
+    port INT NOT NULL COMMENT '节点端口',
+    node_id VARCHAR(100) NOT NULL COMMENT '节点唯一标识（IP:PORT）',
+    enabled TINYINT NOT NULL DEFAULT 1 COMMENT '是否启用：1-启用，0-禁用',
+    expired_time DATETIME NOT NULL COMMENT '心跳过期时间',
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
+    updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
+    UNIQUE KEY uk_node_id (node_id),
+    INDEX idx_enabled_expired (enabled, expired_time)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='调度节点表（用于节点注册和分片分配）';
+
 -- 创建消息发件箱表（Outbox Pattern）
 CREATE TABLE outbox (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
+    shard_id INT NOT NULL COMMENT '分片ID（用于分片处理）',
     topic VARCHAR(100) NOT NULL COMMENT 'RocketMQ Topic',
     tag VARCHAR(50) NOT NULL COMMENT 'RocketMQ Tag',
     message_key VARCHAR(255) COMMENT '消息Key（用于消息追踪）',
@@ -210,5 +225,7 @@ CREATE TABLE outbox (
     sent_at DATETIME COMMENT '发送时间',
     INDEX idx_status (status),
     INDEX idx_created_at (created_at),
-    INDEX idx_topic_tag (topic, tag)
+    INDEX idx_topic_tag (topic, tag),
+    INDEX idx_shard_id (shard_id),
+    INDEX idx_shard_id_status (shard_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='消息发件箱表（Outbox Pattern）';
