@@ -24,12 +24,16 @@ public interface OutboxMapper {
     Outbox selectById(@Param("id") Long id);
     
     /**
-     * 查询待发送的消息（状态为PENDING）
+     * 查询待发送的消息（固定分片模式）
+     * 根据分片ID列表查询数据
+     * 使用固定分片数量，每个节点处理多个分片
      * 
+     * @param shardIds 当前节点负责的分片ID列表
      * @param limit 查询数量限制
      * @return 待发送的消息列表
      */
-    List<Outbox> selectPendingMessages(@Param("limit") int limit);
+    List<Outbox> selectPendingMessagesByShard(@Param("shardIds") List<Integer> shardIds, 
+                                             @Param("limit") int limit);
     
     /**
      * 更新outbox状态为已发送
@@ -47,6 +51,11 @@ public interface OutboxMapper {
      * 增加重试次数
      */
     int incrementRetryCount(@Param("id") Long id);
+    
+    /**
+     * 更新shard_id
+     */
+    int updateShardId(@Param("id") Long id, @Param("shardId") Integer shardId);
 }
 
 

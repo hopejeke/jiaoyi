@@ -192,6 +192,67 @@ public class StoreProductController {
             return ResponseEntity.ok(ApiResponse.error(500, "删除失败: " + e.getMessage()));
         }
     }
+
+    // ==================== B端商家专用接口（直接读DB，不走缓存） ====================
+    // 这些接口用于商家后台页面，确保修改后立即看到最新数据，不受缓存延迟影响
+
+    /**
+     * B端商家：根据店铺ID获取该店铺的所有商品（直接读DB）
+     * 用于商家后台页面，确保修改后立即看到最新数据
+     */
+    @GetMapping("/merchant/store/{storeId}")
+    public ResponseEntity<ApiResponse<List<StoreProduct>>> getStoreProductsByStoreIdForMerchant(@PathVariable Long storeId) {
+        log.info("B端商家获取店铺商品列表（直接读DB），店铺ID: {}", storeId);
+        List<StoreProduct> storeProducts = storeProductService.getStoreProductsFromDb(storeId);
+        return ResponseEntity.ok(ApiResponse.success("查询成功", storeProducts));
+    }
+
+    /**
+     * B端商家：根据ID获取店铺商品详情（直接读DB）
+     * 用于商家后台页面，确保修改后立即看到最新数据
+     */
+    @GetMapping("/merchant/{id}")
+    public ResponseEntity<ApiResponse<StoreProduct>> getStoreProductByIdForMerchant(@PathVariable Long id) {
+        log.info("B端商家获取店铺商品详情（直接读DB），ID: {}", id);
+        Optional<StoreProduct> storeProduct = storeProductService.getStoreProductByIdFromDb(id);
+        return storeProduct.map(value -> ResponseEntity.ok(ApiResponse.success("查询成功", value)))
+                .orElseGet(() -> ResponseEntity.ok(ApiResponse.error(404, "商品不存在")));
+    }
+
+    /**
+     * B端商家：根据店铺ID和状态获取商品列表（直接读DB）
+     */
+    @GetMapping("/merchant/store/{storeId}/status/{status}")
+    public ResponseEntity<ApiResponse<List<StoreProduct>>> getStoreProductsByStatusForMerchant(
+            @PathVariable Long storeId,
+            @PathVariable String status) {
+        log.info("B端商家根据状态获取店铺商品列表（直接读DB），店铺ID: {}, 状态: {}", storeId, status);
+        StoreProduct.StoreProductStatus productStatus = StoreProduct.StoreProductStatus.valueOf(status.toUpperCase());
+        List<StoreProduct> storeProducts = storeProductService.getStoreProductsByStatusFromDb(storeId, productStatus);
+        return ResponseEntity.ok(ApiResponse.success("查询成功", storeProducts));
+    }
+
+    /**
+     * B端商家：搜索店铺商品（按店铺ID和商品名称，直接读DB）
+     */
+    @GetMapping("/merchant/store/{storeId}/search")
+    public ResponseEntity<ApiResponse<List<StoreProduct>>> searchStoreProductsForMerchant(
+            @PathVariable Long storeId,
+            @RequestParam String name) {
+        log.info("B端商家搜索店铺商品（直接读DB），店铺ID: {}, 关键词: {}", storeId, name);
+        List<StoreProduct> filteredProducts = storeProductService.searchStoreProductsFromDb(storeId, name);
+        return ResponseEntity.ok(ApiResponse.success("搜索成功", filteredProducts));
+    }
+
+    /**
+     * B端商家：获取店铺商品总数（直接读DB）
+     */
+    @GetMapping("/merchant/store/{storeId}/count")
+    public ResponseEntity<ApiResponse<Integer>> getStoreProductCountForMerchant(@PathVariable Long storeId) {
+        log.info("B端商家获取店铺商品总数（直接读DB），店铺ID: {}", storeId);
+        int count = storeProductService.getStoreProductCountFromDb(storeId);
+        return ResponseEntity.ok(ApiResponse.success("查询成功", count));
+    }
     
 }
 
