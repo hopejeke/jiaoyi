@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.primary.StoreMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="StoreResultMap" type="com.jiaoyi.product.entity.Store">
+        <id column="id" property="id"/>
+        <result column="store_name" property="storeName"/>
+        <result column="store_code" property="storeCode"/>
+        <result column="description" property="description"/>
+        <result column="owner_name" property="ownerName"/>
+        <result column="owner_phone" property="ownerPhone"/>
+        <result column="address" property="address"/>
+        <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="product_list_version" property="productListVersion"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入店铺 -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.Store" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO stores (
+            store_name, store_code, description, owner_name, owner_phone, address, status
+            <if test="createTime != null">
+                , create_time
+            </if>
+            <if test="updateTime != null">
+                , update_time
+            </if>
+        ) VALUES (
+            #{storeName}, #{storeCode}, #{description}, #{ownerName}, #{ownerPhone}, #{address}, #{status}
+            <if test="createTime != null">
+                , #{createTime}
+            </if>
+            <if test="updateTime != null">
+                , #{updateTime}
+            </if>
+        )
+    </insert>
+
+    <!-- 更新店铺 -->
+    <update id="update" parameterType="com.jiaoyi.product.entity.Store">
+        UPDATE stores SET
+            store_name = #{storeName},
+            store_code = #{storeCode},
+            description = #{description},
+            owner_name = #{ownerName},
+            owner_phone = #{ownerPhone},
+            address = #{address},
+            status = #{status}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 根据ID查询店铺 -->
+    <select id="selectById" parameterType="long" resultMap="StoreResultMap">
+        SELECT * FROM stores WHERE id = #{id}
+    </select>
+
+    <!-- 根据店铺编码查询店铺 -->
+    <select id="selectByCode" parameterType="string" resultMap="StoreResultMap">
+        SELECT * FROM stores WHERE store_code = #{storeCode}
+    </select>
+
+    <!-- 查询所有店铺 -->
+    <select id="selectAll" resultMap="StoreResultMap">
+        SELECT * FROM stores ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据状态查询店铺 -->
+    <select id="selectByStatus" parameterType="com.jiaoyi.product.entity.Store$StoreStatus" resultMap="StoreResultMap">
+        SELECT * FROM stores WHERE status = #{status} ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据店铺名称模糊查询 -->
+    <select id="selectByNameLike" parameterType="string" resultMap="StoreResultMap">
+        SELECT * FROM stores 
+        WHERE store_name LIKE CONCAT('%', #{name}, '%') 
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 统计店铺总数 -->
+    <select id="countAll" resultType="int">
+        SELECT COUNT(*) FROM stores
+    </select>
+
+    <!-- 分页查询店铺 -->
+    <select id="selectByPage" resultMap="StoreResultMap">
+        SELECT * FROM stores 
+        ORDER BY create_time DESC 
+        LIMIT #{offset}, #{limit}
+    </select>
+
+    <!-- 根据ID删除店铺 -->
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM stores WHERE id = #{id}
+    </delete>
+    
+    <!-- 递增店铺的商品列表版本号（原子操作） -->
+    <update id="incrementProductListVersion" parameterType="long">
+        UPDATE stores 
+        SET product_list_version = product_list_version + 1
+        WHERE id = #{storeId}
+    </update>
+    
+    <!-- 获取店铺的商品列表版本号 -->
+    <select id="getProductListVersion" parameterType="long" resultType="long">
+        SELECT product_list_version FROM stores WHERE id = #{storeId}
+    </select>
+
+</mapper>
+

@@ -1,0 +1,155 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.sharding.InventoryMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.Inventory">
+        <id column="id" property="id"/>
+        <result column="store_id" property="storeId"/>
+        <result column="product_id" property="productId"/>
+        <result column="sku_id" property="skuId"/>
+        <result column="product_name" property="productName"/>
+        <result column="sku_name" property="skuName"/>
+        <result column="current_stock" property="currentStock"/>
+        <result column="locked_stock" property="lockedStock"/>
+        <result column="min_stock" property="minStock"/>
+        <result column="max_stock" property="maxStock"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入库存记录 -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.Inventory" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO inventory (
+            store_id, product_id, sku_id, product_name, sku_name, current_stock, locked_stock, min_stock, max_stock
+            <if test="createTime != null">
+                , create_time
+            </if>
+            <if test="updateTime != null">
+                , update_time
+            </if>
+        ) VALUES (
+            #{storeId}, #{productId}, #{skuId}, #{productName}, #{skuName}, #{currentStock}, #{lockedStock}, #{minStock}, #{maxStock}
+            <if test="createTime != null">
+                , #{createTime}
+            </if>
+            <if test="updateTime != null">
+                , #{updateTime}
+            </if>
+        )
+    </insert>
+
+    <!-- 根据商品ID查询库存（兼容旧接口） -->
+    <select id="selectByProductId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM inventory WHERE product_id = #{productId} LIMIT 1
+    </select>
+
+    <!-- 根据店铺ID和商品ID查询库存（商品级别，sku_id为NULL） -->
+    <select id="selectByStoreIdAndProductId" resultMap="BaseResultMap">
+        SELECT * FROM inventory 
+        WHERE store_id = #{storeId} AND product_id = #{productId} AND sku_id IS NULL
+        LIMIT 1
+    </select>
+    
+    <!-- 根据店铺ID、商品ID和SKU ID查询库存（SKU级别） -->
+    <select id="selectByStoreIdAndProductIdAndSkuId" resultMap="BaseResultMap">
+        SELECT * FROM inventory 
+        WHERE store_id = #{storeId} AND product_id = #{productId} AND sku_id = #{skuId}
+        LIMIT 1
+    </select>
+    
+    <!-- 根据商品ID查询所有SKU库存 -->
+    <select id="selectByProductIdWithSku" resultMap="BaseResultMap">
+        SELECT * FROM inventory 
+        WHERE product_id = #{productId} AND sku_id IS NOT NULL
+        ORDER BY sku_id
+    </select>
+
+    <!-- 查询库存不足的商品 -->
+    <select id="selectLowStockItems" resultMap="BaseResultMap">
+        SELECT * FROM inventory WHERE (current_stock - locked_stock) &lt; min_stock
+    </select>
+
+    <!-- 根据店铺ID查询库存不足的商品 -->
+    <select id="selectLowStockItemsByStoreId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM inventory 
+        WHERE store_id = #{storeId} AND (current_stock - locked_stock) &lt; min_stock
+    </select>
+
+    <!-- 锁定库存（原子操作，商品级别） -->
+    <update id="lockStock">
+        UPDATE inventory SET 
+            locked_stock = locked_stock + #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND sku_id IS NULL AND (current_stock - locked_stock) &gt;= #{quantity}
+    </update>
+    
+    <!-- 锁定库存（原子操作，SKU级别） -->
+    <update id="lockStockBySku">
+        UPDATE inventory SET 
+            locked_stock = locked_stock + #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND sku_id = #{skuId} AND (current_stock - locked_stock) &gt;= #{quantity}
+    </update>
+
+    <!-- 解锁库存（原子操作，商品级别） -->
+    <update id="unlockStock">
+        UPDATE inventory SET 
+            locked_stock = locked_stock - #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND sku_id IS NULL AND locked_stock &gt;= #{quantity}
+    </update>
+    
+    <!-- 解锁库存（原子操作，SKU级别） -->
+    <update id="unlockStockBySku">
+        UPDATE inventory SET 
+            locked_stock = locked_stock - #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND sku_id = #{skuId} AND locked_stock &gt;= #{quantity}
+    </update>
+
+    <!-- 扣减库存（原子操作，商品级别） -->
+    <update id="deductStock">
+        UPDATE inventory SET 
+            current_stock = current_stock - #{quantity},
+            locked_stock = locked_stock - #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND sku_id IS NULL AND locked_stock &gt;= #{quantity}
+    </update>
+    
+    <!-- 扣减库存（原子操作，SKU级别） -->
+    <update id="deductStockBySku">
+        UPDATE inventory SET 
+            current_stock = current_stock - #{quantity},
+            locked_stock = locked_stock - #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND sku_id = #{skuId} AND locked_stock &gt;= #{quantity}
+    </update>
+
+    <!-- 查询所有库存记录 -->
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT * FROM inventory ORDER BY id
+    </select>
+    
+    <!-- 更新库存数量 -->
+    <update id="updateStock">
+        UPDATE inventory SET
+            current_stock = #{currentStock},
+            <if test="minStock != null">
+                min_stock = #{minStock},
+            </if>
+            <if test="maxStock != null">
+                max_stock = #{maxStock},
+            </if>
+            update_time = NOW()
+        WHERE store_id = #{storeId} AND product_id = #{productId}
+        <if test="skuId != null">
+            AND sku_id = #{skuId}
+        </if>
+        <if test="skuId == null">
+            AND sku_id IS NULL
+        </if>
+    </update>
+
+</mapper>
+

@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.OrderMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.Order">
+        <id column="id" property="id"/>
+        <result column="order_no" property="orderNo"/>
+        <result column="user_id" property="userId"/>
+        <result column="status" property="status"/>
+        <result column="total_amount" property="totalAmount"/>
+        <result column="total_discount_amount" property="totalDiscountAmount"/>
+        <result column="actual_amount" property="actualAmount"/>
+        <result column="receiver_name" property="receiverName"/>
+        <result column="receiver_phone" property="receiverPhone"/>
+        <result column="receiver_address" property="receiverAddress"/>
+        <result column="remark" property="remark"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入订单 -->
+    <!-- 注意：已配置 ShardingSphere 的雪花算法主键生成策略 -->
+    <!-- ShardingSphere 会在 INSERT 时自动生成全局唯一的 ID 并填充到 order.id 中 -->
+    <!-- 注意：INSERT 语句中不包含 id 字段，让 ShardingSphere 自动生成并填充 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.Order" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO orders (
+            order_no, user_id, status, total_amount, total_discount_amount, 
+            actual_amount, receiver_name, receiver_phone, 
+            receiver_address, remark, create_time, update_time
+        ) VALUES (
+            #{orderNo}, #{userId}, #{status}, #{totalAmount}, #{totalDiscountAmount},
+            #{actualAmount}, #{receiverName}, #{receiverPhone},
+            #{receiverAddress}, #{remark}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 根据ID查询订单 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE id = #{id}
+    </select>
+
+    <!-- 查询所有订单 -->
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT * FROM orders ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据订单号查询订单 -->
+    <select id="selectByOrderNo" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE order_no = #{orderNo}
+    </select>
+
+    <!-- 根据用户ID查询订单列表 -->
+    <select id="selectByUserId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE user_id = #{userId} ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据用户ID和状态查询订单列表 -->
+    <select id="selectByUserIdAndStatus" resultMap="BaseResultMap">
+        SELECT * FROM orders 
+        WHERE user_id = #{userId} AND status = #{status} 
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据状态查询订单列表 -->
+    <select id="selectByStatus" parameterType="com.jiaoyi.order.entity.OrderStatus" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE status = #{status} ORDER BY create_time DESC
+    </select>
+
+    <!-- 更新订单状态 -->
+    <update id="updateStatus">
+        UPDATE orders SET status = #{status}, update_time = NOW() WHERE id = #{id}
+    </update>
+
+    <!-- 原子更新订单状态：只有当状态为PENDING时才更新为新状态 -->
+    <update id="updateStatusIfPending">
+        UPDATE orders SET status = #{newStatus}, update_time = NOW() 
+        WHERE id = #{id} AND status = 'PENDING'
+    </update>
+
+    <!-- 统计用户订单数量 -->
+    <select id="countByUserId" parameterType="long" resultType="long">
+        SELECT COUNT(*) FROM orders WHERE user_id = #{userId}
+    </select>
+
+    <!-- 统计指定状态的订单数量 -->
+    <select id="countByStatus" parameterType="com.jiaoyi.order.entity.OrderStatus" resultType="long">
+        SELECT COUNT(*) FROM orders WHERE status = #{status}
+    </select>
+
+    <!-- 根据支付流水号更新订单状态 -->
+    <update id="updateStatusByPaymentNo">
+        UPDATE orders SET status = #{status}, update_time = NOW() 
+        WHERE order_no = #{paymentNo}
+    </update>
+
+    <!-- 原子更新订单状态：只有当状态为PENDING时才更新为PAID -->
+    <update id="updateStatusToPaidIfPending">
+        UPDATE orders SET status = 'PAID', update_time = NOW() 
+        WHERE order_no = #{paymentNo} AND status = 'PENDING'
+    </update>
+
+    <!-- 原子更新订单状态：从CANCELLED改为PAID（处理已取消订单的支付回调） -->
+    <update id="updateStatusFromCancelledToPaid">
+        UPDATE orders SET status = 'PAID', update_time = NOW() 
+        WHERE id = #{orderId} AND status = 'CANCELLED'
+    </update>
+
+    <!-- 查询超时订单 -->
+    <select id="selectTimeoutOrders" parameterType="java.time.LocalDateTime" resultMap="BaseResultMap">
+        SELECT * FROM orders 
+        WHERE status = 'PENDING' 
+        AND create_time &lt; #{timeoutThreshold}
+        ORDER BY create_time ASC
+    </select>
+
+</mapper>
+

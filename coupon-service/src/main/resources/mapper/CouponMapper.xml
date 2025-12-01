@@ -1,0 +1,139 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.coupon.mapper.CouponMapper">
+
+    <resultMap id="BaseResultMap" type="com.jiaoyi.coupon.entity.Coupon">
+        <id column="id" property="id" jdbcType="BIGINT"/>
+        <result column="coupon_code" property="couponCode" jdbcType="VARCHAR"/>
+        <result column="coupon_name" property="couponName" jdbcType="VARCHAR"/>
+        <result column="type" property="type" jdbcType="VARCHAR"/>
+        <result column="value" property="value" jdbcType="DECIMAL"/>
+        <result column="min_order_amount" property="minOrderAmount" jdbcType="DECIMAL"/>
+        <result column="max_discount_amount" property="maxDiscountAmount" jdbcType="DECIMAL"/>
+        <result column="status" property="status" jdbcType="VARCHAR"/>
+        <result column="total_quantity" property="totalQuantity" jdbcType="INTEGER"/>
+        <result column="used_quantity" property="usedQuantity" jdbcType="INTEGER"/>
+        <result column="limit_per_user" property="limitPerUser" jdbcType="INTEGER"/>
+        <result column="applicable_type" property="applicableType" jdbcType="VARCHAR"/>
+        <result column="applicable_products" property="applicableProducts" jdbcType="VARCHAR"/>
+        <result column="start_time" property="startTime" jdbcType="TIMESTAMP"/>
+        <result column="end_time" property="endTime" jdbcType="TIMESTAMP"/>
+        <result column="create_time" property="createTime" jdbcType="TIMESTAMP"/>
+        <result column="update_time" property="updateTime" jdbcType="TIMESTAMP"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, coupon_code, coupon_name, type, value, min_order_amount, max_discount_amount,
+        status, total_quantity, used_quantity, limit_per_user, applicable_type, applicable_products,
+        start_time, end_time, create_time, update_time
+    </sql>
+
+    <insert id="insert" parameterType="com.jiaoyi.coupon.entity.Coupon" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO coupons (
+            coupon_code, coupon_name, type, value, min_order_amount, max_discount_amount,
+            status, total_quantity, used_quantity, limit_per_user, applicable_type, applicable_products,
+            start_time, end_time, create_time, update_time
+        ) VALUES (
+            #{couponCode}, #{couponName}, #{type}, #{value}, #{minOrderAmount}, #{maxDiscountAmount},
+            #{status}, #{totalQuantity}, #{usedQuantity}, #{limitPerUser}, #{applicableType}, #{applicableProducts},
+            #{startTime}, #{endTime}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <select id="selectById" parameterType="java.lang.Long" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM coupons
+        WHERE id = #{id}
+    </select>
+
+    <select id="selectByCouponCode" parameterType="java.lang.String" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM coupons
+        WHERE coupon_code = #{couponCode}
+    </select>
+
+    <select id="selectActiveCoupons" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM coupons
+        WHERE status = 'ACTIVE'
+        AND start_time &lt;= NOW()
+        AND end_time &gt;= NOW()
+        ORDER BY create_time DESC
+    </select>
+
+    <select id="selectAvailableCouponsByUserId" resultMap="BaseResultMap">
+        SELECT c.*
+        FROM coupons c
+        WHERE c.status = 'ACTIVE'
+        AND c.start_time &lt;= NOW()
+        AND c.end_time &gt;= NOW()
+        AND c.used_quantity &lt; c.total_quantity
+        AND c.min_order_amount &lt;= #{orderAmount}
+        AND (
+            c.applicable_type = 'ALL'
+            OR (c.applicable_type = 'PRODUCT' AND c.applicable_products IS NOT NULL)
+        )
+        AND (
+            SELECT COUNT(*)
+            FROM coupon_usage cu
+            WHERE cu.coupon_id = c.id
+            AND cu.user_id = #{userId}
+        ) &lt; c.limit_per_user
+        ORDER BY c.value DESC
+    </select>
+
+    <select id="selectAvailableCouponsByProductIds" resultMap="BaseResultMap">
+        SELECT c.*
+        FROM coupons c
+        WHERE c.status = 'ACTIVE'
+        AND c.start_time &lt;= NOW()
+        AND c.end_time &gt;= NOW()
+        AND c.used_quantity &lt; c.total_quantity
+        AND c.min_order_amount &lt;= #{orderAmount}
+        AND (
+            c.applicable_type = 'ALL'
+            OR (
+                c.applicable_type = 'PRODUCT'
+                AND c.applicable_products IS NOT NULL
+                AND (
+                    <foreach collection="productIds" item="productId" separator=" OR ">
+                        FIND_IN_SET(#{productId}, REPLACE(REPLACE(c.applicable_products, '[', ''), ']', ''))
+                    </foreach>
+                )
+            )
+        )
+        ORDER BY c.value DESC
+    </select>
+
+    <update id="updateUsedQuantity">
+        UPDATE coupons
+        SET used_quantity = used_quantity + #{increment},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <update id="updateStatus">
+        UPDATE coupons
+        SET status = #{status},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <select id="selectExpiringCoupons" resultMap="BaseResultMap">
+        SELECT <include refid="Base_Column_List"/>
+        FROM coupons
+        WHERE status = 'ACTIVE'
+        AND end_time &lt;= #{beforeTime}
+        AND end_time &gt; NOW()
+    </select>
+
+    <update id="updateExpiredCoupons">
+        UPDATE coupons
+        SET status = 'EXPIRED',
+            update_time = NOW()
+        WHERE status = 'ACTIVE'
+        AND end_time &lt; #{currentTime}
+    </update>
+
+</mapper>
+
