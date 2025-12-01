@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.sharding.ProductSkuMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.ProductSku">
+        <id column="id" property="id"/>
+        <result column="product_id" property="productId"/>
+        <result column="store_id" property="storeId"/>
+        <result column="sku_code" property="skuCode"/>
+        <result column="sku_attributes" property="skuAttributes"/>
+        <result column="sku_name" property="skuName"/>
+        <result column="sku_price" property="skuPrice"/>
+        <result column="sku_image" property="skuImage"/>
+        <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="is_delete" property="isDelete"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入SKU -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.ProductSku">
+        INSERT INTO product_sku (
+            product_id, store_id, sku_code, sku_attributes, sku_name, sku_price, sku_image, status, is_delete, version
+        ) VALUES (
+            #{productId}, #{storeId}, #{skuCode}, #{skuAttributes}, #{skuName}, #{skuPrice}, #{skuImage}, 
+            #{status}, #{isDelete}, #{version}
+        )
+        <!-- ShardingSphere 会自动生成 ID，通过 selectKey 返回 -->
+        <selectKey keyProperty="id" resultType="long" order="AFTER">
+            SELECT id FROM product_sku WHERE product_id = #{productId} AND store_id = #{storeId} AND sku_code = #{skuCode} AND is_delete = 0 ORDER BY id DESC LIMIT 1
+        </selectKey>
+    </insert>
+
+    <!-- 根据ID查询SKU -->
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT * FROM product_sku 
+        WHERE id = #{id} AND is_delete = 0
+    </select>
+
+    <!-- 根据商品ID查询所有SKU -->
+    <select id="selectByProductId" resultMap="BaseResultMap">
+        SELECT * FROM product_sku 
+        WHERE product_id = #{productId} AND is_delete = 0
+        ORDER BY id
+    </select>
+
+    <!-- 根据商品ID和SKU编码查询SKU -->
+    <select id="selectByProductIdAndSkuCode" resultMap="BaseResultMap">
+        SELECT * FROM product_sku 
+        WHERE product_id = #{productId} AND sku_code = #{skuCode} AND is_delete = 0
+        LIMIT 1
+    </select>
+
+    <!-- 更新SKU -->
+    <update id="update" parameterType="com.jiaoyi.product.entity.ProductSku">
+        UPDATE product_sku SET
+            sku_code = #{skuCode},
+            sku_attributes = #{skuAttributes},
+            sku_name = #{skuName},
+            sku_price = #{skuPrice},
+            sku_image = #{skuImage},
+            status = #{status},
+            version = version + 1,
+            update_time = NOW()
+        WHERE id = #{id} AND is_delete = 0 AND version = #{version}
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM product_sku WHERE id = #{id}
+        </selectKey>
+    </update>
+
+    <!-- 逻辑删除SKU（根据ID，支持乐观锁） -->
+    <update id="deleteById" parameterType="com.jiaoyi.product.entity.ProductSku">
+        UPDATE product_sku SET
+            is_delete = 1,
+            version = version + 1,
+            update_time = NOW()
+        WHERE id = #{id} AND is_delete = 0 AND version = #{version}
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM product_sku WHERE id = #{id}
+        </selectKey>
+    </update>
+
+</mapper>
+

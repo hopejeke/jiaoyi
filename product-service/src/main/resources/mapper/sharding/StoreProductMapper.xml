@@ -1,0 +1,145 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.sharding.StoreProductMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="StoreProductResultMap" type="com.jiaoyi.product.entity.StoreProduct">
+        <id column="id" property="id"/>
+        <result column="store_id" property="storeId"/>
+        <result column="product_name" property="productName"/>
+        <result column="description" property="description"/>
+        <result column="unit_price" property="unitPrice"/>
+        <result column="product_image" property="productImage"/>
+        <result column="category" property="category"/>
+        <result column="status" property="status"/>
+        <result column="is_delete" property="isDelete"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入店铺商品 -->
+    <!-- 注意：已配置 ShardingSphere 的雪花算法主键生成策略 -->
+    <!-- ShardingSphere 会在 INSERT 时自动生成全局唯一的 ID -->
+    <!-- 注意：INSERT 语句中不包含 id 字段，让 ShardingSphere 自动生成 -->
+    <!-- 使用 selectKey 在 INSERT 后通过 store_id 和 product_name 查询刚插入的记录（包含分片键） -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.StoreProduct">
+        INSERT INTO store_products (
+            store_id, product_name, description, unit_price, product_image, category, status, version
+            <if test="createTime != null">
+                , create_time
+            </if>
+            <if test="updateTime != null">
+                , update_time
+            </if>
+        ) VALUES (
+            #{storeId}, #{productName}, #{description}, #{unitPrice}, #{productImage}, #{category}, #{status}, 1
+            <if test="createTime != null">
+                , #{createTime}
+            </if>
+            <if test="updateTime != null">
+                , #{updateTime}
+            </if>
+        )
+        <!-- 通过 store_id 和 product_name 查询刚插入的记录的 id（包含分片键，确保正确路由） -->
+        <selectKey keyProperty="id" resultType="long" order="AFTER">
+            SELECT id FROM store_products 
+            WHERE store_id = #{storeId} AND product_name = #{productName} AND is_delete = 0
+            ORDER BY id DESC LIMIT 1
+        </selectKey>
+    </insert>
+
+    <!-- 更新店铺商品 -->
+    <!-- 使用乐观锁：WHERE条件中加上version校验，只有version匹配才更新，更新后version自动递增 -->
+    <!-- 更新后通过selectKey自动返回version值 -->
+    <update id="update" parameterType="com.jiaoyi.product.entity.StoreProduct">
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM store_products WHERE id = #{id}
+        </selectKey>
+        UPDATE store_products SET
+            product_name = #{productName},
+            description = #{description},
+            unit_price = #{unitPrice},
+            product_image = #{productImage},
+            category = #{category},
+            status = #{status},
+            version = version + 1
+        WHERE id = #{id} AND version = #{version}
+    </update>
+
+    <!-- 根据ID查询店铺商品关联（逻辑删除过滤，兼容旧接口） -->
+    <select id="selectById" parameterType="long" resultMap="StoreProductResultMap">
+        SELECT * FROM store_products WHERE id = #{id} AND is_delete = 0
+    </select>
+    
+    <!-- 根据店铺ID和商品ID查询（推荐，包含分片键） -->
+    <select id="selectByStoreIdAndId" resultMap="StoreProductResultMap">
+        SELECT * FROM store_products WHERE store_id = #{storeId} AND id = #{id} AND is_delete = 0
+    </select>
+
+    <!-- 根据店铺ID和商品名称查询（用于检查重复，逻辑删除过滤） -->
+    <select id="selectByStoreIdAndProductName" resultMap="StoreProductResultMap">
+        SELECT * FROM store_products 
+        WHERE store_id = #{storeId} AND product_name = #{productName} AND is_delete = 0
+    </select>
+
+    <!-- 根据店铺ID查询所有商品关联（逻辑删除过滤） -->
+    <select id="selectByStoreId" parameterType="long" resultMap="StoreProductResultMap">
+        SELECT * FROM store_products 
+        WHERE store_id = #{storeId} AND is_delete = 0
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据店铺ID和状态查询商品（逻辑删除过滤） -->
+    <select id="selectByStoreIdAndStatus" resultMap="StoreProductResultMap">
+        SELECT * FROM store_products 
+        WHERE store_id = #{storeId} AND status = #{status} AND is_delete = 0
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据商品名称模糊查询（跨店铺，逻辑删除过滤） -->
+    <select id="selectByProductName" parameterType="string" resultMap="StoreProductResultMap">
+        SELECT * FROM store_products 
+        WHERE product_name LIKE CONCAT('%', #{productName}, '%') AND is_delete = 0
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 逻辑删除店铺商品 -->
+    <!-- 使用乐观锁：WHERE条件中加上version校验，只有version匹配才删除，删除后version自动递增 -->
+    <!-- 删除后通过selectKey自动返回version值 -->
+    <update id="deleteById" parameterType="com.jiaoyi.product.entity.StoreProduct">
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM store_products WHERE id = #{id}
+        </selectKey>
+        UPDATE store_products 
+        SET is_delete = 1, version = version + 1 
+        WHERE id = #{id} AND is_delete = 0 AND version = #{version}
+    </update>
+
+    <!-- 根据店铺ID删除所有商品 -->
+    <delete id="deleteByStoreId" parameterType="long">
+        DELETE FROM store_products WHERE store_id = #{storeId}
+    </delete>
+    
+    <!-- 递增商品的版本号（原子操作） -->
+    <update id="incrementVersion" parameterType="long">
+        UPDATE store_products 
+        SET version = version + 1
+        WHERE id = #{productId}
+    </update>
+    
+    <!-- 获取商品的版本号 -->
+    <select id="getVersion" parameterType="long" resultType="long">
+        SELECT version FROM store_products WHERE id = #{productId}
+    </select>
+
+    <!-- 查询所有店铺商品（跨店铺，未删除的） -->
+    <!-- 注意：如果数据量大，建议使用分页查询 -->
+    <select id="selectAll" resultMap="StoreProductResultMap">
+        SELECT * FROM store_products 
+        WHERE is_delete = 0
+        ORDER BY create_time DESC
+    </select>
+
+</mapper>
+
