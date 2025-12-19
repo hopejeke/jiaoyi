@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.sharding.MerchantMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.Merchant">
+        <id column="id" property="id"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="merchant_group_id" property="merchantGroupId"/>
+        <result column="encrypt_merchant_id" property="encryptMerchantId"/>
+        <result column="name" property="name"/>
+        <result column="time_zone" property="timeZone"/>
+        <result column="logo" property="logo"/>
+        <result column="short_url" property="shortUrl"/>
+        <result column="is_pickup" property="isPickup"/>
+        <result column="is_delivery" property="isDelivery"/>
+        <result column="pickup_payment_acceptance" property="pickupPaymentAcceptance"/>
+        <result column="delivery_payment_acceptance" property="deliveryPaymentAcceptance"/>
+        <result column="pickup_prepare_time" property="pickupPrepareTime"/>
+        <result column="delivery_prepare_time" property="deliveryPrepareTime"/>
+        <result column="pickup_open_time" property="pickupOpenTime"/>
+        <result column="delivery_open_time" property="deliveryOpenTime"/>
+        <result column="default_delivery_fee" property="defaultDeliveryFee"/>
+        <result column="delivery_flat_fee" property="deliveryFlatFee"/>
+        <result column="delivery_variable_rate" property="deliveryVariableRate"/>
+        <result column="delivery_zone_rate" property="deliveryZoneRate"/>
+        <result column="delivery_minimum_amount" property="deliveryMinimumAmount"/>
+        <result column="delivery_maximum_distance" property="deliveryMaximumDistance"/>
+        <result column="activate" property="activate"/>
+        <result column="dl_activate" property="dlActivate"/>
+        <result column="pickup_have_setted" property="pickupHaveSetted"/>
+        <result column="delivery_have_setted" property="deliveryHaveSetted"/>
+        <result column="enable_note" property="enableNote"/>
+        <result column="enable_auto_send" property="enableAutoSend"/>
+        <result column="enable_auto_receipt" property="enableAutoReceipt"/>
+        <result column="enable_sdi_auto_receipt" property="enableSdiAutoReceipt"/>
+        <result column="enable_sdi_auto_send" property="enableSdiAutoSend"/>
+        <result column="enable_popular_item" property="enablePopularItem"/>
+        <result column="display" property="display"/>
+        <result column="personalization" property="personalization"/>
+        <result column="capability_of_order" property="capabilityOfOrder"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, merchant_id, merchant_group_id, encrypt_merchant_id, name, time_zone, logo, short_url,
+        is_pickup, is_delivery, pickup_payment_acceptance, delivery_payment_acceptance,
+        pickup_prepare_time, delivery_prepare_time, pickup_open_time, delivery_open_time,
+        default_delivery_fee, delivery_flat_fee, delivery_variable_rate, delivery_zone_rate,
+        delivery_minimum_amount, delivery_maximum_distance, activate, dl_activate,
+        pickup_have_setted, delivery_have_setted, enable_note, enable_auto_send,
+        enable_auto_receipt, enable_sdi_auto_receipt, enable_sdi_auto_send, enable_popular_item,
+        display, personalization, capability_of_order, version, create_time, update_time
+    </sql>
+
+    <!-- 插入餐馆 -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.Merchant" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO merchants (
+            merchant_id, merchant_group_id, encrypt_merchant_id, name, time_zone, logo, short_url,
+            is_pickup, is_delivery, pickup_payment_acceptance, delivery_payment_acceptance,
+            pickup_prepare_time, delivery_prepare_time, pickup_open_time, delivery_open_time,
+            default_delivery_fee, delivery_flat_fee, delivery_variable_rate, delivery_zone_rate,
+            delivery_minimum_amount, delivery_maximum_distance, activate, dl_activate,
+            pickup_have_setted, delivery_have_setted, enable_note, enable_auto_send,
+            enable_auto_receipt, enable_sdi_auto_receipt, enable_sdi_auto_send, enable_popular_item,
+            display, personalization, capability_of_order, version, create_time, update_time
+        ) VALUES (
+            #{merchantId}, #{merchantGroupId}, #{encryptMerchantId}, #{name}, #{timeZone}, #{logo}, #{shortUrl},
+            #{isPickup}, #{isDelivery}, #{pickupPaymentAcceptance}, #{deliveryPaymentAcceptance},
+            #{pickupPrepareTime}, #{deliveryPrepareTime}, #{pickupOpenTime}, #{deliveryOpenTime},
+            #{defaultDeliveryFee}, #{deliveryFlatFee}, #{deliveryVariableRate}, #{deliveryZoneRate},
+            #{deliveryMinimumAmount}, #{deliveryMaximumDistance}, #{activate}, #{dlActivate},
+            #{pickupHaveSetted}, #{deliveryHaveSetted}, #{enableNote}, #{enableAutoSend},
+            #{enableAutoReceipt}, #{enableSdiAutoReceipt}, #{enableSdiAutoSend}, #{enablePopularItem},
+            #{display}, #{personalization}, #{capabilityOfOrder}, 1, NOW(), NOW()
+        )
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM merchants WHERE merchant_id = #{merchantId} ORDER BY id DESC LIMIT 1
+        </selectKey>
+    </insert>
+
+    <!-- 根据ID查询餐馆 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM merchants
+        WHERE id = #{id}
+    </select>
+
+    <!-- 根据merchantId查询餐馆（包含分片键） -->
+    <select id="selectByMerchantId" parameterType="string" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM merchants
+        WHERE merchant_id = #{merchantId}
+    </select>
+
+    <!-- 根据encryptMerchantId查询餐馆 -->
+    <select id="selectByEncryptMerchantId" parameterType="string" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM merchants
+        WHERE encrypt_merchant_id = #{encryptMerchantId}
+    </select>
+
+    <!-- 根据merchantGroupId查询所有餐馆 -->
+    <select id="selectByMerchantGroupId" parameterType="string" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM merchants
+        WHERE merchant_group_id = #{merchantGroupId}
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 查询所有显示的餐馆 -->
+    <select id="selectAllDisplay" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM merchants
+        WHERE display = 1
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 更新餐馆（使用乐观锁） -->
+    <update id="update" parameterType="com.jiaoyi.product.entity.Merchant">
+        UPDATE merchants SET
+            name = #{name},
+            time_zone = #{timeZone},
+            logo = #{logo},
+            short_url = #{shortUrl},
+            is_pickup = #{isPickup},
+            is_delivery = #{isDelivery},
+            pickup_payment_acceptance = #{pickupPaymentAcceptance},
+            delivery_payment_acceptance = #{deliveryPaymentAcceptance},
+            pickup_prepare_time = #{pickupPrepareTime},
+            delivery_prepare_time = #{deliveryPrepareTime},
+            pickup_open_time = #{pickupOpenTime},
+            delivery_open_time = #{deliveryOpenTime},
+            default_delivery_fee = #{defaultDeliveryFee},
+            delivery_flat_fee = #{deliveryFlatFee},
+            delivery_variable_rate = #{deliveryVariableRate},
+            delivery_zone_rate = #{deliveryZoneRate},
+            delivery_minimum_amount = #{deliveryMinimumAmount},
+            delivery_maximum_distance = #{deliveryMaximumDistance},
+            activate = #{activate},
+            dl_activate = #{dlActivate},
+            pickup_have_setted = #{pickupHaveSetted},
+            delivery_have_setted = #{deliveryHaveSetted},
+            enable_note = #{enableNote},
+            enable_auto_send = #{enableAutoSend},
+            enable_auto_receipt = #{enableAutoReceipt},
+            enable_sdi_auto_receipt = #{enableSdiAutoReceipt},
+            enable_sdi_auto_send = #{enableSdiAutoSend},
+            enable_popular_item = #{enablePopularItem},
+            display = #{display},
+            personalization = #{personalization},
+            capability_of_order = #{capabilityOfOrder},
+            version = version + 1,
+            update_time = NOW()
+        WHERE merchant_id = #{merchantId} AND version = #{version}
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM merchants WHERE merchant_id = #{merchantId}
+        </selectKey>
+    </update>
+
+    <!-- 逻辑删除餐馆（暂时不实现，因为表结构中没有is_delete字段） -->
+    <update id="deleteById" parameterType="com.jiaoyi.product.entity.Merchant">
+        UPDATE merchants SET
+            display = 0,
+            version = version + 1,
+            update_time = NOW()
+        WHERE merchant_id = #{merchantId} AND version = #{version}
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM merchants WHERE merchant_id = #{merchantId}
+        </selectKey>
+    </update>
+
+    <!-- 获取餐馆的当前版本号 -->
+    <select id="getVersion" parameterType="string" resultType="long">
+        SELECT version FROM merchants WHERE merchant_id = #{merchantId}
+    </select>
+
+</mapper>
+

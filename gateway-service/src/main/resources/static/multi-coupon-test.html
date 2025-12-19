@@ -217,7 +217,7 @@
             
             const formData = new FormData(e.target);
             const orderData = {
-                userId: parseInt(formData.get('userId')),
+                userId: formData.get('userId'), // 保持字符串类型，后端会自动转换
                 receiverName: formData.get('receiverName'),
                 receiverPhone: formData.get('receiverPhone'),
                 receiverAddress: formData.get('receiverAddress'),
@@ -230,7 +230,7 @@
             const orderItemElements = document.querySelectorAll('.order-item');
             orderItemElements.forEach(item => {
                 const itemData = {
-                    productId: parseInt(item.querySelector('input[name="productId"]').value),
+                    productId: item.querySelector('input[name="productId"]').value, // 保持字符串类型，避免精度丢失
                     productName: item.querySelector('input[name="productName"]').value,
                     productImage: item.querySelector('input[name="productImage"]').value,
                     unitPrice: parseFloat(item.querySelector('input[name="unitPrice"]').value),

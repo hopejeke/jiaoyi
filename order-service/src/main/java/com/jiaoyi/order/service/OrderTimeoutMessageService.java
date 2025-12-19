@@ -5,7 +5,6 @@ import com.jiaoyi.order.client.ProductServiceClient;
 import com.jiaoyi.order.config.RocketMQConfig;
 import com.jiaoyi.order.dto.OrderTimeoutMessage;
 import com.jiaoyi.order.entity.Order;
-import com.jiaoyi.order.entity.OrderStatus;
 import com.jiaoyi.order.entity.OrderCoupon;
 import com.jiaoyi.order.mapper.OrderMapper;
 import lombok.RequiredArgsConstructor;
@@ -52,22 +51,21 @@ public class OrderTimeoutMessageService implements RocketMQListener<OrderTimeout
     /**
      * 发送订单超时延迟消息
      * @param orderId 订单ID
-     * @param orderNo 订单号
      * @param userId 用户ID
      * @param delayMinutes 延迟分钟数
      */
-    public void sendOrderTimeoutMessage(Long orderId, String orderNo, Long userId, int delayMinutes) {
+    public void sendOrderTimeoutMessage(Long orderId, Long userId, int delayMinutes) {
         try {
             // 检查RocketMQ是否可用
             if (rocketMQTemplate == null) {
-                log.warn("RocketMQ不可用，跳过发送延迟消息，订单ID: {}, 订单号: {}", orderId, orderNo);
+                log.warn("RocketMQ不可用，跳过发送延迟消息，订单ID: {}", orderId);
                 return;
             }
             
-            OrderTimeoutMessage message = new OrderTimeoutMessage(orderId, orderNo, userId);
+            OrderTimeoutMessage message = new OrderTimeoutMessage(orderId, userId);
             message.setTimeoutMillis((long) delayMinutes * 60 * 1000); // 转换为毫秒
             
-            log.info("发送订单超时延迟消息，订单ID: {}, 订单号: {}, 延迟: {}分钟", orderId, orderNo, delayMinutes);
+            log.info("发送订单超时延迟消息，订单ID: {}, 延迟: {}分钟", orderId, delayMinutes);
             
             // 计算延迟级别（RocketMQ延迟消息级别：1s 5s 10s 30s 1m 2m 3m 4m 5m 6m 7m 8m 9m 10m 20m 30m 1h 2h）
             int delayLevel = calculateDelayLevel(delayMinutes);
@@ -124,7 +122,7 @@ public class OrderTimeoutMessageService implements RocketMQListener<OrderTimeout
      */
     @Transactional
     public void handleOrderTimeout(OrderTimeoutMessage message) {
-        log.info("接收到订单超时消息，订单ID: {}, 订单号: {}", message.getOrderId(), message.getOrderNo());
+        log.info("接收到订单超时消息，订单ID: {}", message.getOrderId());
         
         String lockKey = "order:timeout:" + message.getOrderId();
         RLock lock = redissonClient.getLock(lockKey);
@@ -138,23 +136,23 @@ public class OrderTimeoutMessageService implements RocketMQListener<OrderTimeout
                 return;
             }
             
-            // 重新查询订单状态，确保订单仍然是待支付状态
+            // 重新查询订单状态，确保订单仍然是待支付状态（status = 1）
             Order order = orderMapper.selectById(message.getOrderId());
-            if (order == null || order.getStatus() != OrderStatus.PENDING) {
+            if (order == null || !Integer.valueOf(1).equals(order.getStatus())) {
                 log.info("订单状态已变更，跳过超时处理，订单ID: {}, 当前状态: {}", 
                         message.getOrderId(), order != null ? order.getStatus() : "订单不存在");
                 return;
             }
             
-            log.info("开始处理超时订单，订单ID: {}, 订单号: {}", order.getId(), order.getOrderNo());
+            log.info("开始处理超时订单，订单ID: {}", order.getId());
             
             // 取消订单
             boolean cancelled = cancelTimeoutOrder(order);
             
             if (cancelled) {
-                log.info("订单超时取消成功，订单ID: {}, 订单号: {}", order.getId(), order.getOrderNo());
+                log.info("订单超时取消成功，订单ID: {}", order.getId());
             } else {
-                log.warn("订单超时取消失败，订单ID: {}, 订单号: {}", order.getId(), order.getOrderNo());
+                log.warn("订单超时取消失败，订单ID: {}", order.getId());
             }
             
         } catch (InterruptedException e) {
@@ -175,15 +173,19 @@ public class OrderTimeoutMessageService implements RocketMQListener<OrderTimeout
      */
     private boolean cancelTimeoutOrder(Order order) {
         try {
-            // 1. 原子更新订单状态：只有当状态为PENDING时才更新为CANCELLED
-            int updatedRows = orderMapper.updateStatusIfPending(order.getId(), OrderStatus.CANCELLED);
+            // 1. 原子更新订单状态：只有当状态为 PENDING（已下单）时才更新为 CANCELLED（已取消）
+            int updatedRows = orderMapper.updateStatusIfPending(
+                    order.getId(), 
+                    com.jiaoyi.order.enums.OrderStatusEnum.PENDING.getCode(), 
+                    com.jiaoyi.order.enums.OrderStatusEnum.CANCELLED.getCode()
+            );
             
             if (updatedRows == 0) {
                 log.info("订单状态已变更，取消超时处理，订单ID: {}", order.getId());
                 return false;
             }
             
-            log.info("订单超时取消成功，订单ID: {}, 订单号: {}", order.getId(), order.getOrderNo());
+            log.info("订单超时取消成功，订单ID: {}", order.getId());
             
             // 2. 解锁库存
             if (order.getOrderItems() != null && !order.getOrderItems().isEmpty()) {
@@ -230,7 +232,7 @@ public class OrderTimeoutMessageService implements RocketMQListener<OrderTimeout
             return false;
         }
         
-        if (order.getStatus() != OrderStatus.PENDING) {
+        if (!Integer.valueOf(1).equals(order.getStatus())) {
             log.warn("订单状态不是待支付，无法取消，订单ID: {}, 当前状态: {}", orderId, order.getStatus());
             return false;
         }

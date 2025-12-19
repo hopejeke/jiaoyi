@@ -18,10 +18,20 @@ import java.util.List;
 public interface ProductServiceClient {
     
     /**
-     * 获取商品信息
+     * 获取商品信息（仅通过ID，会查询所有分片，性能较差）
+     * @deprecated 建议使用 getProductByMerchantIdAndId
      */
     @GetMapping("/api/store-products/{productId}")
+    @Deprecated
     ApiResponse<?> getProductById(@PathVariable("productId") Long productId);
+    
+    /**
+     * 通过商户ID和商品ID获取商品信息（推荐，包含分片键，性能更好）
+     */
+    @GetMapping("/api/store-products/merchant/{merchantId}/{productId}")
+    ApiResponse<?> getProductByMerchantIdAndId(
+            @PathVariable("merchantId") String merchantId,
+            @PathVariable("productId") Long productId);
     
     /**
      * 检查库存
@@ -67,6 +77,12 @@ public interface ProductServiceClient {
      */
     @PostMapping("/api/inventory/deduct/batch")
     ApiResponse<Void> deductStockBatch(@RequestBody DeductStockBatchRequest request);
+    
+    /**
+     * 获取商户信息（包含自动接单配置）
+     */
+    @GetMapping("/api/merchants/{merchantId}")
+    ApiResponse<?> getMerchant(@PathVariable("merchantId") String merchantId);
     
     /**
      * 检查库存请求

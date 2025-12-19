@@ -162,6 +162,16 @@
             color: #721c24;
         }
         
+        .status-refunded {
+            background-color: #fff3cd;
+            color: #856404;
+        }
+        
+        .status-pay-failed {
+            background-color: #f8d7da;
+            color: #721c24;
+        }
+        
         .status-shipped {
             background-color: #d1ecf1;
             color: #0c5460;
@@ -339,8 +349,8 @@
         <!-- 搜索筛选区域 -->
         <div class="search-form">
             <div class="form-group">
-                <label for="orderNo">订单号</label>
-                <input type="text" id="orderNo" placeholder="输入订单号">
+                <label for="merchantId">餐馆ID</label>
+                <input type="text" id="merchantId" placeholder="输入餐馆ID">
             </div>
             <div class="form-group">
                 <label for="userId">用户ID</label>
@@ -386,13 +396,13 @@
             <table class="table" id="ordersTable" style="display: none;">
                 <thead>
                     <tr>
-                        <th>订单号</th>
+                        <th>订单ID</th>
                         <th>用户ID</th>
                         <th>状态</th>
                         <th>总金额</th>
                         <th>优惠金额</th>
                         <th>实际支付</th>
-                        <th>收货人</th>
+                        <th>餐馆ID</th>
                         <th>创建时间</th>
                         <th>操作</th>
                     </tr>
@@ -425,9 +435,19 @@
         let totalPages = 1;
         let currentOrders = [];
         
-        // 页面加载时获取订单列表
+        // 页面加载时检查URL参数
         document.addEventListener('DOMContentLoaded', function() {
-            loadOrders();
+            const urlParams = new URLSearchParams(window.location.search);
+            const merchantId = urlParams.get('merchantId');
+            const orderId = urlParams.get('orderId');
+            
+            if (merchantId && orderId) {
+                // 如果有订单ID，直接显示订单详情
+                viewOrderDetailByMerchantIdAndId(merchantId, orderId);
+            } else {
+                // 否则加载订单列表
+                loadOrders();
+            }
         });
         
         // 加载订单列表
@@ -436,23 +456,27 @@
             hideMessage();
             
             try {
-                const params = new URLSearchParams({
-                    pageNum: page,
-                    pageSize: pageSize,
-                    orderNo: document.getElementById('orderNo').value || '',
-                    userId: document.getElementById('userId').value || '',
-                    status: document.getElementById('status').value || '',
-                    startTime: document.getElementById('startTime').value || '',
-                    endTime: document.getElementById('endTime').value || ''
-                });
+                const merchantId = document.getElementById('merchantId').value || '';
+                const userId = document.getElementById('userId').value || '';
                 
-                const response = await fetch(`/api/orders/page?${params}`);
+                // 如果有merchantId，使用merchantId查询接口
+                let response;
+                if (merchantId) {
+                    response = await fetch(`/api/orders/merchant/${merchantId}`);
+                } else if (userId) {
+                    response = await fetch(`/api/orders/user/${userId}`);
+                } else {
+                    showMessage('请输入餐馆ID或用户ID进行查询', 'error');
+                    showLoading(false);
+                    return;
+                }
                 const result = await response.json();
                 
                 if (result.code === 200) {
-                    currentOrders = result.data.orders;
-                    currentPage = result.data.pageNum;
-                    totalPages = result.data.totalPages;
+                    // 直接返回订单列表，不是分页数据
+                    currentOrders = Array.isArray(result.data) ? result.data : [];
+                    currentPage = 1;
+                    totalPages = 1;
                     
                     displayOrders(currentOrders);
                     displayPagination();
@@ -475,29 +499,46 @@
             if (orders.length === 0) {
                 tbody.innerHTML = '<tr><td colspan="9" style="text-align: center; padding: 40px; color: #666;">暂无订单数据</td></tr>';
             } else {
-                tbody.innerHTML = orders.map(order => `
+                tbody.innerHTML = orders.map(order => {
+                    // 解析订单价格
+                    let orderPrice = {};
+                    if (order.orderPrice) {
+                        try {
+                            orderPrice = typeof order.orderPrice === 'string' 
+                                ? JSON.parse(order.orderPrice) 
+                                : order.orderPrice;
+                        } catch (e) {
+                            console.error('解析订单价格失败:', e);
+                        }
+                    }
+                    
+                    const statusText = getOnlineOrderStatusText(order.status);
+                    const statusClass = getStatusClass(order.status);
+                    
+                    // 判断是否可以取消：只有待支付状态（status = 1）才能取消
+                    // 统一转换为数字进行比较
+                    const statusNum = typeof order.status === 'string' ? parseInt(order.status, 10) : order.status;
+                    const canCancel = statusNum === 1;
+                    
+                    return `
                     <tr>
-                        <td>${order.orderNo}</td>
+                        <td>${order.id}</td>
                         <td>${order.userId}</td>
-                        <td><span class="status status-${order.status.toLowerCase()}">${getStatusText(order.status)}</span></td>
-                        <td>¥${order.totalAmount}</td>
-                        <td>¥${order.discountAmount || 0}</td>
-                        <td>¥${order.actualAmount || order.totalAmount}</td>
-                        <td>${order.receiverName}</td>
+                        <td><span class="status status-${statusClass}">${statusText}</span></td>
+                        <td>¥${(orderPrice.total || 0).toFixed(2)}</td>
+                        <td>¥${(orderPrice.discount || 0).toFixed(2)}</td>
+                        <td>¥${(orderPrice.total || 0).toFixed(2)}</td>
+                        <td>${order.merchantId || '-'}</td>
                         <td>${formatDateTime(order.createTime)}</td>
                         <td>
                             <div class="actions">
-                                <button class="btn btn-sm btn-primary" onclick="viewOrderDetail(${order.id})">查看</button>
-                                <button class="btn btn-sm btn-success" onclick="updateOrderStatus(${order.id}, 'PAID')" 
-                                        ${order.status === 'PAID' ? 'disabled' : ''}>支付</button>
-                                <button class="btn btn-sm btn-secondary" onclick="updateOrderStatus(${order.id}, 'SHIPPED')" 
-                                        ${order.status !== 'PAID' ? 'disabled' : ''}>发货</button>
-                                <button class="btn btn-sm btn-danger" onclick="updateOrderStatus(${order.id}, 'CANCELLED')" 
-                                        ${order.status === 'CANCELLED' ? 'disabled' : ''}>取消</button>
+                                <button class="btn btn-sm btn-primary" onclick="viewOrderDetailByMerchantIdAndId('${order.merchantId}', '${order.id}')">查看</button>
+                                ${canCancel ? `<button class="btn btn-sm btn-danger" onclick="cancelOrder('${order.merchantId}', '${order.id}')">取消</button>` : ''}
                             </div>
                         </td>
                     </tr>
-                `).join('');
+                `;
+                }).join('');
             }
             
             table.style.display = 'table';
@@ -553,18 +594,22 @@
         
         // 重置搜索
         function resetSearch() {
-            document.getElementById('orderNo').value = '';
+            document.getElementById('merchantId').value = '';
             document.getElementById('userId').value = '';
             document.getElementById('status').value = '';
             document.getElementById('startTime').value = '';
             document.getElementById('endTime').value = '';
-            loadOrders(1);
+            // 重置后不自动加载，等待用户输入
+            document.getElementById('ordersTable').style.display = 'none';
+            document.getElementById('pagination').style.display = 'none';
         }
         
-        // 查看订单详情
-        async function viewOrderDetail(orderId) {
+        // 查看订单详情（通过merchantId和orderId，推荐方式）
+        async function viewOrderDetailByMerchantIdAndId(merchantId, orderId) {
             try {
-                const response = await fetch(`/api/orders/${orderId}`);
+                // 确保orderId作为字符串传递，避免JavaScript大整数精度丢失
+                const orderIdStr = String(orderId);
+                const response = await fetch(`/api/orders/merchant/${merchantId}/${orderIdStr}`);
                 const result = await response.json();
                 
                 if (result.code === 200) {
@@ -579,9 +624,41 @@
             }
         }
         
-        // 显示订单详情
+        // 查看订单详情（通过orderId，兼容旧代码）
+        async function viewOrderDetail(orderId) {
+            try {
+                // 确保orderId作为字符串传递，避免JavaScript大整数精度丢失
+                const orderIdStr = String(orderId);
+                const response = await fetch(`/api/orders/${orderIdStr}`);
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    const order = result.data;
+                    displayOrderDetail(order);
+                    document.getElementById('orderDetailModal').style.display = 'block';
+                } else {
+                    showMessage('获取订单详情失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            }
+        }
+        
+        // 显示订单详情（适配在线点餐订单结构）
         function displayOrderDetail(order) {
             const content = document.getElementById('orderDetailContent');
+            
+            // 解析订单价格（JSON字符串）
+            let orderPrice = {};
+            if (order.orderPrice) {
+                try {
+                    orderPrice = typeof order.orderPrice === 'string' 
+                        ? JSON.parse(order.orderPrice) 
+                        : order.orderPrice;
+                } catch (e) {
+                    console.error('解析订单价格失败:', e);
+                }
+            }
             
             let orderItemsHTML = '';
             if (order.orderItems && order.orderItems.length > 0) {
@@ -591,63 +668,89 @@
                         ${order.orderItems.map(item => `
                             <div class="order-item">
                                 <div class="order-item-info">
-                                    <div><strong>${item.productName}</strong></div>
-                                    <div>数量: ${item.quantity} | 单价: ¥${item.unitPrice}</div>
+                                    <div><strong>${item.itemName || '商品'}</strong></div>
+                                    <div>数量: ${item.quantity} | 单价: ¥${(item.itemPrice || 0).toFixed(2)}</div>
                                 </div>
-                                <div class="order-item-price">¥${item.subtotal}</div>
+                                <div class="order-item-price">¥${((item.itemPriceTotal || item.itemPrice * item.quantity) || 0).toFixed(2)}</div>
                             </div>
                         `).join('')}
                     </div>
                 `;
             }
             
+            // 获取订单类型文本
+            const orderTypeText = {
+                'PICKUP': '自取',
+                'DELIVERY': '配送',
+                'SELF_DINE_IN': '堂食'
+            }[order.orderType] || order.orderType || '未知';
+            
+            // 获取订单状态文本（在线点餐使用数字状态码）
+            const statusText = getOnlineOrderStatusText(order.status);
+            
             content.innerHTML = `
                 <div class="order-detail">
                     <h4>基本信息</h4>
-                    <p><strong>订单号:</strong> ${order.orderNo}</p>
+                    <p><strong>订单ID:</strong> ${order.id}</p>
+                    <p><strong>餐馆ID:</strong> ${order.merchantId}</p>
                     <p><strong>用户ID:</strong> ${order.userId}</p>
-                    <p><strong>订单状态:</strong> <span class="status status-${order.status.toLowerCase()}">${getStatusText(order.status)}</span></p>
-                    <p><strong>总金额:</strong> ¥${order.totalAmount}</p>
-                    <p><strong>优惠金额:</strong> ¥${order.discountAmount || 0}</p>
-                    <p><strong>实际支付:</strong> ¥${order.actualAmount || order.totalAmount}</p>
+                    <p><strong>订单类型:</strong> ${orderTypeText}</p>
+                    <p><strong>订单状态:</strong> <span class="status status-${getStatusClass(order.status)}">${statusText}</span></p>
+                    <p><strong>订单总价:</strong> ¥${(orderPrice.total || 0).toFixed(2)}</p>
+                    <p><strong>小计:</strong> ¥${(orderPrice.subtotal || 0).toFixed(2)}</p>
+                    <p><strong>配送费:</strong> ¥${(orderPrice.deliveryFee || 0).toFixed(2)}</p>
+                    <p><strong>折扣:</strong> ¥${(orderPrice.discount || 0).toFixed(2)}</p>
+                    <p><strong>备注:</strong> ${order.notes || '无'}</p>
                     <p><strong>创建时间:</strong> ${formatDateTime(order.createTime)}</p>
                     <p><strong>更新时间:</strong> ${formatDateTime(order.updateTime)}</p>
-                </div>
-                
-                <div class="order-detail">
-                    <h4>收货信息</h4>
-                    <p><strong>收货人:</strong> ${order.receiverName}</p>
-                    <p><strong>联系电话:</strong> ${order.receiverPhone}</p>
-                    <p><strong>收货地址:</strong> ${order.receiverAddress}</p>
-                    <p><strong>备注:</strong> ${order.remark || '无'}</p>
                 </div>
                 
                 ${orderItemsHTML}
             `;
         }
         
-        // 更新订单状态
-        async function updateOrderStatus(orderId, status) {
-            if (!confirm(`确定要将订单状态更新为"${getStatusText(status)}"吗？`)) {
-                return;
+        // 获取在线点餐订单状态文本
+        function getOnlineOrderStatusText(status) {
+            // 统一转换为数字进行比较
+            const statusNum = typeof status === 'string' ? parseInt(status, 10) : status;
+            if (typeof statusNum === 'number' && !isNaN(statusNum)) {
+                const statusMap = {
+                    1: '已下单',
+                    2: '已支付',
+                    3: '制作中',
+                    4: '已完成',
+                    5: '已取消',
+                    6: '已退款',
+                    7: '支付失败',
+                    8: '配送中',
+                    9: '待接单'
+                };
+                return statusMap[statusNum] || `状态${statusNum}`;
             }
-            
-            try {
-                const response = await fetch(`/api/orders/${orderId}/status?status=${status}`, {
-                    method: 'PUT'
-                });
-                const result = await response.json();
-                
-                if (result.code === 200) {
-                    showMessage('订单状态更新成功', 'success');
-                    loadOrders(currentPage); // 刷新当前页
-                } else {
-                    showMessage('订单状态更新失败: ' + result.message, 'error');
-                }
-            } catch (error) {
-                showMessage('网络错误: ' + error.message, 'error');
-            }
+            return getStatusText(status);
         }
+        
+        // 获取状态CSS类名
+        function getStatusClass(status) {
+            // 统一转换为数字进行比较
+            const statusNum = typeof status === 'string' ? parseInt(status, 10) : status;
+            if (typeof statusNum === 'number' && !isNaN(statusNum)) {
+                const classMap = {
+                    1: 'pending',      // 已下单
+                    2: 'paid',        // 已支付
+                    3: 'shipped',     // 制作中
+                    4: 'delivered',   // 已完成
+                    5: 'cancelled',   // 已取消
+                    6: 'refunded',    // 已退款
+                    7: 'pay-failed',  // 支付失败
+                    8: 'delivering',  // 配送中
+                    9: 'waiting'      // 待接单
+                };
+                return classMap[statusNum] || 'pending';
+            }
+            return status ? status.toLowerCase() : 'pending';
+        }
+        
         
         // 关闭订单详情模态框
         function closeOrderDetail() {
@@ -711,6 +814,37 @@
                 minute: '2-digit',
                 second: '2-digit'
             });
+        }
+        
+        // 取消订单
+        async function cancelOrder(merchantId, orderId) {
+            if (!confirm('确定要取消这个订单吗？取消后如果支付成功会自动退款。')) {
+                return;
+            }
+            
+            try {
+                const orderIdStr = String(orderId);
+                const response = await fetch(`/api/orders/${orderIdStr}/cancel`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    showMessage('订单取消成功', 'success');
+                    // 刷新订单列表
+                    setTimeout(() => {
+                        loadOrders();
+                    }, 1000);
+                } else {
+                    showMessage('订单取消失败: ' + result.message, 'error');
+                }
+            } catch (error) {
+                showMessage('网络错误: ' + error.message, 'error');
+            }
         }
     </script>
 </body>

@@ -1,7 +1,6 @@
 package com.jiaoyi.order.service;
 
 import com.jiaoyi.order.entity.Order;
-import com.jiaoyi.order.entity.OrderStatus;
 import com.jiaoyi.order.mapper.OrderMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -91,7 +90,13 @@ public class OrderTimeoutFallbackService {
                 try {
                     // 重新查询订单状态，确保订单仍然是待支付状态
                     Order currentOrder = orderMapper.selectById(order.getId());
-                    if (currentOrder == null || !"PENDING".equals(currentOrder.getStatus().name())) {
+                    if (currentOrder == null) {
+                        log.debug("订单 {} 不存在，跳过处理", order.getId());
+                        return;
+                    }
+                    // 在线点餐订单：status=1 表示已下单（待支付）
+                    boolean isPending = Integer.valueOf(1).equals(currentOrder.getStatus());
+                    if (!isPending) {
                         log.debug("订单 {} 状态已变更，跳过处理", order.getId());
                         return;
                     }
@@ -104,7 +109,11 @@ public class OrderTimeoutFallbackService {
                     }
 
                     // 执行订单取消
-                    int updatedRows = orderMapper.updateStatusIfPending(order.getId(), OrderStatus.CANCELLED);
+                    int updatedRows = orderMapper.updateStatusIfPending(
+                            order.getId(), 
+                            com.jiaoyi.order.enums.OrderStatusEnum.PENDING.getCode(), 
+                            com.jiaoyi.order.enums.OrderStatusEnum.CANCELLED.getCode()
+                    );
                     if (updatedRows > 0) {
                         log.info("兜底任务成功取消超时订单: {}, 创建时间: {}", 
                                 order.getId(), order.getCreateTime());

@@ -487,7 +487,7 @@
                 // 获取当前店铺ID（从输入框或URL参数）
                 const storeId = document.getElementById('storeId').value || new URLSearchParams(window.location.search).get('storeId') || 1;
                 // 使用包含分片键的查询（推荐，性能更好）
-                const response = await fetch(`${STORE_PRODUCTS_API_BASE}/merchant/${productId}?storeId=${storeId}`);
+                const response = await fetch(`${STORE_PRODUCTS_API_BASE}/merchant/product/${productId}?storeId=${storeId}`);
                 const result = await response.json();
                 
                 if (result.code === 200 && result.data) {

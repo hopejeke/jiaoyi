@@ -59,6 +59,16 @@ public class PaymentResponse {
      * 备注
      */
     private String remark;
+    
+    /**
+     * Stripe Client Secret（用于前端确认支付）
+     */
+    private String clientSecret;
+    
+    /**
+     * Stripe Payment Intent ID
+     */
+    private String paymentIntentId;
 }
 
 

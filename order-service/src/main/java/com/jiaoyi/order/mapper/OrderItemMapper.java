@@ -28,7 +28,12 @@ public interface OrderItemMapper {
     List<OrderItem> selectByOrderId(@Param("orderId") Long orderId);
     
     /**
-     * 根据商品ID查询订单项列表
+     * 根据merchantId和orderId查询订单项列表（推荐，包含分片键）
+     */
+    List<OrderItem> selectByMerchantIdAndOrderId(@Param("merchantId") String merchantId, @Param("orderId") Long orderId);
+    
+    /**
+     * 根据商品ID查询订单项列表（用于库存锁定）
      */
     List<OrderItem> selectByProductId(@Param("productId") Long productId);
     
@@ -36,10 +41,5 @@ public interface OrderItemMapper {
      * 统计商品销售数量
      */
     Long sumQuantityByProductId(@Param("productId") Long productId);
-    
-    /**
-     * 根据订单号查询订单项列表
-     */
-    List<OrderItem> selectByOrderNo(@Param("orderNo") String orderNo);
 }
 

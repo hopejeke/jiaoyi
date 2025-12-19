@@ -1,0 +1,992 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>在线订餐 - 下单页面</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5rem;
+        }
+        
+        .nav-buttons {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .content-wrapper {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 30px;
+        }
+        
+        .merchant-section, .menu-section, .cart-section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .section-title {
+            font-size: 1.8rem;
+            color: #667eea;
+            margin-bottom: 25px;
+            padding-bottom: 15px;
+            border-bottom: 2px solid #e1e5e9;
+        }
+        
+        .merchant-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+            gap: 20px;
+        }
+        
+        .merchant-item {
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            padding: 20px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .merchant-item:hover {
+            border-color: #667eea;
+            transform: translateY(-5px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+        }
+        
+        .merchant-item.selected {
+            border-color: #667eea;
+            background: #f0f4ff;
+        }
+        
+        .merchant-name {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .merchant-info {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        
+        .menu-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            gap: 20px;
+            max-height: 600px;
+            overflow-y: auto;
+        }
+        
+        .menu-item {
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            padding: 15px;
+            text-align: center;
+        }
+        
+        .menu-item-name {
+            font-weight: bold;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .menu-item-price {
+            color: #667eea;
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .menu-item-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .quantity-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .quantity-btn {
+            width: 30px;
+            height: 30px;
+            border: none;
+            border-radius: 50%;
+            background: #667eea;
+            color: white;
+            cursor: pointer;
+            font-weight: bold;
+        }
+        
+        .quantity-btn:hover {
+            background: #764ba2;
+        }
+        
+        .quantity-display {
+            font-weight: bold;
+            min-width: 30px;
+            text-align: center;
+        }
+        
+        .cart-section {
+            position: sticky;
+            top: 20px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .cart-items {
+            margin-bottom: 20px;
+        }
+        
+        .cart-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #e1e5e9;
+        }
+        
+        .cart-item-info {
+            flex: 1;
+        }
+        
+        .cart-item-name {
+            font-weight: bold;
+            margin-bottom: 5px;
+        }
+        
+        .cart-item-price {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        
+        .cart-item-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .cart-summary {
+            border-top: 2px solid #e1e5e9;
+            padding-top: 20px;
+            margin-top: 20px;
+        }
+        
+        .summary-row {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+            font-size: 1.1rem;
+        }
+        
+        .summary-total {
+            font-size: 1.5rem;
+            font-weight: bold;
+            color: #667eea;
+            border-top: 2px solid #e1e5e9;
+            padding-top: 10px;
+            margin-top: 10px;
+        }
+        
+        .order-form {
+            margin-top: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #333;
+            font-weight: 600;
+        }
+        
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 10px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+        }
+        
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .btn-submit {
+            width: 100%;
+            padding: 15px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 1.2rem;
+            font-weight: bold;
+            cursor: pointer;
+            margin-top: 20px;
+        }
+        
+        .btn-submit:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+        }
+        
+        .btn-submit:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            display: none;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🍽️ 在线订餐</h1>
+            <div class="nav-buttons">
+                <a href="index.html" class="btn btn-primary">返回首页</a>
+            </div>
+        </div>
+        
+        <div id="alertContainer"></div>
+        
+        <div class="content-wrapper">
+            <!-- 左侧：餐馆选择和菜单 -->
+            <div style="display: flex; flex-direction: column; gap: 30px;">
+                <!-- 餐馆选择 -->
+                <div class="merchant-section">
+                    <h2 class="section-title">选择餐馆</h2>
+                    <div id="merchantList" class="merchant-list">
+                        <div style="text-align: center; padding: 40px; color: #999;">正在加载餐馆列表...</div>
+                    </div>
+                </div>
+                
+                <!-- 菜单 -->
+                <div class="menu-section hidden" id="menuSection">
+                    <h2 class="section-title">菜单</h2>
+                    <div id="menuList" class="menu-list">
+                        <div style="text-align: center; padding: 40px; color: #999;">请先选择餐馆</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 右侧：购物车和下单 -->
+            <div class="cart-section">
+                <h2 class="section-title">购物车</h2>
+                <div id="cartItems" class="cart-items">
+                    <div style="text-align: center; padding: 40px; color: #999;">购物车为空</div>
+                </div>
+                
+                <div class="cart-summary">
+                    <div class="summary-row">
+                        <span>小计：</span>
+                        <span id="subtotal">¥0.00</span>
+                    </div>
+                    <div class="summary-row">
+                        <span>配送费：</span>
+                        <span id="deliveryFee">¥0.00</span>
+                    </div>
+                    <div class="summary-row" id="taxTotalItem" style="display: none;">
+                        <span>税费：</span>
+                        <span id="taxTotal">¥0.00</span>
+                    </div>
+                    <div class="summary-row" id="chargeItem" style="display: none;">
+                        <span>服务费：</span>
+                        <span id="charge">¥0.00</span>
+                    </div>
+                    <div class="summary-row" id="discountItem" style="display: none;">
+                        <span>优惠：</span>
+                        <span id="discount" style="color: #e74c3c;">-¥0.00</span>
+                    </div>
+                    <div class="summary-total">
+                        <div class="summary-row">
+                            <span>总计：</span>
+                            <span id="total">¥0.00</span>
+                        </div>
+                    </div>
+                    <div id="priceLoading" style="display: none; text-align: center; padding: 10px; color: #666; font-size: 0.9rem;">
+                        正在计算价格...
+                    </div>
+                    <div id="priceError" style="display: none; text-align: center; padding: 10px; color: #e74c3c; font-size: 0.9rem;">
+                    </div>
+                </div>
+                
+                <div class="order-form">
+                    <div class="form-group">
+                        <label>订单类型 *</label>
+                        <select id="orderType" onchange="calculatePrice()">
+                            <option value="PICKUP">自取</option>
+                            <option value="DELIVERY">配送</option>
+                            <option value="SELF_DINE_IN">堂食</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>用户ID *</label>
+                        <input type="number" id="userId" placeholder="请输入用户ID" value="1" onchange="calculatePrice()">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>收货人姓名</label>
+                        <input type="text" id="receiverName" placeholder="请输入收货人姓名">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>收货人电话</label>
+                        <input type="text" id="receiverPhone" placeholder="请输入收货人电话">
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>收货地址</label>
+                        <input type="text" id="receiverAddress" placeholder="请输入收货地址（包含邮编）" onblur="calculatePrice()">
+                        <small style="color: #666; font-size: 0.85rem; margin-top: 5px; display: block;">
+                            提示：填写完整地址（包含邮编）可准确计算配送费
+                        </small>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>支付方式 *</label>
+                        <select id="paymentMethod">
+                            <option value="CREDIT_CARD">💳 信用卡支付</option>
+                            <option value="ALIPAY">💰 支付宝</option>
+                            <option value="WECHAT_PAY">💚 微信支付</option>
+                            <option value="CASH">💵 现金支付</option>
+                        </select>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label>备注</label>
+                        <textarea id="notes" rows="3" placeholder="订单备注（可选）"></textarea>
+                    </div>
+                    
+                    <button class="btn-submit" id="submitOrderBtn" onclick="submitOrder()" disabled>提交订单</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = 'http://localhost:8080/api';
+        let selectedMerchant = null;
+        let cart = {}; // {itemId: {name, price, quantity}}
+        let menuItems = []; // 菜单项列表（模拟数据，实际应该从POS系统获取）
+        
+        // 页面加载时获取餐馆列表
+        window.onload = function() {
+            loadMerchants();
+        };
+        
+        // 加载餐馆列表
+        async function loadMerchants() {
+            console.log('loadMerchants called');
+            try {
+                const response = await fetch(`${API_BASE}/merchants`);
+                const result = await response.json();
+                console.log('Merchants API response:', result);
+                
+                if (result.code === 200 && result.data) {
+                    const merchantList = document.getElementById('merchantList');
+                    if (!merchantList) {
+                        console.error('merchantList element not found!');
+                        return;
+                    }
+                    
+                    if (result.data.length === 0) {
+                        merchantList.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">暂无餐馆</div>';
+                    } else {
+                        console.log('Rendering merchants, count:', result.data.length);
+                        merchantList.innerHTML = result.data.map((merchant, index) => {
+                            const itemId = `merchant-item-${index}`;
+                            return `
+                            <div class="merchant-item" id="${itemId}" data-merchant-id="${merchant.merchantId}" 
+                                 style="cursor: pointer;">
+                                <div class="merchant-name">${merchant.name}</div>
+                                <div class="merchant-info">
+                                    ${merchant.isPickup ? '✓ 支持自取' : ''} 
+                                    ${merchant.isDelivery ? '✓ 支持配送' : ''}
+                                </div>
+                            </div>
+                        `;
+                        }).join('');
+                        
+                        // 使用事件委托（更可靠）
+                        merchantList.addEventListener('click', function(e) {
+                            const merchantItem = e.target.closest('.merchant-item');
+                            if (merchantItem) {
+                                const merchantId = merchantItem.getAttribute('data-merchant-id');
+                                const merchantName = merchantItem.querySelector('.merchant-name').textContent;
+                                console.log('Event delegation triggered:', merchantId, merchantName);
+                                selectMerchant(merchantId, merchantName, merchantItem);
+                            }
+                        });
+                        console.log('Event listener attached to merchantList');
+                    }
+                } else {
+                    showAlert('error', '加载餐馆列表失败：' + (result.message || '未知错误'));
+                }
+            } catch (error) {
+                console.error('loadMerchants error:', error);
+                showAlert('error', '加载餐馆列表失败：' + error.message);
+            }
+        }
+        
+        // 选择餐馆
+        function selectMerchant(merchantId, merchantName, element) {
+            console.log('selectMerchant called:', merchantId, merchantName, element);
+            
+            selectedMerchant = {merchantId, name: merchantName};
+            
+            // 更新UI
+            document.querySelectorAll('.merchant-item').forEach(item => {
+                item.classList.remove('selected');
+            });
+            
+            if (element) {
+                element.classList.add('selected');
+            } else {
+                // 如果 element 没有传递，尝试通过 merchantId 找到元素
+                const items = document.querySelectorAll('.merchant-item');
+                items.forEach(item => {
+                    if (item.getAttribute('data-merchant-id') === merchantId) {
+                        item.classList.add('selected');
+                    }
+                });
+            }
+            
+            // 显示菜单区域
+            const menuSection = document.getElementById('menuSection');
+            if (menuSection) {
+                console.log('Removing hidden class from menuSection');
+                menuSection.classList.remove('hidden');
+                console.log('menuSection classes:', menuSection.className);
+                console.log('menuSection display style:', window.getComputedStyle(menuSection).display);
+                console.log('menuSection offsetHeight:', menuSection.offsetHeight);
+                
+                // 滚动到菜单区域
+                setTimeout(() => {
+                    menuSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                }, 100);
+            } else {
+                console.error('menuSection element not found!');
+            }
+            
+            // 加载菜单（这里使用模拟数据，实际应该从POS系统获取）
+            loadMenu(merchantId);
+        }
+        
+        // 加载菜单（从后端API获取真实数据）
+        async function loadMenu(merchantId) {
+            console.log('loadMenu called for merchantId:', merchantId);
+            
+            const menuList = document.getElementById('menuList');
+            if (!menuList) {
+                console.error('menuList element not found!');
+                return;
+            }
+            
+            // 显示加载状态
+            menuList.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">正在加载菜单...</div>';
+            
+            try {
+                // 从后端API获取商品列表
+                const response = await fetch(`${API_BASE}/store-products/merchant/${merchantId}`);
+                const result = await response.json();
+                
+                if (result.code === 200 && result.data && Array.isArray(result.data)) {
+                    // 将后端返回的商品数据转换为前端格式
+                    // 注意：将 id 转换为字符串，避免 JavaScript 大整数精度丢失
+                    menuItems = result.data.map(product => ({
+                        itemId: String(product.id), // 使用字符串类型，避免精度丢失
+                        name: product.productName || '商品',
+                        price: parseFloat(product.unitPrice || 0),
+                        description: product.description || ''
+                    }));
+                    
+                    console.log('从后端获取到商品列表，数量:', menuItems.length);
+                    
+                    if (menuItems.length === 0) {
+                        menuList.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">该商户暂无商品</div>';
+                        return;
+                    }
+                    
+                    // 渲染菜单
+                    menuList.innerHTML = menuItems.map(item => `
+                        <div class="menu-item">
+                            <div class="menu-item-name">${item.name}</div>
+                            <div style="color: #666; font-size: 0.9rem; margin-bottom: 10px;">${item.description || ''}</div>
+                            <div class="menu-item-price">¥${item.price.toFixed(2)}</div>
+                            <div class="menu-item-actions">
+                                <div class="quantity-control">
+                                    <button class="quantity-btn" onclick="decreaseQuantity('${item.itemId}')">-</button>
+                                    <span class="quantity-display" id="qty-${item.itemId}">${cart[item.itemId]?.quantity || 0}</span>
+                                    <button class="quantity-btn" onclick="increaseQuantity('${item.itemId}')">+</button>
+                                </div>
+                            </div>
+                        </div>
+                    `).join('');
+                    
+                    console.log('Menu rendered successfully');
+                    updateCart();
+                } else {
+                    console.error('获取商品列表失败:', result);
+                    menuList.innerHTML = '<div style="text-align: center; padding: 40px; color: #e74c3c;">加载菜单失败: ' + (result.message || '未知错误') + '</div>';
+                }
+            } catch (error) {
+                console.error('加载菜单失败:', error);
+                menuList.innerHTML = '<div style="text-align: center; padding: 40px; color: #e74c3c;">加载菜单失败: ' + error.message + '</div>';
+            }
+        }
+        
+        // 增加数量
+        function increaseQuantity(itemId) {
+            // 确保 itemId 是字符串类型，避免精度丢失
+            itemId = String(itemId);
+            console.log('increaseQuantity called with itemId:', itemId, 'type:', typeof itemId);
+            
+            const item = menuItems.find(m => String(m.itemId) === itemId);
+            if (!item) {
+                console.error('Item not found for itemId:', itemId, 'available items:', menuItems.map(m => m.itemId));
+                return;
+            }
+            
+            if (!cart[itemId]) {
+                cart[itemId] = {
+                    name: item.name,
+                    price: item.price,
+                    quantity: 0
+                };
+            }
+            
+            cart[itemId].quantity++;
+            console.log('Quantity increased, new quantity:', cart[itemId].quantity);
+            updateCart();
+            updateQuantityDisplay(itemId);
+        }
+        
+        // 减少数量
+        function decreaseQuantity(itemId) {
+            // 确保 itemId 是字符串类型，避免精度丢失
+            itemId = String(itemId);
+            console.log('decreaseQuantity called with itemId:', itemId);
+            
+            if (!cart[itemId] || cart[itemId].quantity <= 0) return;
+            
+            cart[itemId].quantity--;
+            if (cart[itemId].quantity === 0) {
+                delete cart[itemId];
+            }
+            
+            updateCart();
+            updateQuantityDisplay(itemId);
+        }
+        
+        // 更新数量显示
+        function updateQuantityDisplay(itemId) {
+            // 确保 itemId 是字符串类型
+            itemId = String(itemId);
+            const qtyDisplay = document.getElementById(`qty-${itemId}`);
+            if (qtyDisplay) {
+                qtyDisplay.textContent = cart[itemId]?.quantity || 0;
+            }
+        }
+        
+        // 更新购物车
+        function updateCart() {
+            const cartItems = document.getElementById('cartItems');
+            const cartItemIds = Object.keys(cart).filter(id => cart[id].quantity > 0);
+            
+            if (cartItemIds.length === 0) {
+                cartItems.innerHTML = '<div style="text-align: center; padding: 40px; color: #999;">购物车为空</div>';
+                document.getElementById('submitOrderBtn').disabled = true;
+                // 重置价格显示
+                document.getElementById('subtotal').textContent = '¥0.00';
+                document.getElementById('deliveryFee').textContent = '¥0.00';
+                document.getElementById('taxTotal').textContent = '¥0.00';
+                document.getElementById('charge').textContent = '¥0.00';
+                document.getElementById('discount').textContent = '-¥0.00';
+                document.getElementById('total').textContent = '¥0.00';
+                document.getElementById('taxTotalItem').style.display = 'none';
+                document.getElementById('chargeItem').style.display = 'none';
+                document.getElementById('discountItem').style.display = 'none';
+            } else {
+                cartItems.innerHTML = cartItemIds.map(itemId => {
+                    const item = cart[itemId];
+                    return `
+                        <div class="cart-item">
+                            <div class="cart-item-info">
+                                <div class="cart-item-name">${item.name}</div>
+                                <div class="cart-item-price">¥${item.price.toFixed(2)} × ${item.quantity}</div>
+                            </div>
+                            <div class="cart-item-actions">
+                                <button class="quantity-btn" onclick="decreaseQuantity('${itemId}')">-</button>
+                                <span class="quantity-display">${item.quantity}</span>
+                                <button class="quantity-btn" onclick="increaseQuantity('${itemId}')">+</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+                document.getElementById('submitOrderBtn').disabled = false;
+                
+                // 调用后端计算价格
+                calculatePrice();
+            }
+        }
+        
+        // 计算价格（调用后端接口）
+        async function calculatePrice() {
+            if (!selectedMerchant) {
+                return;
+            }
+            
+            const cartItemIds = Object.keys(cart).filter(id => cart[id].quantity > 0);
+            if (cartItemIds.length === 0) {
+                return;
+            }
+            
+            const userId = document.getElementById('userId')?.value;
+            if (!userId) {
+                return; // 用户ID未填写，不计算价格
+            }
+            
+            const orderType = document.getElementById('orderType')?.value || 'DELIVERY';
+            const receiverAddress = document.getElementById('receiverAddress')?.value || '';
+            
+            // 显示加载状态
+            document.getElementById('priceLoading').style.display = 'block';
+            document.getElementById('priceError').style.display = 'none';
+            
+            try {
+                // 构建订单项（只传 productId 和 quantity）
+                // 注意：productId 必须作为字符串传递，避免 JavaScript 大整数精度丢失
+                const orderItems = cartItemIds.map(itemId => {
+                    const item = cart[itemId];
+                    // 保持 productId 为字符串类型，不要使用 parseInt
+                    return {
+                        productId: String(itemId), // 确保是字符串类型
+                        quantity: item.quantity
+                    };
+                });
+                
+                // 调用价格计算接口
+                const response = await fetch(`${API_BASE}/orders/calculate-price`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        merchantId: selectedMerchant.merchantId,
+                        userId: userId, // 保持字符串类型，后端会自动转换
+                        orderType: orderType,
+                        orderItems: orderItems,
+                        receiverAddress: receiverAddress,
+                        zipCode: null, // TODO: 从地址中提取或单独输入
+                        latitude: null, // TODO: 从地址中获取或使用地图API
+                        longitude: null, // TODO: 从地址中获取或使用地图API
+                        couponIds: null, // TODO: 支持优惠券
+                        couponCodes: null,
+                        tips: null
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200 && result.data) {
+                    const price = result.data;
+                    
+                    // 更新价格显示
+                    document.getElementById('subtotal').textContent = `¥${parseFloat(price.subtotal || 0).toFixed(2)}`;
+                    document.getElementById('deliveryFee').textContent = `¥${parseFloat(price.deliveryFee || 0).toFixed(2)}`;
+                    document.getElementById('taxTotal').textContent = `¥${parseFloat(price.taxTotal || 0).toFixed(2)}`;
+                    document.getElementById('charge').textContent = `¥${parseFloat(price.charge || 0).toFixed(2)}`;
+                    document.getElementById('discount').textContent = `-¥${parseFloat(price.discount || 0).toFixed(2)}`;
+                    document.getElementById('total').textContent = `¥${parseFloat(price.total || 0).toFixed(2)}`;
+                    
+                    // 显示/隐藏价格项
+                    document.getElementById('taxTotalItem').style.display = parseFloat(price.taxTotal || 0) > 0 ? 'flex' : 'none';
+                    document.getElementById('chargeItem').style.display = parseFloat(price.charge || 0) > 0 ? 'flex' : 'none';
+                    document.getElementById('discountItem').style.display = parseFloat(price.discount || 0) > 0 ? 'flex' : 'none';
+                    
+                    console.log('价格计算成功:', price);
+                } else {
+                    throw new Error(result.message || '价格计算失败');
+                }
+            } catch (error) {
+                console.error('计算价格失败:', error);
+                document.getElementById('priceError').textContent = '价格计算失败: ' + error.message;
+                document.getElementById('priceError').style.display = 'block';
+                
+                // 显示前端计算的预估价格（作为后备）
+                let subtotal = 0;
+                cartItemIds.forEach(itemId => {
+                    const item = cart[itemId];
+                    subtotal += item.price * item.quantity;
+                });
+                document.getElementById('subtotal').textContent = `¥${subtotal.toFixed(2)}`;
+                document.getElementById('deliveryFee').textContent = '¥0.00';
+                document.getElementById('total').textContent = `¥${subtotal.toFixed(2)}`;
+            } finally {
+                document.getElementById('priceLoading').style.display = 'none';
+            }
+        }
+        
+        // 提交订单
+        async function submitOrder() {
+            if (!selectedMerchant) {
+                showAlert('error', '请先选择餐馆');
+                return;
+            }
+            
+            const cartItemIds = Object.keys(cart).filter(id => cart[id].quantity > 0);
+            if (cartItemIds.length === 0) {
+                showAlert('error', '购物车为空，请先添加商品');
+                return;
+            }
+            
+            const userId = document.getElementById('userId').value;
+            if (!userId) {
+                showAlert('error', '请输入用户ID');
+                return;
+            }
+            
+            const orderType = document.getElementById('orderType').value;
+            const notes = document.getElementById('notes').value;
+            
+            // 构建订单项
+            // 注意：productId 必须作为字符串传递，避免 JavaScript 大整数精度丢失
+            const orderItems = cartItemIds.map((itemId, index) => {
+                const item = cart[itemId];
+                // 保持 productId 为字符串类型，不要使用 parseInt
+                return {
+                    saleItemId: String(itemId), // 确保是字符串类型
+                    orderItemId: index + 1,
+                    quantity: item.quantity,
+                    itemName: item.name,
+                    itemPrice: item.price,
+                    itemPriceTotal: item.price * item.quantity,
+                    displayPrice: item.price
+                };
+            });
+            
+            // 计算订单价格
+            const subtotal = cartItemIds.reduce((sum, itemId) => {
+                const item = cart[itemId];
+                return sum + item.price * item.quantity;
+            }, 0);
+            
+            const orderPrice = {
+                subtotal: subtotal,
+                discount: 0,
+                charge: 0,
+                deliveryFee: 0,
+                taxTotal: 0,
+                tips: 0,
+                total: subtotal
+            };
+            
+            // 构建订单
+            const order = {
+                merchantId: selectedMerchant.merchantId,
+                        userId: userId, // 保持字符串类型，后端会自动转换
+                orderType: orderType,
+                status: 1, // 已下单
+                localStatus: 1, // 已下单
+                orderPrice: JSON.stringify(orderPrice),
+                notes: notes
+            };
+            
+            try {
+                const response = await fetch(`${API_BASE}/orders`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        merchantId: selectedMerchant.merchantId,
+                        userId: userId, // 保持字符串类型，后端会自动转换
+                        orderType: orderType,
+                        receiverName: document.getElementById('receiverName')?.value || '未填写',
+                        receiverPhone: document.getElementById('receiverPhone')?.value || '未填写',
+                        receiverAddress: document.getElementById('receiverAddress')?.value || '未填写',
+                        remark: notes,
+                        orderItems: orderItems.map(item => ({
+                            productId: String(item.saleItemId), // 确保 productId 是字符串类型，避免精度丢失
+                            productName: item.itemName, // 可选，后端会从数据库查询
+                            productImage: null, // 可选，后端会从数据库查询
+                            // unitPrice: item.itemPrice, // 已移除：为了安全，价格由后端从数据库查询
+                            quantity: item.quantity
+                        })),
+                        paymentMethod: document.getElementById('paymentMethod').value || "CREDIT_CARD", // 使用用户选择的支付方式
+                        payOnline: true // 在线支付
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200 && result.data) {
+                    // 后端返回的是 CreateOrderResponse，包含 order 和 payment 字段
+                    const responseData = result.data;
+                    const order = responseData.order || responseData; // 兼容新旧格式
+                    
+                    if (order && order.id) {
+                        // 确保orderId作为字符串传递，避免JavaScript大整数精度丢失
+                        const orderId = String(order.id);
+                        const merchantId = order.merchantId || selectedMerchant.merchantId;
+                        
+                        // 检查订单状态：如果订单状态是"已下单"（status=1），说明需要支付
+                        const orderStatus = order.status;
+                        const needsPayment = orderStatus === 1 || orderStatus === '1';
+                        
+                        // 获取用户选择的支付方式（从表单或订单中获取）
+                        let selectedPaymentMethod = document.getElementById('paymentMethod')?.value;
+                        if (!selectedPaymentMethod) {
+                            // 如果表单中没有，尝试从订单中获取
+                            selectedPaymentMethod = order.paymentMethod || 'CREDIT_CARD';
+                        }
+                        
+                        // 检查是否有支付信息
+                        const payment = responseData.payment;
+                        const clientSecret = responseData.clientSecret;
+                        const paymentIntentId = responseData.paymentIntentId;
+                        const paymentUrl = responseData.paymentUrl;
+                        
+                        // 如果有支付信息，或者订单状态是需要支付，跳转到支付页面
+                        if (payment || clientSecret || paymentIntentId || paymentUrl || needsPayment) {
+                            // 判断支付方式：优先使用返回的支付方式，否则使用用户选择的支付方式
+                            let paymentMethod = payment?.paymentMethod || 
+                                                 (clientSecret ? 'CREDIT_CARD' : null) ||
+                                                 (paymentIntentId ? 'CREDIT_CARD' : null) ||
+                                                 (paymentUrl ? 'ALIPAY' : null) ||
+                                                 selectedPaymentMethod; // 使用用户选择的支付方式
+                            
+                            // 确保支付方式是大写
+                            if (paymentMethod) {
+                                paymentMethod = paymentMethod.toUpperCase();
+                            }
+                            
+                            console.log('跳转支付页面，支付方式:', paymentMethod, '订单ID:', orderId);
+                            
+                            if (paymentMethod === 'CREDIT_CARD' || paymentMethod === 'CARD' || paymentMethod === 'STRIPE') {
+                                // 信用卡支付，跳转到信用卡支付页面
+                                console.log('跳转到信用卡支付页面');
+                                window.location.href = `credit-card-payment.html?orderId=${orderId}`;
+                            } else if (paymentMethod === 'ALIPAY') {
+                                // 支付宝支付，跳转到支付宝支付页面
+                                console.log('跳转到支付宝支付页面');
+                                window.location.href = `payment.html?orderId=${orderId}`;
+                            } else {
+                                // 其他支付方式，也跳转到支付页面
+                                console.log('跳转到默认支付页面');
+                                window.location.href = `payment.html?orderId=${orderId}`;
+                            }
+                        } else {
+                            // 不需要在线支付（货到付款），跳转到订单详情页
+                            window.location.href = `orders.html?merchantId=${merchantId}&orderId=${orderId}`;
+                        }
+                    } else {
+                        showAlert('error', '订单创建成功，但无法获取订单ID');
+                    }
+                } else {
+                    showAlert('error', '订单创建失败：' + (result.message || '未知错误'));
+                }
+            } catch (error) {
+                showAlert('error', '订单创建失败：' + error.message);
+            }
+        }
+        
+        // 显示提示信息
+        function showAlert(type, message) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+            alertContainer.innerHTML = `<div class="alert ${alertClass}" style="display: block;">${message}</div>`;
+            
+            setTimeout(() => {
+                alertContainer.innerHTML = '';
+            }, 5000);
+        }
+    </script>
+</body>
+</html>
+

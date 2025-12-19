@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.MerchantStripeConfigMapper">
+    
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.MerchantStripeConfig">
+        <id column="id" property="id"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="stripe_account_id" property="stripeAccountId"/>
+        <result column="enabled" property="enabled"/>
+        <result column="currency" property="currency"/>
+        <result column="application_fee_percentage" property="applicationFeePercentage"/>
+        <result column="application_fee_fixed" property="applicationFeeFixed"/>
+        <result column="amex_application_fee_percentage" property="amexApplicationFeePercentage"/>
+        <result column="amex_application_fee_fixed" property="amexApplicationFeeFixed"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+    
+    <select id="selectByMerchantId" resultMap="BaseResultMap">
+        SELECT * FROM merchant_stripe_config
+        WHERE merchant_id = #{merchantId}
+        LIMIT 1
+    </select>
+    
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO merchant_stripe_config (
+            merchant_id, stripe_account_id, enabled, currency,
+            application_fee_percentage, application_fee_fixed,
+            amex_application_fee_percentage, amex_application_fee_fixed,
+            create_time, update_time
+        ) VALUES (
+            #{merchantId}, #{stripeAccountId}, #{enabled}, #{currency},
+            #{applicationFeePercentage}, #{applicationFeeFixed},
+            #{amexApplicationFeePercentage}, #{amexApplicationFeeFixed},
+            #{createTime}, #{updateTime}
+        )
+    </insert>
+    
+    <update id="update">
+        UPDATE merchant_stripe_config
+        SET stripe_account_id = #{stripeAccountId},
+            enabled = #{enabled},
+            currency = #{currency},
+            application_fee_percentage = #{applicationFeePercentage},
+            application_fee_fixed = #{applicationFeeFixed},
+            amex_application_fee_percentage = #{amexApplicationFeePercentage},
+            amex_application_fee_fixed = #{amexApplicationFeeFixed},
+            update_time = #{updateTime}
+        WHERE merchant_id = #{merchantId}
+    </update>
+    
+    <delete id="deleteByMerchantId">
+        DELETE FROM merchant_stripe_config
+        WHERE merchant_id = #{merchantId}
+    </delete>
+    
+</mapper>
+

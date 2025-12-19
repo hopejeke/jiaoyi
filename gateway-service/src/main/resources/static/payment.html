@@ -126,6 +126,14 @@
     <div id="orderResult" class="result" style="display: none;">
         <h3>订单创建结果</h3>
         <div id="orderInfo"></div>
+        <div style="margin-top: 15px;">
+            <label style="display: block; margin-bottom: 5px; font-weight: bold;">支付方式：</label>
+            <select id="paymentMethodSelect" style="width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; margin-bottom: 10px;">
+                <option value="CREDIT_CARD">💳 信用卡支付</option>
+                <option value="ALIPAY">💰 支付宝</option>
+                <option value="WECHAT_PAY">💚 微信支付</option>
+            </select>
+        </div>
         <button onclick="payOrder()" id="payButton" style="display: none;">支付订单</button>
     </div>
     
@@ -170,8 +178,15 @@
         let currentOrder = null;
         
         // 页面加载时解析URL参数并填充表单
-        document.addEventListener('DOMContentLoaded', function() {
+        document.addEventListener('DOMContentLoaded', async function() {
             const urlParams = new URLSearchParams(window.location.search);
+            
+            // 如果URL中有orderId，说明是支付已有订单，直接加载订单信息
+            if (urlParams.has('orderId')) {
+                const orderId = urlParams.get('orderId');
+                await loadOrderForPayment(orderId);
+                return;
+            }
             
             // 如果URL中有商品参数，自动填充表单
             if (urlParams.has('productId')) {
@@ -192,6 +207,56 @@
                 showProductPreview(urlParams);
             }
         });
+        
+        // 加载已有订单用于支付
+        async function loadOrderForPayment(orderId) {
+            try {
+                // 隐藏创建订单表单，显示加载提示
+                document.getElementById('orderForm').style.display = 'none';
+                document.getElementById('orderResult').style.display = 'block';
+                document.getElementById('orderInfo').innerHTML = '<p>正在加载订单信息...</p>';
+                
+                // 获取订单信息
+                const response = await fetch(`/api/orders/${orderId}`);
+                const result = await response.json();
+                
+                if (result.code === 200 && result.data) {
+                    const order = result.data;
+                    currentOrder = order;
+                    
+                    // 检查订单的支付方式，如果是信用卡支付，跳转到信用卡支付页面
+                    const orderPaymentMethod = order.paymentMethod;
+                    if (orderPaymentMethod === 'CREDIT_CARD' || orderPaymentMethod === 'CARD' || orderPaymentMethod === 'STRIPE') {
+                        // 跳转到信用卡支付页面
+                        window.location.href = `credit-card-payment.html?orderId=${orderId}`;
+                        return;
+                    }
+                    
+                    // 显示订单信息并显示支付按钮
+                    showOrderResult(order);
+                    
+                    // 设置支付方式选择器的默认值（根据订单的支付方式）
+                    const paymentMethodSelect = document.getElementById('paymentMethodSelect');
+                    if (paymentMethodSelect) {
+                        // 如果订单是信用卡支付，直接跳转
+                        if (orderPaymentMethod === 'CREDIT_CARD' || orderPaymentMethod === 'CARD' || orderPaymentMethod === 'STRIPE') {
+                            console.log('订单支付方式为信用卡，跳转到信用卡支付页面');
+                            window.location.href = `credit-card-payment.html?orderId=${orderId}`;
+                            return;
+                        }
+                        // 否则设置选择器的值为订单的支付方式
+                        paymentMethodSelect.value = orderPaymentMethod || 'ALIPAY';
+                    }
+                    
+                    // 自动显示支付按钮区域
+                    document.getElementById('payButton').style.display = 'inline-block';
+                } else {
+                    showError('加载订单失败: ' + (result.message || '未知错误'));
+                }
+            } catch (error) {
+                showError('加载订单失败: ' + error.message);
+            }
+        }
         
         // 显示商品预览
         function showProductPreview(params) {
@@ -226,7 +291,7 @@
             const couponCode = document.getElementById('couponCode').value.trim();
             
             const orderData = {
-                userId: parseInt(document.getElementById('userId').value),
+                userId: document.getElementById('userId').value, // 保持字符串类型，后端会自动转换
                 receiverName: document.getElementById('receiverName').value,
                 receiverPhone: document.getElementById('receiverPhone').value,
                 receiverAddress: document.getElementById('receiverAddress').value,
@@ -234,7 +299,7 @@
                 couponCode: couponCode || null,
                 orderItems: [
                     {
-                        productId: parseInt(document.getElementById('productId').value),
+                        productId: document.getElementById('productId').value, // 保持字符串类型，避免精度丢失
                         productName: document.getElementById('productName').value,
                         productImage: "https://example.com/shoe.jpg",
                         unitPrice: parseFloat(document.getElementById('unitPrice').value),
@@ -255,8 +320,10 @@
                 const result = await response.json();
                 
                 if (result.code === 200) {
-                    currentOrder = result.data;
-                    showOrderResult(result.data);
+                    // 后端返回的是 CreateOrderResponse，包含 order 字段
+                    const order = result.data.order || result.data; // 兼容新旧格式
+                    currentOrder = order;
+                    showOrderResult(order);
                 } else {
                     showError('订单创建失败: ' + result.message);
                 }
@@ -288,30 +355,85 @@
                 console.log('Recreated elements - orderInfo:', orderInfo, 'payButton:', payButton);
             }
             
+            // 解析订单价格（从 orderPrice JSON 中）
+            let totalAmount = 0;
+            let subtotal = 0;
+            let discount = 0;
+            if (order.orderPrice) {
+                try {
+                    const orderPrice = typeof order.orderPrice === 'string' 
+                        ? JSON.parse(order.orderPrice) 
+                        : order.orderPrice;
+                    totalAmount = orderPrice.total || 0;
+                    subtotal = orderPrice.subtotal || 0;
+                    discount = orderPrice.discount || 0;
+                } catch (e) {
+                    console.error('解析订单价格失败:', e);
+                    // 如果解析失败，尝试使用其他字段
+                    totalAmount = order.totalAmount || order.actualAmount || 0;
+                }
+            } else {
+                totalAmount = order.totalAmount || order.actualAmount || 0;
+            }
+            
+            // 解析客户信息（从 customerInfo JSON 中）
+            let receiverName = order.receiverName;
+            let receiverPhone = order.receiverPhone;
+            let receiverAddress = order.receiverAddress;
+            if (order.customerInfo) {
+                try {
+                    const customerInfo = typeof order.customerInfo === 'string' 
+                        ? JSON.parse(order.customerInfo) 
+                        : order.customerInfo;
+                    receiverName = receiverName || customerInfo.name;
+                    receiverPhone = receiverPhone || customerInfo.phone;
+                    receiverAddress = receiverAddress || customerInfo.address;
+                } catch (e) {
+                    console.error('解析客户信息失败:', e);
+                }
+            }
+            
             // 构建优惠券信息显示
             let couponInfo = '';
             if (order.couponCode) {
                 couponInfo = `
                     <p><strong>优惠券代码:</strong> ${order.couponCode}</p>
-                    <p><strong>优惠金额:</strong> ${order.discountAmount || 0}元</p>
-                    <p><strong>实际支付:</strong> ${order.actualAmount || order.totalAmount}元</p>
+                    <p><strong>优惠金额:</strong> ${discount}元</p>
+                    <p><strong>实际支付:</strong> ${totalAmount}元</p>
                 `;
             }
             
             orderInfo.innerHTML = `
                 <p><strong>订单ID:</strong> ${order.id}</p>
-                <p><strong>订单号:</strong> ${order.orderNo}</p>
-                <p><strong>总金额:</strong> ${order.totalAmount}元</p>
+                <p><strong>订单号:</strong> ${order.orderNumber || order.orderNo || order.id}</p>
+                <p><strong>小计:</strong> ${subtotal}元</p>
+                ${discount > 0 ? `<p><strong>优惠:</strong> -${discount}元</p>` : ''}
+                <p><strong>总金额:</strong> ${totalAmount}元</p>
                 ${couponInfo}
-                <p><strong>状态:</strong> ${order.status}</p>
-                <p><strong>收货人:</strong> ${order.receiverName}</p>
-                <p><strong>收货电话:</strong> ${order.receiverPhone}</p>
-                <p><strong>收货地址:</strong> ${order.receiverAddress}</p>
+                <p><strong>状态:</strong> ${getOrderStatusText(order.status)}</p>
+                <p><strong>收货人:</strong> ${receiverName || '未填写'}</p>
+                <p><strong>收货电话:</strong> ${receiverPhone || '未填写'}</p>
+                <p><strong>收货地址:</strong> ${receiverAddress || '未填写'}</p>
             `;
             
             orderResult.style.display = 'block';
             orderResult.className = 'result success';
             payButton.style.display = 'inline-block';
+        }
+        
+        function getOrderStatusText(status) {
+            const statusMap = {
+                1: '已下单',
+                2: '已支付',
+                3: '制作中',
+                4: '已完成',
+                5: '已取消',
+                6: '已退款',
+                7: '支付失败',
+                8: '配送中',
+                9: '待接单'
+            };
+            return statusMap[status] || status || '未知';
         }
         
         // 防抖标志
@@ -331,17 +453,49 @@
             
             isProcessing = true;
             
+            // 解析订单价格
+            let totalAmount = 0;
+            if (currentOrder.orderPrice) {
+                try {
+                    const orderPrice = typeof currentOrder.orderPrice === 'string' 
+                        ? JSON.parse(currentOrder.orderPrice) 
+                        : currentOrder.orderPrice;
+                    totalAmount = orderPrice.total || 0;
+                } catch (e) {
+                    console.error('解析订单价格失败:', e);
+                    totalAmount = currentOrder.totalAmount || currentOrder.actualAmount || 0;
+                }
+            } else {
+                totalAmount = currentOrder.totalAmount || currentOrder.actualAmount || 0;
+            }
+            
+            // 获取用户选择的支付方式（如果有选择器）或使用订单的支付方式
+            let paymentMethod = "ALIPAY";
+            const paymentMethodSelect = document.getElementById('paymentMethodSelect');
+            if (paymentMethodSelect) {
+                paymentMethod = paymentMethodSelect.value || currentOrder.paymentMethod || "ALIPAY";
+            } else {
+                paymentMethod = currentOrder.paymentMethod || "ALIPAY";
+            }
+            
+            // 如果是信用卡支付，跳转到信用卡支付页面
+            if (paymentMethod === 'CREDIT_CARD' || paymentMethod === 'CARD' || paymentMethod === 'STRIPE') {
+                console.log('用户选择信用卡支付，跳转到信用卡支付页面');
+                window.location.href = `credit-card-payment.html?orderId=${currentOrder.id}`;
+                return;
+            }
+            
             const paymentData = {
-                paymentMethod: "ALIPAY",
-                amount: currentOrder.actualAmount || currentOrder.totalAmount,
+                paymentMethod: paymentMethod,
+                amount: totalAmount,
                 channel: "WEB",
                 clientIp: "192.168.1.100",
                 userAgent: navigator.userAgent,
-                remark: "支付宝支付" + (currentOrder.couponCode ? ` (使用优惠券: ${currentOrder.couponCode})` : "")
+                remark: (paymentMethod === 'CREDIT_CARD' ? '信用卡支付' : paymentMethod === 'WECHAT_PAY' ? '微信支付' : '支付宝支付') + (currentOrder.couponCode ? ` (使用优惠券: ${currentOrder.couponCode})` : "")
             };
             
             try {
-                const response = await fetch(`/api/orders/${currentOrder.id}/pay`, {
+                const response = await fetch(`/api/payment/pay/${currentOrder.id}`, {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -401,15 +555,15 @@
                                     <li>完成支付</li>
                                 </ol>
                                 <div style="margin-top: 20px;">
-                                    <button onclick="checkPaymentStatus('${currentOrder.orderNo}')" 
+                                    <button onclick="checkPaymentStatus('${currentOrder.orderNumber || currentOrder.orderNo || currentOrder.id}')" 
                                             style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
                                         检查支付状态
                                     </button>
-                                    <button onclick="simulatePaymentSuccess('${currentOrder.orderNo}', '${payment.paymentNo}', '${payment.amount}')" 
+                                    <button onclick="simulatePaymentSuccess('${currentOrder.orderNumber || currentOrder.orderNo || currentOrder.id}', '${payment.paymentNo}', '${payment.amount}')" 
                                             style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">
                                         模拟支付成功
                                     </button>
-                                    <button onclick="simulatePaymentFail('${currentOrder.orderNo}', '${payment.paymentNo}', '${payment.amount}')" 
+                                    <button onclick="simulatePaymentFail('${currentOrder.orderNumber || currentOrder.orderNo || currentOrder.id}', '${payment.paymentNo}', '${payment.amount}')" 
                                             style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">
                                         模拟支付失败
                                     </button>
@@ -423,7 +577,7 @@
                 generateQRCode(payment.payUrl);
                 
                 // 开始轮询支付状态
-                startPaymentStatusPolling(currentOrder.orderNo);
+                startPaymentStatusPolling(currentOrder.orderNumber || currentOrder.orderNo || currentOrder.id);
                 
             } else {
                 // 没有支付链接，显示错误信息
@@ -476,17 +630,24 @@
         }
         
         // 检查支付状态
-        async function checkPaymentStatus(paymentNo) {
+        async function checkPaymentStatus(orderNo) {
             try {
-                const response = await fetch(`/api/payment/query/${paymentNo}`);
+                if (!currentOrder || !currentOrder.id) {
+                    alert('❌ 无法获取订单信息');
+                    return;
+                }
+                
+                // 查询订单状态
+                const response = await fetch(`/api/orders/${currentOrder.id}`);
                 const result = await response.json();
                 
                 if (result.code === 200) {
-                    const status = result.data.status;
-                    if (status === 'SUCCESS') {
+                    const order = result.data;
+                    // 订单状态：2 = 已支付
+                    if (order.status === 2) {
                         showPaymentSuccessDialog();
-                    } else if (status === 'FAILED') {
-                        alert('❌ 支付失败，请重试。');
+                    } else if (order.status === 5) {
+                        alert('❌ 订单已取消。');
                     } else {
                         alert('⏳ 支付处理中，请稍候...');
                     }
@@ -501,7 +662,7 @@
         // 显示支付成功对话框
         function showPaymentSuccessDialog() {
             if (currentOrder) {
-                document.getElementById('successOrderNo').textContent = currentOrder.orderNo;
+                document.getElementById('successOrderNo').textContent = currentOrder.orderNumber || currentOrder.orderNo || currentOrder.id;
                 document.getElementById('paymentSuccessModal').style.display = 'block';
             } else {
                 alert('✅ 支付成功！订单已处理完成。');
@@ -519,7 +680,9 @@
         // 跳转到订单详情页
         function goToOrderDetail() {
             if (currentOrder) {
-                window.location.href = `order-detail.html?orderId=${currentOrder.id}`;
+                // 确保orderId作为字符串传递，避免JavaScript大整数精度丢失
+                const orderIdStr = String(currentOrder.id);
+                window.location.href = `order-detail.html?orderId=${orderIdStr}`;
             } else {
                 window.location.href = 'order-detail.html';
             }
@@ -600,20 +763,28 @@
         let pollingInterval = null;
         
         function startPaymentStatusPolling(orderNo) {
-            // 每5秒检查一次支付状态
+            // 每5秒检查一次支付状态（通过订单ID查询订单状态）
             pollingInterval = setInterval(async () => {
                 try {
-                    const response = await fetch(`/api/payment/query/${orderNo}`);
+                    if (!currentOrder || !currentOrder.id) {
+                        clearInterval(pollingInterval);
+                        return;
+                    }
+                    
+                    // 查询订单状态
+                    const response = await fetch(`/api/orders/${currentOrder.id}`);
                     const result = await response.json();
                     
                     if (result.code === 200) {
-                        const status = result.data.status;
-                        if (status === 'SUCCESS') {
+                        const order = result.data;
+                        // 订单状态：2 = 已支付
+                        if (order.status === 2) {
                             clearInterval(pollingInterval);
                             showPaymentSuccessDialog();
-                        } else if (status === 'FAILED') {
+                        } else if (order.status === 5) {
+                            // 订单已取消
                             clearInterval(pollingInterval);
-                            alert('❌ 支付失败，请重试。');
+                            alert('❌ 订单已取消。');
                         }
                     }
                 } catch (error) {

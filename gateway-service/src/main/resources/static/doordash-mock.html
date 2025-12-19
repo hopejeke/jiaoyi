@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DoorDash Mock 回调测试</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.1);
+            padding: 30px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        h1::before {
+            content: "🚚";
+            font-size: 32px;
+        }
+        
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 8px;
+            color: #333;
+            font-weight: 500;
+            font-size: 14px;
+        }
+        
+        input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 16px;
+            transition: border-color 0.3s;
+        }
+        
+        input[type="number"]:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .event-buttons {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 20px;
+        }
+        
+        .event-btn {
+            padding: 15px 20px;
+            border: none;
+            border-radius: 8px;
+            font-size: 15px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            color: white;
+        }
+        
+        .event-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.2);
+        }
+        
+        .event-btn:active {
+            transform: translateY(0);
+        }
+        
+        .event-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-picked-up {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        }
+        
+        .btn-delivered {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .btn-assigned {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .btn-cancelled {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+        }
+        
+        .result-area {
+            margin-top: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #667eea;
+        }
+        
+        .result-title {
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            font-size: 16px;
+        }
+        
+        .result-content {
+            background: white;
+            padding: 15px;
+            border-radius: 6px;
+            font-family: 'Courier New', monospace;
+            font-size: 13px;
+            color: #333;
+            white-space: pre-wrap;
+            word-break: break-all;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        
+        .success {
+            border-left-color: #28a745;
+        }
+        
+        .error {
+            border-left-color: #dc3545;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .status-info {
+            margin-top: 20px;
+            padding: 15px;
+            background: #e7f3ff;
+            border-radius: 8px;
+            border-left: 4px solid #2196F3;
+        }
+        
+        .status-info h3 {
+            color: #1976D2;
+            margin-bottom: 10px;
+            font-size: 14px;
+        }
+        
+        .status-info p {
+            color: #666;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            margin-left: 8px;
+        }
+        
+        .badge-pending { background: #fff3cd; color: #856404; }
+        .badge-paid { background: #d4edda; color: #155724; }
+        .badge-preparing { background: #cfe2ff; color: #084298; }
+        .badge-delivering { background: #d1ecf1; color: #0c5460; }
+        .badge-completed { background: #d4edda; color: #155724; }
+        .badge-cancelled { background: #f8d7da; color: #721c24; }
+        .badge-waiting { background: #fff3cd; color: #856404; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>DoorDash Mock 回调测试</h1>
+        <p class="subtitle">模拟 DoorDash 配送状态回调，测试订单状态更新</p>
+        
+        <div class="form-group">
+            <label for="orderId">订单ID</label>
+            <input type="number" id="orderId" placeholder="请输入订单ID" required>
+        </div>
+        
+        <div class="status-info">
+            <h3>📋 状态说明</h3>
+            <p>
+                <strong>骑手已取货 (delivery.picked_up)</strong>：订单状态变为 <span class="status-badge badge-delivering">配送中</span><br>
+                <strong>已送达 (delivery.delivered)</strong>：订单状态变为 <span class="status-badge badge-completed">已完成</span><br>
+                <strong>骑手接单 (delivery.assigned)</strong>：订单状态变为 <span class="status-badge badge-preparing">制作中</span><br>
+                <strong>配送取消 (delivery.cancelled)</strong>：订单状态变为 <span class="status-badge badge-cancelled">已取消</span>
+            </p>
+        </div>
+        
+        <div class="event-buttons">
+            <button class="event-btn btn-assigned" onclick="triggerEvent('delivery.assigned')">
+                <span>👤</span>
+                <span>骑手接单</span>
+            </button>
+            <button class="event-btn btn-picked-up" onclick="triggerEvent('delivery.picked_up')">
+                <span>📦</span>
+                <span>骑手已取货</span>
+            </button>
+            <button class="event-btn btn-delivered" onclick="triggerEvent('delivery.delivered')">
+                <span>✅</span>
+                <span>已送达</span>
+            </button>
+            <button class="event-btn btn-cancelled" onclick="triggerEvent('delivery.cancelled')">
+                <span>❌</span>
+                <span>配送取消</span>
+            </button>
+        </div>
+        
+        <div id="resultArea" class="result-area" style="display: none;">
+            <div class="result-title" id="resultTitle">处理结果</div>
+            <div class="result-content" id="resultContent"></div>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE_URL = window.location.origin;
+        
+        async function triggerEvent(eventType) {
+            const orderId = document.getElementById('orderId').value;
+            
+            if (!orderId) {
+                showResult('error', '请输入订单ID');
+                return;
+            }
+            
+            // 禁用所有按钮
+            const buttons = document.querySelectorAll('.event-btn');
+            buttons.forEach(btn => btn.disabled = true);
+            
+            // 显示加载状态
+            const clickedBtn = event.target.closest('.event-btn');
+            const originalText = clickedBtn.innerHTML;
+            clickedBtn.innerHTML = '<span class="loading"></span> 处理中...';
+            
+            try {
+                const response = await fetch(`${API_BASE_URL}/api/doordash/webhook/mock?orderId=${orderId}&eventType=${eventType}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    const statusMap = {
+                        1: '已下单',
+                        2: '已支付',
+                        3: '制作中',
+                        4: '已完成',
+                        5: '已取消',
+                        6: '已退款',
+                        7: '支付失败',
+                        8: '配送中',
+                        9: '待接单'
+                    };
+                    
+                    const statusBefore = statusMap[data.orderStatusBefore] || `状态${data.orderStatusBefore}`;
+                    const statusAfter = statusMap[data.orderStatusAfter] || `状态${data.orderStatusAfter}`;
+                    
+                    const resultText = `✅ 处理成功！
+
+订单ID: ${data.orderId}
+事件类型: ${eventType}
+Delivery ID: ${data.deliveryId || 'N/A'}
+
+状态变更:
+  ${statusBefore} → ${statusAfter}
+
+详细信息:
+${JSON.stringify(data, null, 2)}`;
+                    
+                    showResult('success', resultText);
+                } else {
+                    showResult('error', `❌ 处理失败: ${data.message || '未知错误'}\n\n${JSON.stringify(data, null, 2)}`);
+                }
+            } catch (error) {
+                showResult('error', `❌ 请求失败: ${error.message}\n\n${error.stack}`);
+            } finally {
+                // 恢复按钮状态
+                buttons.forEach(btn => btn.disabled = false);
+                clickedBtn.innerHTML = originalText;
+            }
+        }
+        
+        function showResult(type, content) {
+            const resultArea = document.getElementById('resultArea');
+            const resultTitle = document.getElementById('resultTitle');
+            const resultContent = document.getElementById('resultContent');
+            
+            resultArea.className = `result-area ${type}`;
+            resultTitle.textContent = type === 'success' ? '✅ 处理成功' : '❌ 处理失败';
+            resultContent.textContent = content;
+            resultArea.style.display = 'block';
+            
+            // 滚动到结果区域
+            resultArea.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        
+        // 回车键触发
+        document.getElementById('orderId').addEventListener('keypress', function(e) {
+            if (e.key === 'Enter') {
+                triggerEvent('delivery.picked_up');
+            }
+        });
+    </script>
+</body>
+</html>
+

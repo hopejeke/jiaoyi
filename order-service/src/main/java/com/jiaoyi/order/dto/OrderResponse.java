@@ -2,7 +2,6 @@ package com.jiaoyi.order.dto;
 
 import com.jiaoyi.order.entity.Order;
 import com.jiaoyi.order.entity.OrderItem;
-import com.jiaoyi.order.entity.OrderStatus;
 import com.jiaoyi.order.entity.OrderCoupon;
 import lombok.Data;
 import lombok.NoArgsConstructor;
@@ -22,45 +21,28 @@ import java.util.stream.Collectors;
 public class OrderResponse {
     
     private Long id;
-    private String orderNo;
+    private String merchantId;
     private Long userId;
-    private OrderStatus status;
-    private BigDecimal totalAmount;
-    private BigDecimal totalDiscountAmount;
-    private List<OrderCouponResponse> orderCoupons;
-    private BigDecimal actualAmount;
-    private String receiverName;
-    private String receiverPhone;
-    private String receiverAddress;
-    private String remark;
+    private Integer status; // 在线点餐订单状态：1=已下单，2=已支付，3=制作中，4=已完成，5=已取消
+    private String orderType; // 订单类型：PICKUP/DELIVERY/SELF_DINE_IN
+    private String orderPrice; // 订单价格JSON字符串
+    private String notes; // 备注
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
     private List<OrderItemResponse> orderItems;
     
     /**
-     * 从Order实体转换为OrderResponse
+     * 从Order实体转换为OrderResponse（在线点餐）
      */
     public static OrderResponse fromOrder(Order order) {
         OrderResponse response = new OrderResponse();
         response.setId(order.getId());
-        response.setOrderNo(order.getOrderNo());
+        response.setMerchantId(order.getMerchantId());
         response.setUserId(order.getUserId());
-        response.setStatus(order.getStatus());
-        response.setTotalAmount(order.getTotalAmount());
-        response.setTotalDiscountAmount(order.getTotalDiscountAmount());
-        
-        if (order.getOrderCoupons() != null) {
-            response.setOrderCoupons(
-                order.getOrderCoupons().stream()
-                    .map(OrderCouponResponse::fromOrderCoupon)
-                    .collect(Collectors.toList())
-            );
-        }
-        response.setActualAmount(order.getActualAmount());
-        response.setReceiverName(order.getReceiverName());
-        response.setReceiverPhone(order.getReceiverPhone());
-        response.setReceiverAddress(order.getReceiverAddress());
-        response.setRemark(order.getRemark());
+        response.setStatus(order.getStatus()); // Integer 类型
+        response.setOrderType(order.getOrderType());
+        response.setOrderPrice(order.getOrderPrice());
+        response.setNotes(order.getNotes());
         response.setCreateTime(order.getCreateTime());
         response.setUpdateTime(order.getUpdateTime());
         
@@ -76,7 +58,7 @@ public class OrderResponse {
     }
     
     /**
-     * 订单项响应DTO
+     * 订单项响应DTO（在线点餐）
      */
     @Data
     @NoArgsConstructor
@@ -84,11 +66,11 @@ public class OrderResponse {
     public static class OrderItemResponse {
         private Long id;
         private Long productId;
-        private String productName;
+        private String itemName; // 在线点餐使用 itemName
         private String productImage;
-        private BigDecimal unitPrice;
+        private BigDecimal itemPrice; // 在线点餐使用 itemPrice
         private Integer quantity;
-        private BigDecimal subtotal;
+        private BigDecimal itemPriceTotal; // 在线点餐使用 itemPriceTotal
         
         /**
          * 从OrderItem实体转换为OrderItemResponse
@@ -97,11 +79,11 @@ public class OrderResponse {
             OrderItemResponse response = new OrderItemResponse();
             response.setId(orderItem.getId());
             response.setProductId(orderItem.getProductId());
-            response.setProductName(orderItem.getProductName());
+            response.setItemName(orderItem.getItemName());
             response.setProductImage(orderItem.getProductImage());
-            response.setUnitPrice(orderItem.getUnitPrice());
+            response.setItemPrice(orderItem.getItemPrice());
             response.setQuantity(orderItem.getQuantity());
-            response.setSubtotal(orderItem.getSubtotal());
+            response.setItemPriceTotal(orderItem.getItemPriceTotal());
             return response;
         }
     }

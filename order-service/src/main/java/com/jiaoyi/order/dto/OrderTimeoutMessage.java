@@ -22,11 +22,6 @@ public class OrderTimeoutMessage implements Serializable {
     private Long orderId;
     
     /**
-     * 订单号
-     */
-    private String orderNo;
-    
-    /**
      * 用户ID
      */
     private Long userId;
@@ -46,9 +41,8 @@ public class OrderTimeoutMessage implements Serializable {
      */
     private Long messageCreateTime;
     
-    public OrderTimeoutMessage(Long orderId, String orderNo, Long userId) {
+    public OrderTimeoutMessage(Long orderId, Long userId) {
         this.orderId = orderId;
-        this.orderNo = orderNo;
         this.userId = userId;
         this.messageCreateTime = System.currentTimeMillis();
     }

@@ -52,7 +52,7 @@ public class InventoryService {
         inventory.setCurrentStock(0); // 默认库存为0
         inventory.setLockedStock(0);
         inventory.setMinStock(0); // 默认最低库存预警线为0
-        inventory.setMaxStock(null); // 最大库存容量不限制
+        inventory.setMaxStock(999999); // 最大库存容量，999999表示不限制
         
         inventoryMapper.insert(inventory);
         log.info("库存记录创建成功（商品级别），库存ID: {}, 店铺ID: {}, 商品ID: {}", inventory.getId(), storeId, productId);
@@ -87,7 +87,7 @@ public class InventoryService {
         inventory.setCurrentStock(0); // 默认库存为0
         inventory.setLockedStock(0);
         inventory.setMinStock(0); // 默认最低库存预警线为0
-        inventory.setMaxStock(null); // 最大库存容量不限制
+        inventory.setMaxStock(999999); // 最大库存容量，999999表示不限制
         
         inventoryMapper.insert(inventory);
         log.info("SKU库存记录创建成功，库存ID: {}, 店铺ID: {}, 商品ID: {}, SKU ID: {}", inventory.getId(), storeId, productId, skuId);

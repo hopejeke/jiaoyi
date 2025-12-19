@@ -690,7 +690,7 @@
             alertDiv.innerHTML = '<div class="alert">正在提交订单...</div>';
             
             const orderData = {
-                userId: parseInt(document.getElementById('userId').value),
+                userId: document.getElementById('userId').value, // 保持字符串类型，后端会自动转换
                 receiverName: document.getElementById('receiverName').value,
                 receiverPhone: document.getElementById('receiverPhone').value,
                 receiverAddress: document.getElementById('receiverAddress').value,
@@ -719,12 +719,15 @@
                 const result = await response.json();
                 
                 if (result.code === 200) {
-                    alertDiv.innerHTML = '<div class="alert alert-success">订单创建成功！订单号：' + result.data.orderNo + '</div>';
+                    // 后端返回的是 CreateOrderResponse，包含 order 字段
+                    const order = result.data.order || result.data; // 兼容新旧格式
+                    const orderNo = order.orderNo || order.id || 'N/A';
+                    alertDiv.innerHTML = '<div class="alert alert-success">订单创建成功！订单号：' + orderNo + '</div>';
                     cart = [];
                     updateCart();
                     closeCheckoutModal();
                     setTimeout(() => {
-                        alert('订单创建成功！订单号：' + result.data.orderNo);
+                        alert('订单创建成功！订单号：' + orderNo);
                     }, 500);
                 } else {
                     alertDiv.innerHTML = '<div class="alert alert-error">订单创建失败：' + (result.message || '未知错误') + '</div>';

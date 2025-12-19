@@ -2,6 +2,7 @@ package com.jiaoyi.product.service;
 
 import com.jiaoyi.product.config.RocketMQConfig;
 import com.jiaoyi.product.dto.StoreProductCacheUpdateMessage;
+import com.jiaoyi.product.entity.Merchant;
 import com.jiaoyi.product.entity.StoreProduct;
 import com.jiaoyi.product.mapper.sharding.StoreProductMapper;
 import com.jiaoyi.product.mapper.primary.StoreMapper;
@@ -26,6 +27,7 @@ public class StoreProductService {
     private final StoreProductCacheService storeProductCacheService;
     private final OutboxService outboxService;
     private final StoreMapper storeMapper;
+    private final MerchantService merchantService;
 
     /**
      * 为店铺创建商品（使用Outbox模式）
@@ -50,11 +52,50 @@ public class StoreProductService {
         String productName = storeProduct.getProductName();
 
         try {
-            // 检查同一店铺中是否已存在同名商品
+            // 检查同一店铺中是否已存在同名商品（未删除的）
+            log.debug("检查重复商品，店铺ID: {}, 商品名称: {}", storeId, productName);
             Optional<StoreProduct> existing = storeProductMapper.selectByStoreIdAndProductName(storeId, productName);
             if (existing.isPresent()) {
-                log.warn("店铺中已存在同名商品，店铺ID: {}, 商品名称: {}", storeId, productName);
+                log.warn("店铺中已存在同名商品，店铺ID: {}, 商品名称: {}, 商品ID: {}, is_delete: {}", 
+                    storeId, productName, existing.get().getId(), existing.get().getIsDelete());
                 throw new RuntimeException("该店铺中已存在同名商品，请使用更新方法或使用不同的商品名称");
+            }
+            
+            // 检查是否存在已删除的同名商品，如果存在则恢复它
+            Optional<StoreProduct> deletedProduct = storeProductMapper.selectByStoreIdAndProductNameIncludeDeleted(storeId, productName);
+            if (deletedProduct.isPresent() && deletedProduct.get().getIsDelete() != null && deletedProduct.get().getIsDelete()) {
+                log.info("发现已删除的同名商品，恢复并更新，店铺ID: {}, 商品名称: {}, 商品ID: {}", 
+                    storeId, productName, deletedProduct.get().getId());
+                
+                // 先恢复商品（is_delete = 0）
+                int restored = storeProductMapper.restoreById(deletedProduct.get().getId());
+                if (restored > 0) {
+                    // 重新查询恢复后的商品（获取新的 version）
+                    Optional<StoreProduct> restoredProduct = storeProductMapper.selectByStoreIdAndProductName(storeId, productName);
+                    if (restoredProduct.isPresent()) {
+                        StoreProduct existingProduct = restoredProduct.get();
+                        // 更新商品信息
+                        existingProduct.setDescription(storeProduct.getDescription());
+                        existingProduct.setUnitPrice(storeProduct.getUnitPrice());
+                        existingProduct.setProductImage(storeProduct.getProductImage());
+                        existingProduct.setCategory(storeProduct.getCategory());
+                        if (storeProduct.getStatus() != null) {
+                            existingProduct.setStatus(storeProduct.getStatus());
+                        }
+                        // 更新商品（使用乐观锁）
+                        int updated = storeProductMapper.update(existingProduct);
+                        if (updated > 0) {
+                            log.info("已恢复并更新商品，商品ID: {}", existingProduct.getId());
+                            // 重新查询获取最新数据
+                            return storeProductMapper.selectByStoreIdAndProductName(storeId, productName)
+                                    .orElse(existingProduct);
+                        } else {
+                            log.warn("更新恢复的商品失败，商品ID: {}", existingProduct.getId());
+                        }
+                    }
+                } else {
+                    log.warn("恢复商品失败，商品ID: {}", deletedProduct.get().getId());
+                }
             }
 
             storeProduct.setStoreId(storeId);
@@ -417,7 +458,13 @@ public class StoreProductService {
      */
     public List<StoreProduct> getStoreProductsFromDb(Long storeId) {
         log.info("B端商家查询店铺商品（直接读DB），店铺ID: {}", storeId);
-        return storeProductMapper.selectByStoreId(storeId);
+        List<StoreProduct> products = storeProductMapper.selectByStoreId(storeId);
+        log.info("查询结果：店铺ID: {}, 商品数量: {}", storeId, products != null ? products.size() : 0);
+        if (products != null && !products.isEmpty()) {
+            products.forEach(p -> log.debug("商品: ID={}, 名称={}, storeId={}, is_delete={}", 
+                p.getId(), p.getProductName(), p.getStoreId(), p.getIsDelete()));
+        }
+        return products;
     }
 
     /**
@@ -472,6 +519,16 @@ public class StoreProductService {
         log.info("B端商家查询店铺商品总数（直接读DB），店铺ID: {}", storeId);
         List<StoreProduct> products = storeProductMapper.selectByStoreId(storeId);
         return products.size();
+    }
+    
+    /**
+     * 通过商户ID获取店铺ID（storeId）
+     * Merchant.id 就是 storeId
+     */
+    public Long getStoreIdByMerchantId(String merchantId) {
+        return merchantService.getMerchantByMerchantId(merchantId)
+                .map(Merchant::getId)
+                .orElse(null);
     }
 }
 

@@ -48,6 +48,12 @@ public class PaymentRequest {
      * 备注
      */
     private String remark;
+    
+    /**
+     * 支付信息（JSON格式，包含支付方式相关参数）
+     * 例如：{"cardInfo": {"paymentMethodId": "pm_xxx", "saveCard": true}}
+     */
+    private String paymentInfo;
 }
 
 

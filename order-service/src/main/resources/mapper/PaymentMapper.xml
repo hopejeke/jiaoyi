@@ -1,0 +1,96 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.PaymentMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.Payment">
+        <id column="id" property="id"/>
+        <result column="order_id" property="orderId"/>
+        <result column="transaction_id" property="transactionId"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="status" property="status"/>
+        <result column="type" property="type"/>
+        <result column="category" property="category"/>
+        <result column="payment_service" property="paymentService"/>
+        <result column="payment_no" property="paymentNo"/>
+        <result column="third_party_trade_no" property="thirdPartyTradeNo"/>
+        <result column="amount" property="amount"/>
+        <result column="tip_amount" property="tipAmount"/>
+        <result column="order_price" property="orderPrice"/>
+        <result column="card_info" property="cardInfo"/>
+        <result column="extra" property="extra"/>
+        <result column="stripe_payment_intent_id" property="stripePaymentIntentId"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入支付记录 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.Payment" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO payments (
+            order_id, transaction_id, merchant_id, status, type, category, payment_service,
+            payment_no, third_party_trade_no, amount, tip_amount, order_price,
+            card_info, extra, stripe_payment_intent_id, version,
+            create_time, update_time
+        ) VALUES (
+            #{orderId}, #{transactionId}, #{merchantId}, #{status}, #{type}, #{category}, #{paymentService},
+            #{paymentNo}, #{thirdPartyTradeNo}, #{amount}, #{tipAmount}, #{orderPrice},
+            #{cardInfo}, #{extra}, #{stripePaymentIntentId}, #{version},
+            #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 根据ID查询支付记录 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM payments WHERE id = #{id}
+    </select>
+
+    <!-- 根据订单ID查询支付记录 -->
+    <select id="selectByOrderId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM payments WHERE order_id = #{orderId} ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据支付流水号查询支付记录 -->
+    <select id="selectByPaymentNo" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM payments WHERE payment_no = #{paymentNo}
+    </select>
+
+    <!-- 根据第三方交易号查询支付记录 -->
+    <select id="selectByThirdPartyTradeNo" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM payments WHERE third_party_trade_no = #{thirdPartyTradeNo}
+    </select>
+
+    <!-- 根据 Payment Intent ID 查询支付记录 -->
+    <select id="selectByPaymentIntentId" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM payments WHERE stripe_payment_intent_id = #{paymentIntentId}
+    </select>
+
+    <!-- 更新支付状态 -->
+    <update id="updateStatus">
+        UPDATE payments
+        SET status = #{status},
+            third_party_trade_no = #{thirdPartyTradeNo},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新支付状态（原子操作，只有状态为 PENDING 时才能更新） -->
+    <update id="updateStatusIfPending">
+        UPDATE payments
+        SET status = #{newStatus},
+            third_party_trade_no = #{thirdPartyTradeNo},
+            update_time = NOW()
+        WHERE id = #{id} AND status = #{oldStatus}
+    </update>
+
+    <!-- 更新 Payment Intent ID -->
+    <update id="updatePaymentIntentId">
+        UPDATE payments
+        SET stripe_payment_intent_id = #{paymentIntentId},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>
+
+

@@ -115,6 +115,12 @@ public class ShardingSphereConfig {
         shardingRuleConfig.getTables().add(createProductSkuTableRule());
         shardingRuleConfig.getTables().add(createInventoryTableRule());
         
+        // online-order-v2 相关分片表（订单相关已迁移到 order-service）
+        shardingRuleConfig.getTables().add(createMerchantsTableRule());
+        shardingRuleConfig.getTables().add(createStoreServicesTableRule());
+        shardingRuleConfig.getTables().add(createMenuItemsTableRule());
+        // 订单表已迁移到 order-service，不再在此配置
+        
         // 配置分片算法
         // 注意：使用 Groovy 表达式，确保整数除法
         // 数据库分片：store_id % 9 的结果除以 3，取整数部分
@@ -136,6 +142,14 @@ public class ShardingSphereConfig {
             createInlineAlgorithm("ds${(store_id % 9).intdiv(3)}"));
         shardingRuleConfig.getShardingAlgorithms().put("inventory_table_inline", 
             createInlineAlgorithm("inventory_${(store_id % 9) % 3}"));
+        
+        // online-order-v2 表分片算法（基于 merchant_id，使用字符串哈希）
+        // merchant_id 是字符串，使用自定义算法类进行分片
+        // 注意：INLINE 算法不支持字符串的 hashCode()，需要使用自定义算法
+        shardingRuleConfig.getShardingAlgorithms().put("merchants_database_hash", 
+            createClassBasedAlgorithm("com.jiaoyi.product.config.MerchantIdDatabaseShardingAlgorithm"));
+        shardingRuleConfig.getShardingAlgorithms().put("merchants_table_hash", 
+            createClassBasedAlgorithm("com.jiaoyi.product.config.MerchantIdTableShardingAlgorithm"));
         
         // 配置分布式主键生成策略（雪花算法）
         // 解决分库分表环境下主键重复的问题
@@ -194,6 +208,58 @@ public class ShardingSphereConfig {
         Properties props = new Properties();
         props.setProperty("algorithm-expression", algorithmExpression);
         return new AlgorithmConfiguration("INLINE", props);
+    }
+    
+    /**
+     * 创建餐馆表分片规则
+     * 基于 merchant_id（字符串）进行分片
+     */
+    private ShardingTableRuleConfiguration createMerchantsTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("merchants", 
+            "ds${0..2}.merchants_${0..2}");
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_database_hash"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_table_hash"));
+        // 配置主键生成策略：使用雪花算法生成全局唯一ID
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
+        return tableRule;
+    }
+    
+    /**
+     * 创建餐馆服务表分片规则
+     * 使用与餐馆表相同的分片策略（基于 merchant_id）
+     */
+    private ShardingTableRuleConfiguration createStoreServicesTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("store_services", 
+            "ds${0..2}.store_services_${0..2}");
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_database_hash"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_table_hash"));
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
+        return tableRule;
+    }
+    
+    /**
+     * 创建菜单项信息表分片规则
+     * 使用与餐馆表相同的分片策略（基于 merchant_id）
+     */
+    private ShardingTableRuleConfiguration createMenuItemsTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("menu_items", 
+            "ds${0..2}.menu_items_${0..2}");
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_database_hash"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_table_hash"));
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
+        return tableRule;
+    }
+    
+    // 订单表分片规则已迁移到 order-service，不再在此配置
+    
+    /**
+     * 创建基于类的分片算法配置
+     */
+    private AlgorithmConfiguration createClassBasedAlgorithm(String algorithmClassName) {
+        Properties props = new Properties();
+        props.setProperty("strategy", "STANDARD");
+        props.setProperty("algorithmClassName", algorithmClassName);
+        return new AlgorithmConfiguration("CLASS_BASED", props);
     }
     
     /**

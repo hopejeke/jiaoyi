@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.sharding.MenuItemMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.MenuItem">
+        <id column="id" property="id"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="item_id" property="itemId"/>
+        <result column="img_info" property="imgInfo"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, merchant_id, item_id, img_info, version, create_time, update_time
+    </sql>
+
+    <!-- 插入菜单项信息 -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.MenuItem" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO menu_items (
+            merchant_id, item_id, img_info, version, create_time, update_time
+        ) VALUES (
+            #{merchantId}, #{itemId}, #{imgInfo}, 1, NOW(), NOW()
+        )
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM menu_items WHERE merchant_id = #{merchantId} AND item_id = #{itemId} ORDER BY id DESC LIMIT 1
+        </selectKey>
+    </insert>
+
+    <!-- 根据ID查询菜单项信息 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM menu_items
+        WHERE id = #{id}
+    </select>
+
+    <!-- 根据merchantId和itemId查询菜单项信息（包含分片键） -->
+    <select id="selectByMerchantIdAndItemId" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM menu_items
+        WHERE merchant_id = #{merchantId} AND item_id = #{itemId}
+    </select>
+
+    <!-- 根据merchantId查询所有菜单项信息 -->
+    <select id="selectByMerchantId" parameterType="string" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM menu_items
+        WHERE merchant_id = #{merchantId}
+        ORDER BY item_id
+    </select>
+
+    <!-- 更新菜单项信息（使用乐观锁） -->
+    <update id="update" parameterType="com.jiaoyi.product.entity.MenuItem">
+        UPDATE menu_items SET
+            img_info = #{imgInfo},
+            version = version + 1,
+            update_time = NOW()
+        WHERE merchant_id = #{merchantId} AND item_id = #{itemId} AND version = #{version}
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM menu_items WHERE merchant_id = #{merchantId} AND item_id = #{itemId}
+        </selectKey>
+    </update>
+
+    <!-- 删除菜单项信息 -->
+    <delete id="deleteById" parameterType="com.jiaoyi.product.entity.MenuItem">
+        DELETE FROM menu_items
+        WHERE merchant_id = #{merchantId} AND item_id = #{itemId} AND version = #{version}
+    </delete>
+
+    <!-- 获取菜单项信息的当前版本号 -->
+    <select id="getVersion" resultType="long">
+        SELECT version FROM menu_items WHERE merchant_id = #{merchantId} AND item_id = #{itemId}
+    </select>
+
+</mapper>
+

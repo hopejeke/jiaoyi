@@ -38,6 +38,11 @@ public interface StoreProductMapper {
     Optional<StoreProduct> selectByStoreIdAndProductName(@Param("storeId") Long storeId, @Param("productName") String productName);
     
     /**
+     * 根据店铺ID和商品名称查询（包括已删除的，用于恢复商品）
+     */
+    Optional<StoreProduct> selectByStoreIdAndProductNameIncludeDeleted(@Param("storeId") Long storeId, @Param("productName") String productName);
+    
+    /**
      * 根据店铺ID查询所有商品
      */
     List<StoreProduct> selectByStoreId(Long storeId);
@@ -63,6 +68,11 @@ public interface StoreProductMapper {
      * @param storeProduct 商品对象，删除后version会通过selectKey自动设置到此对象中
      */
     int deleteById(StoreProduct storeProduct);
+    
+    /**
+     * 恢复已删除的商品（将 is_delete 设置为 0）
+     */
+    int restoreById(Long id);
     
     /**
      * 根据店铺ID删除所有商品

@@ -45,7 +45,11 @@ public class GatewayController {
         "/inventory/**",
         "/inventory-cache/**",
         "/product-cache/**",
-        "/cache-consistency/**"
+        "/cache-consistency/**",
+        "/merchants/**",
+        "/store-services/**",
+        "/menu-items/**",
+        "/users/**"
     }, method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE})
     public ResponseEntity<?> routeToProductService(HttpServletRequest request) {
         return route(request, productServiceUrl);
@@ -53,13 +57,17 @@ public class GatewayController {
     
     /**
      * 订单服务路由
+     * 使用完整的 order-service（包含库存锁定、优惠券、支付等功能）
      */
     @RequestMapping(value = {
         "/orders/**",
         "/payment/**",
-        "/order-timeout/**"
+        "/order-timeout/**",
+        "/merchant/**",
+        "/doordash/**"
     }, method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.DELETE})
     public ResponseEntity<?> routeToOrderService(HttpServletRequest request) {
+        // 路由到 order-service（端口 8082）
         return route(request, orderServiceUrl);
     }
     

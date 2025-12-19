@@ -1,0 +1,744 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stripe Connect 配置管理</title>
+    <style>
+        * {
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        
+        .container {
+            background: white;
+            border-radius: 12px;
+            padding: 30px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            margin-bottom: 20px;
+        }
+        
+        h1 {
+            color: #333;
+            margin-bottom: 10px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #007bff;
+        }
+        
+        .section h2 {
+            margin-top: 0;
+            color: #333;
+        }
+        
+        .form-group {
+            margin-bottom: 15px;
+        }
+        
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        input[type="text"],
+        input[type="number"],
+        select {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        button {
+            padding: 10px 20px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        
+        button:hover {
+            background: #0056b3;
+        }
+        
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .status-card {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .status-card.success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .status-card.warning {
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            color: #856404;
+        }
+        
+        .status-card.info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        
+        .status-card.error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .info-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        
+        .info-item {
+            padding: 10px;
+            background: white;
+            border-radius: 4px;
+            border: 1px solid #ddd;
+        }
+        
+        .info-item label {
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .info-item .value {
+            font-size: 16px;
+            font-weight: bold;
+            color: #333;
+        }
+        
+        .link-button {
+            display: inline-block;
+            padding: 8px 16px;
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            border-radius: 4px;
+            margin-top: 10px;
+        }
+        
+        .link-button:hover {
+            background: #218838;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 15px;
+        }
+        
+        table th,
+        table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        table th {
+            background: #f8f9fa;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .badge.success {
+            background: #28a745;
+            color: white;
+        }
+        
+        .badge.warning {
+            background: #ffc107;
+            color: #333;
+        }
+        
+        .badge.danger {
+            background: #dc3545;
+            color: white;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Stripe Connect 配置管理</h1>
+        
+        <!-- Stripe Connect 启用提示 -->
+        <div class="status-card info" style="margin-bottom: 20px;">
+            <h3>📋 使用前准备</h3>
+            <p><strong>重要：</strong>在使用 Stripe Connect 功能之前，需要先在 Stripe Dashboard 中启用 Connect。</p>
+            <p><strong>启用步骤：</strong></p>
+            <ol style="margin-left: 20px; margin-top: 10px;">
+                <li>访问 <a href="https://dashboard.stripe.com/" target="_blank">Stripe Dashboard</a>（确保在测试模式）</li>
+                <li>进入 <strong>Settings → Connect</strong></li>
+                <li>点击 <strong>"Get started"</strong> 或 <strong>"Enable Connect"</strong></li>
+                <li>完成 Connect 注册流程（填写基本信息）</li>
+                <li>完成后即可在此页面创建 Connected Account</li>
+            </ol>
+            <p style="margin-top: 10px;">
+                <a href="https://stripe.com/docs/connect" target="_blank" class="link-button">查看详细文档</a>
+            </p>
+        </div>
+        
+        <!-- 查询商户配置 -->
+        <div class="section">
+            <h2>查询商户配置</h2>
+            <div class="form-group">
+                <label for="merchantId">商户ID：</label>
+                <input type="text" id="merchantId" placeholder="例如: merchant_012" value="merchant_012">
+            </div>
+            <button onclick="queryMerchantConfig()">查询配置</button>
+            <button onclick="queryFeeStatus()">查询抽成状态</button>
+            <button onclick="queryBalance()">查询余额</button>
+        </div>
+        
+        <!-- 配置结果显示 -->
+        <div id="configResult" style="display: none;"></div>
+        
+        <!-- 创建 Connected Account -->
+        <div class="section">
+            <h2>创建 Connected Account</h2>
+            <div class="form-group">
+                <label for="createMerchantId">商户ID：</label>
+                <input type="text" id="createMerchantId" placeholder="例如: merchant_012" value="merchant_012">
+            </div>
+            <div class="form-group">
+                <label for="merchantEmail">商户邮箱（可选）：</label>
+                <input type="text" id="merchantEmail" placeholder="merchant@example.com">
+            </div>
+            <div class="form-group">
+                <label for="merchantCountry">国家代码：</label>
+                <select id="merchantCountry">
+                    <option value="US">US - 美国</option>
+                    <option value="CA">CA - 加拿大</option>
+                    <option value="GB">GB - 英国</option>
+                    <option value="AU">AU - 澳大利亚</option>
+                    <option value="HK">HK - 中国香港</option>
+                </select>
+            </div>
+            <button onclick="createConnectedAccount()">创建 Connected Account</button>
+        </div>
+        
+        <!-- 使用已创建的 Account ID -->
+        <div class="section">
+            <h2>使用已创建的 Account ID</h2>
+            <p style="color: #666; font-size: 14px; margin-bottom: 15px;">
+                如果你已经在 Stripe Dashboard 中创建了 Connected Account，可以直接使用 Account ID 进行配置。
+            </p>
+            <div class="form-group">
+                <label for="existingMerchantId">商户ID：</label>
+                <input type="text" id="existingMerchantId" placeholder="例如: merchant_012" value="merchant_012">
+            </div>
+            <div class="form-group">
+                <label for="existingAccountId">Stripe Account ID：</label>
+                <input type="text" id="existingAccountId" placeholder="例如: acct_1SdLVMCT67czzSmE">
+            </div>
+            <button onclick="useExistingAccount()">使用此 Account ID</button>
+        </div>
+        
+        <!-- 更新配置 -->
+        <div class="section">
+            <h2>更新配置（启用/禁用抽成）</h2>
+            <div class="form-group">
+                <label for="updateMerchantId">商户ID：</label>
+                <input type="text" id="updateMerchantId" placeholder="例如: merchant_012" value="merchant_012">
+            </div>
+            <div class="form-group">
+                <label>
+                    <input type="checkbox" id="enableConnect" checked>
+                    启用 Stripe Connect（启用后会抽成）
+                </label>
+            </div>
+            <div class="form-group">
+                <label for="feePercentage">手续费率（%）：</label>
+                <input type="number" id="feePercentage" step="0.01" value="2.5" min="0" max="100">
+            </div>
+            <div class="form-group">
+                <label for="feeFixed">固定手续费（$）：</label>
+                <input type="number" id="feeFixed" step="0.01" value="0.30" min="0">
+            </div>
+            <div class="form-group">
+                <label for="currency">货币：</label>
+                <select id="currency">
+                    <option value="USD">USD - 美元</option>
+                    <option value="CAD">CAD - 加元</option>
+                    <option value="GBP">GBP - 英镑</option>
+                    <option value="AUD">AUD - 澳元</option>
+                </select>
+            </div>
+            <button onclick="updateConfig()">更新配置</button>
+        </div>
+        
+        <!-- 平台余额 -->
+        <div class="section">
+            <h2>平台账户余额</h2>
+            <button onclick="queryPlatformBalance()">查询平台余额</button>
+            <div id="platformBalanceResult" style="margin-top: 15px;"></div>
+        </div>
+    </div>
+    
+    <script>
+        // 查询商户配置
+        async function queryMerchantConfig() {
+            const merchantId = document.getElementById('merchantId').value;
+            if (!merchantId) {
+                alert('请输入商户ID');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/merchant/stripe/config/${merchantId}`);
+                const result = await response.json();
+                
+                const resultDiv = document.getElementById('configResult');
+                resultDiv.style.display = 'block';
+                
+                if (result.code === 200) {
+                    const config = result.data;
+                    resultDiv.innerHTML = `
+                        <div class="status-card ${config.enabled ? 'success' : 'warning'}">
+                            <h3>商户配置信息</h3>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>商户ID</label>
+                                    <div class="value">${config.merchantId || '-'}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Connected Account ID</label>
+                                    <div class="value">${config.stripeAccountId || '未创建'}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>是否启用</label>
+                                    <div class="value">
+                                        <span class="badge ${config.enabled ? 'success' : 'danger'}">
+                                            ${config.enabled ? '已启用' : '未启用'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>货币</label>
+                                    <div class="value">${config.currency || 'USD'}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>手续费率</label>
+                                    <div class="value">${config.applicationFeePercentage || 2.5}%</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>固定手续费</label>
+                                    <div class="value">$${config.applicationFeeFixed || 0.30}</div>
+                                </div>
+                            </div>
+                            ${config.stripeAccountId ? `
+                                <a href="https://dashboard.stripe.com/test/connect/accounts/${config.stripeAccountId}" 
+                                   target="_blank" class="link-button">
+                                    查看商户账户 Dashboard
+                                </a>
+                            ` : ''}
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="status-card error">
+                            <p>${result.message || '查询失败'}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                alert('查询失败: ' + error.message);
+            }
+        }
+        
+        // 查询抽成状态
+        async function queryFeeStatus() {
+            const merchantId = document.getElementById('merchantId').value;
+            if (!merchantId) {
+                alert('请输入商户ID');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/merchant/stripe/fee-status/${merchantId}`);
+                const result = await response.json();
+                
+                const resultDiv = document.getElementById('configResult');
+                resultDiv.style.display = 'block';
+                
+                if (result.code === 200) {
+                    const status = result.data;
+                    const cardClass = status.enabled ? 'success' : (status.hasConfig ? 'warning' : 'info');
+                    
+                    resultDiv.innerHTML = `
+                        <div class="status-card ${cardClass}">
+                            <h3>抽成状态</h3>
+                            <p><strong>${status.message}</strong></p>
+                            ${status.enabled ? `
+                                <div class="info-grid">
+                                    <div class="info-item">
+                                        <label>手续费率</label>
+                                        <div class="value">${status.feePercentage}%</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <label>固定手续费</label>
+                                        <div class="value">$${status.feeFixed}</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <label>美国运通费率</label>
+                                        <div class="value">${status.amexFeePercentage}%</div>
+                                    </div>
+                                    <div class="info-item">
+                                        <label>美国运通固定</label>
+                                        <div class="value">$${status.amexFeeFixed}</div>
+                                    </div>
+                                </div>
+                                ${status.merchantDashboardUrl ? `
+                                    <a href="${status.merchantDashboardUrl}" target="_blank" class="link-button">
+                                        查看商户账户余额
+                                    </a>
+                                ` : ''}
+                            ` : `
+                                ${status.reason ? `<p>原因：${status.reason}</p>` : ''}
+                            `}
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="status-card error">
+                            <p>${result.message || '查询失败'}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                alert('查询失败: ' + error.message);
+            }
+        }
+        
+        // 查询商户余额
+        async function queryBalance() {
+            const merchantId = document.getElementById('merchantId').value;
+            if (!merchantId) {
+                alert('请输入商户ID');
+                return;
+            }
+            
+            try {
+                const response = await fetch(`/api/merchant/stripe/balance/${merchantId}`);
+                const result = await response.json();
+                
+                const resultDiv = document.getElementById('configResult');
+                resultDiv.style.display = 'block';
+                
+                if (result.code === 200) {
+                    const balance = result.data;
+                    resultDiv.innerHTML = `
+                        <div class="status-card info">
+                            <h3>商户 Connected Account 信息</h3>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>Account ID</label>
+                                    <div class="value">${balance.accountId}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>账户类型</label>
+                                    <div class="value">${balance.accountType}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>可收款</label>
+                                    <div class="value">
+                                        <span class="badge ${balance.chargesEnabled ? 'success' : 'danger'}">
+                                            ${balance.chargesEnabled ? '是' : '否'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>可提现</label>
+                                    <div class="value">
+                                        <span class="badge ${balance.payoutsEnabled ? 'success' : 'danger'}">
+                                            ${balance.payoutsEnabled ? '是' : '否'}
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="info-item">
+                                    <label>国家</label>
+                                    <div class="value">${balance.country || '-'}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>邮箱</label>
+                                    <div class="value">${balance.email || '-'}</div>
+                                </div>
+                            </div>
+                            <p><strong>${balance.message}</strong></p>
+                            ${balance.dashboardUrl ? `
+                                <a href="${balance.dashboardUrl}" target="_blank" class="link-button">
+                                    查看商户账户 Dashboard
+                                </a>
+                            ` : ''}
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="status-card error">
+                            <p>${result.message || '查询失败'}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                alert('查询失败: ' + error.message);
+            }
+        }
+        
+        // 使用已创建的 Account ID
+        async function useExistingAccount() {
+            const merchantId = document.getElementById('existingMerchantId').value;
+            const accountId = document.getElementById('existingAccountId').value;
+            
+            if (!merchantId) {
+                alert('请输入商户ID');
+                return;
+            }
+            
+            if (!accountId) {
+                alert('请输入 Stripe Account ID');
+                return;
+            }
+            
+            // 验证 Account ID 格式
+            if (!accountId.startsWith('acct_')) {
+                alert('Account ID 格式不正确，应该以 acct_ 开头');
+                return;
+            }
+            
+            try {
+                // 更新配置，使用已存在的 Account ID
+                const config = {
+                    stripeAccountId: accountId,
+                    enabled: false, // 初始为未启用，需要完成验证后才能启用
+                    currency: "USD"
+                };
+                
+                const response = await fetch(`/api/merchant/stripe/config/${merchantId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    alert('配置成功！\n\n注意：账户需要完成验证后才能启用。\n请在 Stripe Dashboard 中完成验证后，再启用此配置。');
+                    // 刷新配置显示
+                    document.getElementById('merchantId').value = merchantId;
+                    queryMerchantConfig();
+                } else {
+                    alert('配置失败: ' + result.message);
+                }
+            } catch (error) {
+                console.error('配置失败:', error);
+                alert('配置失败: ' + error.message);
+            }
+        }
+        
+        // 创建 Connected Account
+        async function createConnectedAccount() {
+            const merchantId = document.getElementById('createMerchantId').value;
+            const email = document.getElementById('merchantEmail').value;
+            const country = document.getElementById('merchantCountry').value;
+            
+            if (!merchantId) {
+                alert('请输入商户ID');
+                return;
+            }
+            
+            try {
+                let url = `/api/merchant/stripe/create-account/${merchantId}?country=${country}`;
+                if (email) {
+                    url += `&email=${encodeURIComponent(email)}`;
+                }
+                
+                const response = await fetch(url, {
+                    method: 'POST'
+                });
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    const data = result.data;
+                    alert(`创建成功！\nAccount ID: ${data.accountId}\n\n请访问 onboardingUrl 完成验证：\n${data.onboardingUrl}`);
+                    
+                    // 在新窗口打开验证链接
+                    if (data.onboardingUrl) {
+                        window.open(data.onboardingUrl, '_blank');
+                    }
+                } else {
+                    // 显示更友好的错误信息
+                    let errorMsg = result.message || '创建失败';
+                    
+                    // 如果是 Stripe Connect 未启用的错误，显示更详细的说明
+                    if (errorMsg.includes('signed up for Connect') || errorMsg.includes('Connect 功能未启用')) {
+                        errorMsg = '❌ Stripe Connect 功能未启用\n\n' +
+                            '请按以下步骤启用：\n\n' +
+                            '1. 登录 Stripe Dashboard:\n   https://dashboard.stripe.com/\n\n' +
+                            '2. 进入 Settings → Connect\n\n' +
+                            '3. 点击 "Get started" 或 "Enable Connect"\n\n' +
+                            '4. 完成 Connect 注册流程\n\n' +
+                            '5. 完成后重新尝试创建 Connected Account\n\n' +
+                            '详细文档: https://stripe.com/docs/connect';
+                    }
+                    
+                    alert(errorMsg);
+                }
+            } catch (error) {
+                alert('创建失败: ' + error.message);
+            }
+        }
+        
+        // 更新配置
+        async function updateConfig() {
+            const merchantId = document.getElementById('updateMerchantId').value;
+            const enabled = document.getElementById('enableConnect').checked;
+            const feePercentage = parseFloat(document.getElementById('feePercentage').value);
+            const feeFixed = parseFloat(document.getElementById('feeFixed').value);
+            const currency = document.getElementById('currency').value;
+            
+            if (!merchantId) {
+                alert('请输入商户ID');
+                return;
+            }
+            
+            try {
+                const config = {
+                    enabled: enabled,
+                    applicationFeePercentage: feePercentage,
+                    applicationFeeFixed: feeFixed,
+                    currency: currency
+                };
+                
+                const response = await fetch(`/api/merchant/stripe/config/${merchantId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(config)
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    alert('更新成功！');
+                    // 刷新配置显示
+                    document.getElementById('merchantId').value = merchantId;
+                    queryMerchantConfig();
+                } else {
+                    alert('更新失败: ' + result.message);
+                }
+            } catch (error) {
+                alert('更新失败: ' + error.message);
+            }
+        }
+        
+        // 查询平台余额
+        async function queryPlatformBalance() {
+            try {
+                const response = await fetch('/api/merchant/stripe/platform/balance');
+                const result = await response.json();
+                
+                const resultDiv = document.getElementById('platformBalanceResult');
+                
+                if (result.code === 200) {
+                    const balance = result.data;
+                    resultDiv.innerHTML = `
+                        <div class="status-card info">
+                            <h3>平台账户余额（Application Fee）</h3>
+                            <div class="info-grid">
+                                <div class="info-item">
+                                    <label>可用余额</label>
+                                    <div class="value">${formatBalance(balance.available)}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>待结算</label>
+                                    <div class="value">${formatBalance(balance.pending)}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>Connect 预留</label>
+                                    <div class="value">${formatBalance(balance.connectReserved)}</div>
+                                </div>
+                                <div class="info-item">
+                                    <label>即时可用</label>
+                                    <div class="value">${formatBalance(balance.instantAvailable)}</div>
+                                </div>
+                            </div>
+                            <p><strong>${balance.message}</strong></p>
+                            <a href="${balance.dashboardUrl}" target="_blank" class="link-button">
+                                查看平台账户 Dashboard
+                            </a>
+                        </div>
+                    `;
+                } else {
+                    resultDiv.innerHTML = `
+                        <div class="status-card error">
+                            <p>${result.message || '查询失败'}</p>
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                alert('查询失败: ' + error.message);
+            }
+        }
+        
+        // 格式化余额显示
+        function formatBalance(balanceArray) {
+            if (!balanceArray || balanceArray.length === 0) {
+                return '$0.00';
+            }
+            
+            // Stripe Balance 返回的是数组，每个元素包含 amount 和 currency
+            return balanceArray.map(b => {
+                const amount = (b.amount / 100).toFixed(2);
+                const currency = b.currency ? b.currency.toUpperCase() : 'USD';
+                return `${currency} $${amount}`;
+            }).join(', ') || '$0.00';
+        }
+    </script>
+</body>
+</html>
+

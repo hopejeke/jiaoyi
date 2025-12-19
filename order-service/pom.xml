@@ -99,6 +99,13 @@
             <version>2.3.0</version>
         </dependency>
         
+        <!-- Stripe Java SDK -->
+        <dependency>
+            <groupId>com.stripe</groupId>
+            <artifactId>stripe-java</artifactId>
+            <version>24.16.0</version>
+        </dependency>
+        
         <!-- AOP -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

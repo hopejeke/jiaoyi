@@ -91,22 +91,30 @@ public class AlipayService {
                     response.isSuccess(), response.getCode(), response.getMsg(), response.getQrCode());
             
             if (response.isSuccess()) {
-                log.info("支付宝预下单成功，订单号: {}, 二维码: {}", orderNo, response.getQrCode());
+                String qrCode = response.getQrCode();
+                if (qrCode == null || qrCode.trim().isEmpty()) {
+                    log.error("支付宝预下单成功但二维码为空，订单号: {}, 错误码: {}, 错误信息: {}, 子错误码: {}, 子错误信息: {}", 
+                            orderNo, response.getCode(), response.getMsg(), response.getSubCode(), response.getSubMsg());
+                    throw new RuntimeException("支付宝预下单成功但无法获取二维码，请检查支付宝配置或联系客服");
+                }
+                
+                log.info("支付宝预下单成功，订单号: {}, 二维码: {}", orderNo, qrCode);
                 
                 PaymentResponse paymentResponse = new PaymentResponse();
                 paymentResponse.setPaymentNo(paymentNo);
                 paymentResponse.setPaymentMethod("ALIPAY");
                 paymentResponse.setAmount(amount);
                 paymentResponse.setStatus("PENDING");
-                paymentResponse.setQrCode(response.getQrCode()); // 设置二维码
-                paymentResponse.setPayUrl(response.getQrCode()); // 设置支付链接
+                paymentResponse.setQrCode(qrCode); // 设置二维码
+                paymentResponse.setPayUrl(qrCode); // 设置支付链接（二维码URL）
                 paymentResponse.setRemark("支付宝支付订单创建成功");
                 
                 return paymentResponse;
             } else {
                 log.error("支付宝预下单失败，错误码: {}, 错误信息: {}, 子错误码: {}, 子错误信息: {}", 
                         response.getCode(), response.getMsg(), response.getSubCode(), response.getSubMsg());
-                throw new RuntimeException("支付宝预下单失败: " + response.getMsg() + " - " + response.getSubMsg());
+                throw new RuntimeException("支付宝预下单失败: " + response.getMsg() + 
+                        (response.getSubMsg() != null ? " - " + response.getSubMsg() : ""));
             }
             
         } catch (AlipayApiException e) {

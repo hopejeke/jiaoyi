@@ -45,14 +45,13 @@ public class OrderTimeoutMQController {
     @PostMapping("/send-test-message")
     public ResponseEntity<ApiResponse<String>> sendTestMessage(
             @RequestParam Long orderId,
-            @RequestParam String orderNo,
             @RequestParam Long userId,
             @RequestParam(defaultValue = "1") int delayMinutes) {
         
         log.info("发送测试延迟消息，订单ID: {}, 延迟: {}分钟", orderId, delayMinutes);
         
         try {
-            orderTimeoutMessageService.sendOrderTimeoutMessage(orderId, orderNo, userId, delayMinutes);
+            orderTimeoutMessageService.sendOrderTimeoutMessage(orderId, userId, delayMinutes);
             return ResponseEntity.ok(ApiResponse.success("测试延迟消息发送成功", 
                     String.format("订单ID: %d, 延迟: %d分钟", orderId, delayMinutes)));
         } catch (Exception e) {
