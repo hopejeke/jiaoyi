@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品列表</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 3rem;
+            margin-bottom: 15px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .header p {
+            font-size: 1.3rem;
+            opacity: 0.9;
+        }
+        
+        .search-bar {
+            background: white;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .search-form {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .search-input {
+            flex: 1;
+            min-width: 200px;
+            padding: 12px 20px;
+            border: 2px solid #e1e5e9;
+            border-radius: 25px;
+            font-size: 16px;
+            outline: none;
+            transition: border-color 0.3s ease;
+        }
+        
+        .search-input:focus {
+            border-color: #667eea;
+        }
+        
+        .search-btn {
+            padding: 12px 30px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: transform 0.3s ease;
+        }
+        
+        .search-btn:hover {
+            transform: translateY(-2px);
+        }
+        
+        .filter-section {
+            display: flex;
+            gap: 15px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .filter-select {
+            padding: 10px 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 20px;
+            font-size: 14px;
+            outline: none;
+            background: white;
+        }
+        
+        .product-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 30px;
+            margin-bottom: 40px;
+        }
+        
+        .product-card {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.1);
+            transition: transform 0.3s ease, box-shadow 0.3s ease;
+            cursor: pointer;
+        }
+        
+        .product-card:hover {
+            transform: translateY(-10px);
+            box-shadow: 0 25px 50px rgba(0,0,0,0.2);
+        }
+        
+        .product-image {
+            width: 100%;
+            height: 200px;
+            background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+            color: #667eea;
+        }
+        
+        .product-info {
+            padding: 25px;
+        }
+        
+        .product-name {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 10px;
+            line-height: 1.4;
+        }
+        
+        .product-price {
+            font-size: 1.8rem;
+            font-weight: bold;
+            color: #e74c3c;
+            margin-bottom: 15px;
+        }
+        
+        .product-stock {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 15px;
+        }
+        
+        .stock-indicator {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+        }
+        
+        .stock-high { background: #27ae60; }
+        .stock-medium { background: #f39c12; }
+        .stock-low { background: #e74c3c; }
+        .stock-out { background: #95a5a6; }
+        
+        .stock-text {
+            font-size: 14px;
+            color: #7f8c8d;
+        }
+        
+        .product-actions {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 12px 20px;
+            border: none;
+            border-radius: 12px;
+            font-size: 14px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 60px;
+            color: white;
+            font-size: 1.2rem;
+        }
+        
+        .error {
+            text-align: center;
+            padding: 60px;
+            color: #e74c3c;
+            font-size: 1.2rem;
+            background: white;
+            border-radius: 15px;
+            margin: 20px 0;
+        }
+        
+        .pagination {
+            display: flex;
+            justify-content: center;
+            gap: 10px;
+            margin-top: 40px;
+        }
+        
+        .page-btn {
+            padding: 10px 15px;
+            background: white;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .page-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .page-btn.active {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .no-products {
+            text-align: center;
+            padding: 60px;
+            color: white;
+            font-size: 1.2rem;
+            background: rgba(255,255,255,0.1);
+            border-radius: 15px;
+            margin: 20px 0;
+        }
+        
+        @media (max-width: 768px) {
+            .product-grid {
+                grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+                gap: 20px;
+            }
+            
+            .search-form {
+                flex-direction: column;
+                align-items: stretch;
+            }
+            
+            .filter-section {
+                justify-content: center;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🛍️ 商品列表</h1>
+            <p>精选优质商品，品质保证</p>
+        </div>
+        
+        <div class="search-bar">
+            <form class="search-form" id="searchForm">
+                <input type="text" class="search-input" id="searchInput" placeholder="搜索商品名称...">
+                <button type="submit" class="search-btn">🔍 搜索</button>
+                
+                <div class="filter-section">
+                    <select class="filter-select" id="priceFilter">
+                        <option value="">价格排序</option>
+                        <option value="price_asc">价格从低到高</option>
+                        <option value="price_desc">价格从高到低</option>
+                    </select>
+                    
+                    <select class="filter-select" id="stockFilter">
+                        <option value="">库存筛选</option>
+                        <option value="in_stock">有库存</option>
+                        <option value="low_stock">库存不足</option>
+                        <option value="out_of_stock">缺货</option>
+                    </select>
+                    
+                    <button type="button" class="search-btn" onclick="resetFilters()">🔄 重置</button>
+                </div>
+            </form>
+        </div>
+        
+        <div id="productContainer">
+            <div class="loading">正在加载商品...</div>
+        </div>
+        
+        <div class="pagination" id="pagination" style="display: none;">
+            <!-- 分页按钮将在这里动态生成 -->
+        </div>
+    </div>
+
+    <script>
+        let currentPage = 1;
+        let pageSize = 12;
+        let totalPages = 1;
+        let allProducts = [];
+        let filteredProducts = [];
+        
+        // 页面加载时获取商品列表
+        document.addEventListener('DOMContentLoaded', function() {
+            loadProducts();
+            
+            // 搜索表单提交
+            document.getElementById('searchForm').addEventListener('submit', function(e) {
+                e.preventDefault();
+                filterProducts();
+            });
+            
+            // 筛选器变化
+            document.getElementById('priceFilter').addEventListener('change', filterProducts);
+            document.getElementById('stockFilter').addEventListener('change', filterProducts);
+        });
+        
+        // 加载商品列表
+        async function loadProducts() {
+            try {
+                // 并行获取商品列表和库存信息
+                const [productsResponse, inventoryResponse] = await Promise.all([
+                    fetch('/api/products'),
+                    fetch('/api/inventory')
+                ]);
+                
+                const productsResult = await productsResponse.json();
+                const inventoryResult = await inventoryResponse.json();
+                
+                if (productsResult.code === 200) {
+                    allProducts = productsResult.data || [];
+                    
+                    // 合并库存信息到商品列表
+                    if (inventoryResult.code === 200 && inventoryResult.data) {
+                        const inventoryMap = {};
+                        inventoryResult.data.forEach(inv => {
+                            inventoryMap[inv.productId] = inv;
+                        });
+                        
+                        allProducts.forEach(product => {
+                            const inventory = inventoryMap[product.id];
+                            if (inventory) {
+                                product.currentStock = inventory.currentStock;
+                                product.lockedStock = inventory.lockedStock;
+                                product.minStock = inventory.minStock;
+                                product.maxStock = inventory.maxStock;
+                            } else {
+                                product.currentStock = 0;
+                                product.lockedStock = 0;
+                                product.minStock = 0;
+                                product.maxStock = 0;
+                            }
+                        });
+                    }
+                    
+                    filteredProducts = [...allProducts];
+                    renderProducts();
+                    renderPagination();
+                } else {
+                    showError('加载商品失败: ' + productsResult.message);
+                }
+            } catch (error) {
+                showError('网络错误: ' + error.message);
+            }
+        }
+        
+        // 渲染商品列表
+        function renderProducts() {
+            const container = document.getElementById('productContainer');
+            
+            if (filteredProducts.length === 0) {
+                container.innerHTML = '<div class="no-products">😔 没有找到符合条件的商品</div>';
+                return;
+            }
+            
+            const startIndex = (currentPage - 1) * pageSize;
+            const endIndex = startIndex + pageSize;
+            const pageProducts = filteredProducts.slice(startIndex, endIndex);
+            
+            const productsHtml = pageProducts.map(product => `
+                <div class="product-card" onclick="viewProduct(${product.id})">
+                    <div class="product-image">
+                        ${product.productImage ? `<img src="${product.productImage}" alt="${product.productName}" style="width: 100%; height: 100%; object-fit: cover;">` : '📦'}
+                    </div>
+                    <div class="product-info">
+                        <div class="product-name">${product.productName}</div>
+                        <div class="product-price">¥${product.unitPrice}</div>
+                        <div class="product-stock">
+                            <div class="stock-indicator ${getStockClass(product.currentStock)}"></div>
+                            <span class="stock-text">${getStockText(product.currentStock)}</span>
+                        </div>
+                        <div class="product-actions">
+                            <button class="btn btn-primary" onclick="event.stopPropagation(); viewProduct(${product.id})">查看详情</button>
+                            <button class="btn btn-secondary" onclick="event.stopPropagation(); addToCart(${product.id})">加入购物车</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+            
+            container.innerHTML = productsHtml;
+        }
+        
+        // 获取库存状态样式类
+        function getStockClass(stock) {
+            if (stock === 0) return 'stock-out';
+            if (stock < 10) return 'stock-low';
+            if (stock < 50) return 'stock-medium';
+            return 'stock-high';
+        }
+        
+        // 获取库存状态文本
+        function getStockText(stock) {
+            if (stock === 0) return '缺货';
+            if (stock < 10) return `库存不足 (${stock})`;
+            if (stock < 50) return `库存充足 (${stock})`;
+            return `库存充足 (${stock})`;
+        }
+        
+        // 筛选商品
+        function filterProducts() {
+            const searchTerm = document.getElementById('searchInput').value.toLowerCase();
+            const priceFilter = document.getElementById('priceFilter').value;
+            const stockFilter = document.getElementById('stockFilter').value;
+            
+            filteredProducts = allProducts.filter(product => {
+                // 搜索筛选
+                if (searchTerm && !product.productName.toLowerCase().includes(searchTerm)) {
+                    return false;
+                }
+                
+                // 库存筛选
+                if (stockFilter === 'in_stock' && product.currentStock <= 0) {
+                    return false;
+                }
+                if (stockFilter === 'low_stock' && (product.currentStock <= 0 || product.currentStock >= 10)) {
+                    return false;
+                }
+                if (stockFilter === 'out_of_stock' && product.currentStock > 0) {
+                    return false;
+                }
+                
+                return true;
+            });
+            
+            // 价格排序
+            if (priceFilter === 'price_asc') {
+                filteredProducts.sort((a, b) => a.unitPrice - b.unitPrice);
+            } else if (priceFilter === 'price_desc') {
+                filteredProducts.sort((a, b) => b.unitPrice - a.unitPrice);
+            }
+            
+            currentPage = 1;
+            renderProducts();
+            renderPagination();
+        }
+        
+        // 重置筛选器
+        function resetFilters() {
+            document.getElementById('searchInput').value = '';
+            document.getElementById('priceFilter').value = '';
+            document.getElementById('stockFilter').value = '';
+            filterProducts();
+        }
+        
+        // 渲染分页
+        function renderPagination() {
+            const pagination = document.getElementById('pagination');
+            totalPages = Math.ceil(filteredProducts.length / pageSize);
+            
+            if (totalPages <= 1) {
+                pagination.style.display = 'none';
+                return;
+            }
+            
+            pagination.style.display = 'flex';
+            
+            let paginationHtml = '';
+            
+            // 上一页按钮
+            if (currentPage > 1) {
+                paginationHtml += `<button class="page-btn" onclick="changePage(${currentPage - 1})">上一页</button>`;
+            }
+            
+            // 页码按钮
+            const startPage = Math.max(1, currentPage - 2);
+            const endPage = Math.min(totalPages, currentPage + 2);
+            
+            for (let i = startPage; i <= endPage; i++) {
+                paginationHtml += `<button class="page-btn ${i === currentPage ? 'active' : ''}" onclick="changePage(${i})">${i}</button>`;
+            }
+            
+            // 下一页按钮
+            if (currentPage < totalPages) {
+                paginationHtml += `<button class="page-btn" onclick="changePage(${currentPage + 1})">下一页</button>`;
+            }
+            
+            pagination.innerHTML = paginationHtml;
+        }
+        
+        // 切换页面
+        function changePage(page) {
+            currentPage = page;
+            renderProducts();
+            renderPagination();
+            window.scrollTo(0, 0);
+        }
+        
+        // 查看商品详情
+        function viewProduct(productId) {
+            window.location.href = `product-detail.html?id=${productId}`;
+        }
+        
+        // 加入购物车
+        function addToCart(productId) {
+            // TODO: 实现加入购物车功能
+            alert('加入购物车功能待实现');
+        }
+        
+        // 显示错误信息
+        function showError(message) {
+            const container = document.getElementById('productContainer');
+            container.innerHTML = `<div class="error">❌ ${message}</div>`;
+        }
+    </script>
+</body>
+</html>

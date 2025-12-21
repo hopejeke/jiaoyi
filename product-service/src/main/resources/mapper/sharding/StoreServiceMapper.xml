@@ -1,0 +1,111 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.sharding.StoreServiceMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.StoreService">
+        <id column="id" property="id"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="service_type" property="serviceType"/>
+        <result column="payment_acceptance" property="paymentAcceptance"/>
+        <result column="prepare_time" property="prepareTime"/>
+        <result column="open_time" property="openTime"/>
+        <result column="open_time_range" property="openTimeRange"/>
+        <result column="special_hours" property="specialHours"/>
+        <result column="temp_close" property="tempClose"/>
+        <result column="have_set" property="haveSet"/>
+        <result column="activate" property="activate"/>
+        <result column="activate_date" property="activateDate"/>
+        <result column="enable_use" property="enableUse"/>
+        <result column="usage_time_period" property="usageTimePeriod"/>
+        <result column="togo_entrance_qr_base64" property="togoEntranceQrBase64"/>
+        <result column="togo_entrance_qr_mini_program_base64" property="togoEntranceQrMiniProgramBase64"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, merchant_id, service_type, payment_acceptance, prepare_time, open_time, open_time_range,
+        special_hours, temp_close, have_set, activate, activate_date, enable_use, usage_time_period,
+        togo_entrance_qr_base64, togo_entrance_qr_mini_program_base64, version, create_time, update_time
+    </sql>
+
+    <!-- 插入餐馆服务 -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.StoreService" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO store_services (
+            merchant_id, service_type, payment_acceptance, prepare_time, open_time, open_time_range,
+            special_hours, temp_close, have_set, activate, activate_date, enable_use, usage_time_period,
+            togo_entrance_qr_base64, togo_entrance_qr_mini_program_base64, version, create_time, update_time
+        ) VALUES (
+            #{merchantId}, #{serviceType}, #{paymentAcceptance}, #{prepareTime}, #{openTime}, #{openTimeRange},
+            #{specialHours}, #{tempClose}, #{haveSet}, #{activate}, #{activateDate}, #{enableUse}, #{usageTimePeriod},
+            #{togoEntranceQrBase64}, #{togoEntranceQrMiniProgramBase64}, 1, NOW(), NOW()
+        )
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM store_services WHERE merchant_id = #{merchantId} AND service_type = #{serviceType} ORDER BY id DESC LIMIT 1
+        </selectKey>
+    </insert>
+
+    <!-- 根据ID查询餐馆服务 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM store_services
+        WHERE id = #{id}
+    </select>
+
+    <!-- 根据merchantId和serviceType查询餐馆服务（包含分片键） -->
+    <select id="selectByMerchantIdAndServiceType" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM store_services
+        WHERE merchant_id = #{merchantId} AND service_type = #{serviceType}
+    </select>
+
+    <!-- 根据merchantId查询所有餐馆服务 -->
+    <select id="selectByMerchantId" parameterType="string" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM store_services
+        WHERE merchant_id = #{merchantId}
+        ORDER BY service_type
+    </select>
+
+    <!-- 更新餐馆服务（使用乐观锁） -->
+    <update id="update" parameterType="com.jiaoyi.product.entity.StoreService">
+        UPDATE store_services SET
+            payment_acceptance = #{paymentAcceptance},
+            prepare_time = #{prepareTime},
+            open_time = #{openTime},
+            open_time_range = #{openTimeRange},
+            special_hours = #{specialHours},
+            temp_close = #{tempClose},
+            have_set = #{haveSet},
+            activate = #{activate},
+            activate_date = #{activateDate},
+            enable_use = #{enableUse},
+            usage_time_period = #{usageTimePeriod},
+            togo_entrance_qr_base64 = #{togoEntranceQrBase64},
+            togo_entrance_qr_mini_program_base64 = #{togoEntranceQrMiniProgramBase64},
+            version = version + 1,
+            update_time = NOW()
+        WHERE merchant_id = #{merchantId} AND service_type = #{serviceType} AND version = #{version}
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM store_services WHERE merchant_id = #{merchantId} AND service_type = #{serviceType}
+        </selectKey>
+    </update>
+
+    <!-- 删除餐馆服务 -->
+    <delete id="deleteById" parameterType="com.jiaoyi.product.entity.StoreService">
+        DELETE FROM store_services
+        WHERE merchant_id = #{merchantId} AND service_type = #{serviceType} AND version = #{version}
+    </delete>
+
+    <!-- 获取餐馆服务的当前版本号 -->
+    <select id="getVersion" resultType="long">
+        SELECT version FROM store_services WHERE merchant_id = #{merchantId} AND service_type = #{serviceType}
+    </select>
+
+</mapper>
+

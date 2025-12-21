@@ -1,0 +1,99 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.OrderItemMapper">
+
+    <!-- 结果映射（在线点餐订单项） -->
+    <resultMap id="OrderItemResultMap" type="com.jiaoyi.order.entity.OrderItem">
+        <id column="id" property="id"/>
+        <result column="order_id" property="orderId"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="product_id" property="productId"/>
+        <result column="sale_item_id" property="saleItemId"/>
+        <result column="order_item_id" property="orderItemId"/>
+        <result column="item_name" property="itemName"/>
+        <result column="product_image" property="productImage"/>
+        <result column="item_price" property="itemPrice"/>
+        <result column="quantity" property="quantity"/>
+        <result column="item_price_total" property="itemPriceTotal"/>
+        <result column="display_price" property="displayPrice"/>
+        <result column="detail_price_id" property="detailPriceId"/>
+        <result column="detail_price_info" property="detailPriceInfo"/>
+        <result column="size_id" property="sizeId"/>
+        <result column="options" property="options"/>
+        <result column="combo_detail" property="comboDetail"/>
+        <result column="discount_name" property="discountName"/>
+        <result column="charge_name" property="chargeName"/>
+        <result column="course_number" property="courseNumber"/>
+        <result column="item_type" property="itemType"/>
+        <result column="item_number" property="itemNumber"/>
+        <result column="kitchen_index" property="kitchenIndex"/>
+        <result column="category_id" property="categoryId"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入订单项（在线点餐） -->
+    <!-- 注意：已配置 ShardingSphere 的雪花算法主键生成策略 -->
+    <!-- ShardingSphere 会在 INSERT 时自动生成全局唯一的 ID 并填充到 orderItem.id 中 -->
+    <!-- 注意：INSERT 语句中不包含 id 字段，让 ShardingSphere 自动生成并填充 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.OrderItem" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO order_items (
+            order_id, merchant_id, product_id, sale_item_id, order_item_id,
+            item_name, product_image, item_price, quantity, item_price_total, display_price,
+            detail_price_id, detail_price_info, size_id, options, combo_detail,
+            discount_name, charge_name, course_number, item_type, item_number,
+            kitchen_index, category_id, version, create_time, update_time
+        ) VALUES (
+            #{orderId}, #{merchantId}, #{productId}, #{saleItemId}, #{orderItemId},
+            #{itemName}, #{productImage}, #{itemPrice}, #{quantity}, #{itemPriceTotal}, #{displayPrice},
+            #{detailPriceId}, #{detailPriceInfo}, #{sizeId}, #{options}, #{comboDetail},
+            #{discountName}, #{chargeName}, #{courseNumber}, #{itemType}, #{itemNumber},
+            #{kitchenIndex}, #{categoryId}, #{version}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 批量插入订单项（在线点餐） -->
+    <!-- 注意：已配置 ShardingSphere 的雪花算法主键生成策略 -->
+    <!-- ShardingSphere 会为每个 item 自动生成全局唯一的 ID 并填充到 item.id 中 -->
+    <!-- 注意：批量插入时，ShardingSphere 会为每个 item 单独生成 ID -->
+    <insert id="insertBatch" parameterType="java.util.List" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO order_items (
+            order_id, merchant_id, product_id, sale_item_id, order_item_id,
+            item_name, product_image, item_price, quantity, item_price_total, display_price,
+            detail_price_id, detail_price_info, size_id, options, combo_detail,
+            discount_name, charge_name, course_number, item_type, item_number,
+            kitchen_index, category_id, version, create_time, update_time
+        ) VALUES
+        <foreach collection="orderItems" item="item" separator=",">
+            (#{item.orderId}, #{item.merchantId}, #{item.productId}, #{item.saleItemId}, #{item.orderItemId},
+             #{item.itemName}, #{item.productImage}, #{item.itemPrice}, #{item.quantity}, #{item.itemPriceTotal}, #{item.displayPrice},
+             #{item.detailPriceId}, #{item.detailPriceInfo}, #{item.sizeId}, #{item.options}, #{item.comboDetail},
+             #{item.discountName}, #{item.chargeName}, #{item.courseNumber}, #{item.itemType}, #{item.itemNumber},
+             #{item.kitchenIndex}, #{item.categoryId}, #{item.version}, #{item.createTime}, #{item.updateTime})
+        </foreach>
+    </insert>
+
+    <!-- 根据订单ID查询订单项列表 -->
+    <select id="selectByOrderId" parameterType="long" resultMap="OrderItemResultMap">
+        SELECT * FROM order_items WHERE order_id = #{orderId}
+    </select>
+
+    <!-- 根据merchantId和orderId查询订单项列表（推荐，包含分片键） -->
+    <select id="selectByMerchantIdAndOrderId" resultMap="OrderItemResultMap">
+        SELECT * FROM order_items 
+        WHERE merchant_id = #{merchantId} AND order_id = #{orderId}
+    </select>
+
+    <!-- 根据商品ID查询订单项列表（用于库存锁定） -->
+    <select id="selectByProductId" parameterType="long" resultMap="OrderItemResultMap">
+        SELECT * FROM order_items WHERE product_id = #{productId}
+    </select>
+
+    <!-- 统计商品销售数量 -->
+    <select id="sumQuantityByProductId" parameterType="long" resultType="long">
+        SELECT COALESCE(SUM(quantity), 0) FROM order_items WHERE product_id = #{productId}
+    </select>
+
+</mapper>
+

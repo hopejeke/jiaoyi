@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>创建测试数据</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+        }
+        button {
+            padding: 10px 20px;
+            margin: 10px;
+            font-size: 16px;
+            cursor: pointer;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 5px;
+        }
+        button:hover {
+            background: #764ba2;
+        }
+        .result {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 5px;
+            white-space: pre-wrap;
+        }
+        .success {
+            background: #d4edda;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <h1>创建测试数据</h1>
+    
+    <button onclick="createMerchants()">创建餐馆数据</button>
+    <button onclick="createUsers()">创建用户数据</button>
+    <button onclick="createAll()">创建所有数据</button>
+    
+    <div id="result"></div>
+    
+    <script>
+        const API_BASE = 'http://localhost:8080/api';
+        
+        async function createMerchants() {
+            const merchants = [
+                {
+                    merchantId: 'merchant_001',
+                    merchantGroupId: 'group_001',
+                    encryptMerchantId: 'encrypt_001',
+                    name: '川味小厨',
+                    timeZone: 'Asia/Shanghai',
+                    isPickup: true,
+                    isDelivery: true,
+                    pickupPaymentAcceptance: '["CASH","CARD","ONLINE"]',
+                    deliveryPaymentAcceptance: '["CASH","CARD","ONLINE"]',
+                    pickupPrepareTime: '{"min":30,"max":60}',
+                    deliveryPrepareTime: '{"min":45,"max":90}',
+                    pickupOpenTime: '[{"day":"MONDAY","open":"09:00","close":"22:00"}]',
+                    deliveryOpenTime: '[{"day":"MONDAY","open":"09:00","close":"22:00"}]',
+                    defaultDeliveryFee: 'FLAT_RATE',
+                    deliveryFlatFee: 5.00,
+                    capabilityOfOrder: '{"pickup":true,"delivery":true,"dineIn":true}',
+                    personalization: '{"theme":"red","font":"Arial"}'
+                },
+                {
+                    merchantId: 'merchant_002',
+                    merchantGroupId: 'group_001',
+                    encryptMerchantId: 'encrypt_002',
+                    name: '湘味餐厅',
+                    timeZone: 'Asia/Shanghai',
+                    isPickup: true,
+                    isDelivery: true,
+                    pickupPaymentAcceptance: '["CASH","CARD","ONLINE"]',
+                    deliveryPaymentAcceptance: '["CASH","CARD","ONLINE"]',
+                    pickupPrepareTime: '{"min":25,"max":50}',
+                    deliveryPrepareTime: '{"min":40,"max":75}',
+                    pickupOpenTime: '[{"day":"MONDAY","open":"10:00","close":"21:00"}]',
+                    deliveryOpenTime: '[{"day":"MONDAY","open":"10:00","close":"21:00"}]',
+                    defaultDeliveryFee: 'FLAT_RATE',
+                    deliveryFlatFee: 6.00,
+                    capabilityOfOrder: '{"pickup":true,"delivery":true,"dineIn":true}',
+                    personalization: '{"theme":"orange","font":"Arial"}'
+                },
+                {
+                    merchantId: 'merchant_003',
+                    merchantGroupId: 'group_001',
+                    encryptMerchantId: 'encrypt_003',
+                    name: '粤式茶餐厅',
+                    timeZone: 'Asia/Shanghai',
+                    isPickup: true,
+                    isDelivery: true,
+                    pickupPaymentAcceptance: '["CASH","CARD","ONLINE"]',
+                    deliveryPaymentAcceptance: '["CASH","CARD","ONLINE"]',
+                    pickupPrepareTime: '{"min":20,"max":40}',
+                    deliveryPrepareTime: '{"min":35,"max":65}',
+                    pickupOpenTime: '[{"day":"MONDAY","open":"08:00","close":"23:00"}]',
+                    deliveryOpenTime: '[{"day":"MONDAY","open":"08:00","close":"23:00"}]',
+                    defaultDeliveryFee: 'FLAT_RATE',
+                    deliveryFlatFee: 4.00,
+                    capabilityOfOrder: '{"pickup":true,"delivery":true,"dineIn":true}',
+                    personalization: '{"theme":"green","font":"Arial"}'
+                }
+            ];
+            
+            let results = [];
+            for (const merchant of merchants) {
+                try {
+                    const response = await fetch(`${API_BASE}/merchants`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(merchant)
+                    });
+                    const result = await response.json();
+                    if (result.code === 200) {
+                        results.push(`✓ ${merchant.name} 创建成功`);
+                    } else {
+                        results.push(`✗ ${merchant.name} 创建失败: ${result.message}`);
+                    }
+                } catch (error) {
+                    results.push(`✗ ${merchant.name} 创建失败: ${error.message}`);
+                }
+            }
+            
+            showResult(results.join('\n'), 'success');
+        }
+        
+        async function createUsers() {
+            const users = [
+                {
+                    email: 'user1@example.com',
+                    name: '测试用户1',
+                    phone: '13800138001',
+                    status: 200
+                },
+                {
+                    email: 'user2@example.com',
+                    name: '测试用户2',
+                    phone: '13800138002',
+                    status: 200
+                }
+            ];
+            
+            let results = [];
+            for (const user of users) {
+                try {
+                    const response = await fetch(`${API_BASE}/users`, {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/json'},
+                        body: JSON.stringify(user)
+                    });
+                    const result = await response.json();
+                    if (result.code === 200) {
+                        results.push(`✓ ${user.name} 创建成功 (ID: ${result.data.id})`);
+                    } else {
+                        results.push(`✗ ${user.name} 创建失败: ${result.message}`);
+                    }
+                } catch (error) {
+                    results.push(`✗ ${user.name} 创建失败: ${error.message}`);
+                }
+            }
+            
+            showResult(results.join('\n'), 'success');
+        }
+        
+        async function createAll() {
+            await createUsers();
+            await createMerchants();
+        }
+        
+        function showResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = 'result ' + type;
+            resultDiv.textContent = message;
+        }
+    </script>
+</body>
+</html>
+

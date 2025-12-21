@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.primary.WorkerIdMapper">
+    
+    <!-- 根据实例标识查找 worker-id -->
+    <select id="findByInstance" resultType="java.lang.Integer">
+        SELECT worker_id
+        FROM snowflake_worker
+        WHERE instance = #{instance}
+    </select>
+    
+    <!-- 查找所有已分配的 worker-id -->
+    <select id="findAllocatedWorkerIds" resultType="java.lang.Integer">
+        SELECT worker_id
+        FROM snowflake_worker
+        ORDER BY worker_id
+    </select>
+    
+    <!-- 查找最小未使用的 worker-id（0-1023） -->
+    <!-- 注意：此方法在 Java 代码中实现，这里只返回已分配的 worker-id 列表 -->
+    
+    <!-- 插入新的 worker-id 分配记录 -->
+    <insert id="insert">
+        INSERT INTO snowflake_worker (worker_id, instance, last_heartbeat)
+        VALUES (#{workerId}, #{instance}, NOW())
+    </insert>
+    
+    <!-- 更新心跳时间 -->
+    <update id="updateHeartbeat">
+        UPDATE snowflake_worker
+        SET last_heartbeat = NOW()
+        WHERE worker_id = #{workerId} AND instance = #{instance}
+    </update>
+    
+    <!-- 删除 worker-id 分配记录（实例关闭时调用） -->
+    <delete id="deleteByInstance">
+        DELETE FROM snowflake_worker
+        WHERE instance = #{instance}
+    </delete>
+    
+    <!-- 删除过期的 worker-id 分配记录（心跳超时） -->
+    <delete id="deleteExpired">
+        DELETE FROM snowflake_worker
+        WHERE last_heartbeat &lt; #{expireTime}
+    </delete>
+    
+</mapper>
+

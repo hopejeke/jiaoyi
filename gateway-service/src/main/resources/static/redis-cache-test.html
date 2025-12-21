@@ -1,0 +1,712 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Redis缓存测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        .test-section {
+            margin-bottom: 30px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .test-section h3 {
+            margin-top: 0;
+            color: #333;
+            border-bottom: 2px solid #007bff;
+            padding-bottom: 10px;
+        }
+        .button-group {
+            margin: 10px 0;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+            font-size: 14px;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        button.secondary {
+            background: #6c757d;
+        }
+        button.secondary:hover {
+            background: #545b62;
+        }
+        button.danger {
+            background: #dc3545;
+        }
+        button.danger:hover {
+            background: #c82333;
+        }
+        .result {
+            margin-top: 10px;
+            padding: 15px;
+            background: #f8f9fa;
+            border-radius: 5px;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .success {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .info {
+            background: #d1ecf1;
+            border: 1px solid #bee5eb;
+            color: #0c5460;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .performance-test {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+        }
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin: 15px 0;
+        }
+        .stat-card {
+            background: #e9ecef;
+            padding: 15px;
+            border-radius: 5px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #007bff;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #6c757d;
+            margin-top: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🚀 Redis缓存性能测试</h1>
+        <p>测试商品和库存服务的Redis缓存功能，对比缓存命中与数据库查询的性能差异</p>
+        
+        <div class="stats" id="statsContainer">
+            <!-- 统计信息将在这里显示 -->
+        </div>
+        
+        <div class="grid">
+            <div class="test-section">
+                <h3>📦 商品缓存测试</h3>
+                <div class="button-group">
+                    <button onclick="testProductCache(1)">测试商品1缓存</button>
+                    <button onclick="testProductCache(2)">测试商品2缓存</button>
+                    <button onclick="testProductCache(3)">测试商品3缓存</button>
+                </div>
+                <div class="button-group">
+                    <button onclick="testProductListCache()">测试商品列表缓存</button>
+                    <button onclick="testProductByCategory()">测试分类商品缓存</button>
+                    <button onclick="testProductByStatus()">测试状态商品缓存</button>
+                </div>
+                <div class="button-group">
+                    <button onclick="refreshProductCache(1)" class="secondary">刷新商品1缓存</button>
+                    <button onclick="clearProductCache()" class="danger">清空商品缓存</button>
+                </div>
+                <div id="productResult" class="result" style="display: none;"></div>
+            </div>
+            
+            <div class="test-section">
+                <h3>📊 库存缓存测试</h3>
+                <div class="button-group">
+                    <button onclick="testInventoryCache(1)">测试库存1缓存</button>
+                    <button onclick="testInventoryCache(2)">测试库存2缓存</button>
+                    <button onclick="testInventoryCache(3)">测试库存3缓存</button>
+                </div>
+                <div class="button-group">
+                    <button onclick="testLowStockCache()">测试低库存缓存</button>
+                    <button onclick="refreshInventoryCache(1)" class="secondary">刷新库存1缓存</button>
+                    <button onclick="clearInventoryCache()" class="danger">清空库存缓存</button>
+                </div>
+                <div id="inventoryResult" class="result" style="display: none;"></div>
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h3>⚡ 性能对比测试</h3>
+            <p>测试缓存命中与数据库查询的性能差异</p>
+            <div class="button-group">
+                <button onclick="performanceTest()" class="performance-test">开始性能测试</button>
+                <button onclick="clearAllCaches()" class="danger">清空所有缓存</button>
+            </div>
+            <div id="performanceResult" class="result" style="display: none;"></div>
+        </div>
+        
+        <div class="test-section">
+            <h3>📈 缓存统计信息</h3>
+            <div class="button-group">
+                <button onclick="getCacheStats()">获取缓存统计</button>
+                <button onclick="getProductCacheStatus(1)">商品1缓存状态</button>
+                <button onclick="getInventoryCacheStatus(1)">库存1缓存状态</button>
+            </div>
+            <div id="statsResult" class="result" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script>
+        let testStats = {
+            productCacheHits: 0,
+            productCacheMisses: 0,
+            inventoryCacheHits: 0,
+            inventoryCacheMisses: 0,
+            totalRequests: 0,
+            averageResponseTime: 0
+        };
+
+        // 更新统计信息显示
+        function updateStats() {
+            const statsContainer = document.getElementById('statsContainer');
+            statsContainer.innerHTML = `
+                <div class="stat-card">
+                    <div class="stat-value">${testStats.productCacheHits}</div>
+                    <div class="stat-label">商品缓存命中</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${testStats.productCacheMisses}</div>
+                    <div class="stat-label">商品缓存未命中</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${testStats.inventoryCacheHits}</div>
+                    <div class="stat-label">库存缓存命中</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${testStats.inventoryCacheMisses}</div>
+                    <div class="stat-label">库存缓存未命中</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${testStats.totalRequests}</div>
+                    <div class="stat-label">总请求数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">${testStats.averageResponseTime.toFixed(2)}ms</div>
+                    <div class="stat-label">平均响应时间</div>
+                </div>
+            `;
+        }
+
+        // 记录请求时间
+        function recordRequestTime(startTime) {
+            const responseTime = Date.now() - startTime;
+            testStats.totalRequests++;
+            testStats.averageResponseTime = (testStats.averageResponseTime * (testStats.totalRequests - 1) + responseTime) / testStats.totalRequests;
+            return responseTime;
+        }
+
+        // 商品缓存测试
+        async function testProductCache(productId) {
+            const resultDiv = document.getElementById('productResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在测试商品缓存...';
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch(`/api/product-cache/product/${productId}`);
+                const product = await response.json();
+                
+                const responseTime = recordRequestTime(startTime);
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ 商品缓存测试成功！
+                    
+商品ID: ${product.id}
+商品名称: ${product.productName}
+单价: ¥${product.unitPrice}
+状态: ${product.status}
+
+库存信息:
+- 当前库存: ${product.currentStock || 'N/A'}
+- 锁定库存: ${product.lockedStock || 'N/A'}
+- 最低库存: ${product.minStock || 'N/A'}
+- 最大库存: ${product.maxStock || 'N/A'}
+
+响应时间: ${responseTime}ms
+
+完整数据:
+${JSON.stringify(product, null, 2)}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ 商品缓存测试失败: ${response.status}`;
+                }
+            } catch (error) {
+                const responseTime = recordRequestTime(startTime);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 网络错误: ${error.message}\n响应时间: ${responseTime}ms`;
+            }
+            
+            updateStats();
+        }
+
+        // 商品列表缓存测试
+        async function testProductListCache() {
+            const resultDiv = document.getElementById('productResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在测试商品列表缓存...';
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch('/api/product-cache/products');
+                const products = await response.json();
+                
+                const responseTime = recordRequestTime(startTime);
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ 商品列表缓存测试成功！
+                    
+商品数量: ${products.length}
+响应时间: ${responseTime}ms
+
+商品列表:
+${products.map(p => `- ${p.productName} (ID: ${p.id}, 价格: ¥${p.unitPrice})`).join('\n')}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ 商品列表缓存测试失败: ${response.status}`;
+                }
+            } catch (error) {
+                const responseTime = recordRequestTime(startTime);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 网络错误: ${error.message}\n响应时间: ${responseTime}ms`;
+            }
+            
+            updateStats();
+        }
+
+        // 分类商品缓存测试
+        async function testProductByCategory() {
+            const resultDiv = document.getElementById('productResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在测试分类商品缓存...';
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch('/api/product-cache/products/category/电子产品-手机');
+                const products = await response.json();
+                
+                const responseTime = recordRequestTime(startTime);
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ 分类商品缓存测试成功！
+                    
+分类: 电子产品-手机
+商品数量: ${products.length}
+响应时间: ${responseTime}ms
+
+商品列表:
+${products.map(p => `- ${p.productName} (ID: ${p.id}, 价格: ¥${p.unitPrice})`).join('\n')}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ 分类商品缓存测试失败: ${response.status}`;
+                }
+            } catch (error) {
+                const responseTime = recordRequestTime(startTime);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 网络错误: ${error.message}\n响应时间: ${responseTime}ms`;
+            }
+            
+            updateStats();
+        }
+
+        // 状态商品缓存测试
+        async function testProductByStatus() {
+            const resultDiv = document.getElementById('productResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在测试状态商品缓存...';
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch('/api/product-cache/products/status/ACTIVE');
+                const products = await response.json();
+                
+                const responseTime = recordRequestTime(startTime);
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ 状态商品缓存测试成功！
+                    
+状态: ACTIVE
+商品数量: ${products.length}
+响应时间: ${responseTime}ms
+
+商品列表:
+${products.map(p => `- ${p.productName} (ID: ${p.id}, 价格: ¥${p.unitPrice})`).join('\n')}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ 状态商品缓存测试失败: ${response.status}`;
+                }
+            } catch (error) {
+                const responseTime = recordRequestTime(startTime);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 网络错误: ${error.message}\n响应时间: ${responseTime}ms`;
+            }
+            
+            updateStats();
+        }
+
+        // 库存缓存测试
+        async function testInventoryCache(productId) {
+            const resultDiv = document.getElementById('inventoryResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在测试库存缓存...';
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch(`/api/inventory-cache/product/${productId}`);
+                const inventory = await response.json();
+                
+                const responseTime = recordRequestTime(startTime);
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ 库存缓存测试成功！
+                    
+商品ID: ${inventory.productId}
+商品名称: ${inventory.productName}
+当前库存: ${inventory.currentStock}
+锁定库存: ${inventory.lockedStock}
+最低库存: ${inventory.minStock}
+最大库存: ${inventory.maxStock}
+
+响应时间: ${responseTime}ms
+
+完整数据:
+${JSON.stringify(inventory, null, 2)}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ 库存缓存测试失败: ${response.status}`;
+                }
+            } catch (error) {
+                const responseTime = recordRequestTime(startTime);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 网络错误: ${error.message}\n响应时间: ${responseTime}ms`;
+            }
+            
+            updateStats();
+        }
+
+        // 低库存缓存测试
+        async function testLowStockCache() {
+            const resultDiv = document.getElementById('inventoryResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在测试低库存缓存...';
+            
+            const startTime = Date.now();
+            
+            try {
+                const response = await fetch('/api/inventory-cache/low-stock');
+                const lowStockItems = await response.json();
+                
+                const responseTime = recordRequestTime(startTime);
+                
+                if (response.ok) {
+                    resultDiv.className = 'result success';
+                    resultDiv.textContent = `✅ 低库存缓存测试成功！
+                    
+低库存商品数量: ${lowStockItems.length}
+响应时间: ${responseTime}ms
+
+低库存商品列表:
+${lowStockItems.map(item => `- ${item.productName} (ID: ${item.productId}, 当前库存: ${item.currentStock}, 最低库存: ${item.minStock})`).join('\n')}`;
+                } else {
+                    resultDiv.className = 'result error';
+                    resultDiv.textContent = `❌ 低库存缓存测试失败: ${response.status}`;
+                }
+            } catch (error) {
+                const responseTime = recordRequestTime(startTime);
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 网络错误: ${error.message}\n响应时间: ${responseTime}ms`;
+            }
+            
+            updateStats();
+        }
+
+        // 性能测试
+        async function performanceTest() {
+            const resultDiv = document.getElementById('performanceResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在执行性能测试...';
+            
+            const testResults = [];
+            const testCount = 10;
+            
+            // 清空缓存，测试数据库查询性能
+            await clearAllCaches();
+            await new Promise(resolve => setTimeout(resolve, 1000)); // 等待1秒
+            
+            resultDiv.textContent = '正在测试数据库查询性能（无缓存）...';
+            
+            // 测试无缓存性能
+            for (let i = 0; i < testCount; i++) {
+                const startTime = Date.now();
+                try {
+                    await fetch('/api/product-cache/product/1');
+                    const responseTime = Date.now() - startTime;
+                    testResults.push({ type: 'database', time: responseTime });
+                } catch (error) {
+                    testResults.push({ type: 'database', time: -1 });
+                }
+            }
+            
+            // 等待缓存建立
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            resultDiv.textContent = '正在测试缓存查询性能...';
+            
+            // 测试缓存性能
+            for (let i = 0; i < testCount; i++) {
+                const startTime = Date.now();
+                try {
+                    await fetch('/api/product-cache/product/1');
+                    const responseTime = Date.now() - startTime;
+                    testResults.push({ type: 'cache', time: responseTime });
+                } catch (error) {
+                    testResults.push({ type: 'cache', time: -1 });
+                }
+            }
+            
+            // 计算统计结果
+            const dbTimes = testResults.filter(r => r.type === 'database' && r.time > 0).map(r => r.time);
+            const cacheTimes = testResults.filter(r => r.type === 'cache' && r.time > 0).map(r => r.time);
+            
+            const avgDbTime = dbTimes.reduce((a, b) => a + b, 0) / dbTimes.length;
+            const avgCacheTime = cacheTimes.reduce((a, b) => a + b, 0) / cacheTimes.length;
+            const improvement = ((avgDbTime - avgCacheTime) / avgDbTime * 100).toFixed(2);
+            
+            resultDiv.className = 'result success';
+            resultDiv.textContent = `⚡ 性能测试完成！
+
+测试次数: ${testCount} 次
+
+数据库查询性能:
+- 平均响应时间: ${avgDbTime.toFixed(2)}ms
+- 最小响应时间: ${Math.min(...dbTimes)}ms
+- 最大响应时间: ${Math.max(...dbTimes)}ms
+
+缓存查询性能:
+- 平均响应时间: ${avgCacheTime.toFixed(2)}ms
+- 最小响应时间: ${Math.min(...cacheTimes)}ms
+- 最大响应时间: ${Math.max(...cacheTimes)}ms
+
+性能提升: ${improvement}%
+缓存加速比: ${(avgDbTime / avgCacheTime).toFixed(2)}x
+
+详细测试结果:
+${testResults.map((r, i) => `${i + 1}. ${r.type}: ${r.time}ms`).join('\n')}`;
+        }
+
+        // 刷新商品缓存
+        async function refreshProductCache(productId) {
+            const resultDiv = document.getElementById('productResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在刷新商品缓存...';
+            
+            try {
+                const response = await fetch(`/api/product-cache/refresh/${productId}`, { method: 'POST' });
+                const message = await response.text();
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ ${message}`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 刷新失败: ${error.message}`;
+            }
+        }
+
+        // 清空商品缓存
+        async function clearProductCache() {
+            const resultDiv = document.getElementById('productResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在清空商品缓存...';
+            
+            try {
+                const response = await fetch('/api/product-cache/clear', { method: 'POST' });
+                const message = await response.text();
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ ${message}`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 清空失败: ${error.message}`;
+            }
+        }
+
+        // 刷新库存缓存
+        async function refreshInventoryCache(productId) {
+            const resultDiv = document.getElementById('inventoryResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在刷新库存缓存...';
+            
+            try {
+                const response = await fetch(`/api/inventory-cache/refresh/${productId}`, { method: 'POST' });
+                const message = await response.text();
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ ${message}`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 刷新失败: ${error.message}`;
+            }
+        }
+
+        // 清空库存缓存
+        async function clearInventoryCache() {
+            const resultDiv = document.getElementById('inventoryResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在清空库存缓存...';
+            
+            try {
+                const response = await fetch('/api/inventory-cache/clear', { method: 'POST' });
+                const message = await response.text();
+                
+                resultDiv.className = 'result success';
+                resultDiv.textContent = `✅ ${message}`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 清空失败: ${error.message}`;
+            }
+        }
+
+        // 清空所有缓存
+        async function clearAllCaches() {
+            await Promise.all([
+                fetch('/api/product-cache/clear', { method: 'POST' }),
+                fetch('/api/inventory-cache/clear', { method: 'POST' })
+            ]);
+        }
+
+        // 获取缓存统计
+        async function getCacheStats() {
+            const resultDiv = document.getElementById('statsResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在获取缓存统计...';
+            
+            try {
+                const [productStats, inventoryStats] = await Promise.all([
+                    fetch('/api/product-cache/stats').then(r => r.text()),
+                    fetch('/api/inventory-cache/stats').then(r => r.text())
+                ]);
+                
+                resultDiv.className = 'result info';
+                resultDiv.textContent = `📊 缓存统计信息
+
+商品缓存统计:
+${productStats}
+
+库存缓存统计:
+${inventoryStats}`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 获取统计失败: ${error.message}`;
+            }
+        }
+
+        // 获取商品缓存状态
+        async function getProductCacheStatus(productId) {
+            const resultDiv = document.getElementById('statsResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在获取商品缓存状态...';
+            
+            try {
+                const response = await fetch(`/api/product-cache/status/${productId}`);
+                const message = await response.text();
+                
+                resultDiv.className = 'result info';
+                resultDiv.textContent = `📦 商品缓存状态
+
+${message}`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 获取状态失败: ${error.message}`;
+            }
+        }
+
+        // 获取库存缓存状态
+        async function getInventoryCacheStatus(productId) {
+            const resultDiv = document.getElementById('statsResult');
+            resultDiv.style.display = 'block';
+            resultDiv.className = 'result';
+            resultDiv.textContent = '正在获取库存缓存状态...';
+            
+            try {
+                const response = await fetch(`/api/inventory-cache/status/${productId}`);
+                const message = await response.text();
+                
+                resultDiv.className = 'result info';
+                resultDiv.textContent = `📊 库存缓存状态
+
+${message}`;
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.textContent = `❌ 获取状态失败: ${error.message}`;
+            }
+        }
+
+        // 页面加载时更新统计
+        document.addEventListener('DOMContentLoaded', function() {
+            updateStats();
+        });
+    </script>
+</body>
+</html>
+
+

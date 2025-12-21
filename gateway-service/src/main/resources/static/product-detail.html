@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>商品详情</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            color: white;
+        }
+        
+        .header h1 {
+            font-size: 2.5rem;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }
+        
+        .back-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            padding: 10px 20px;
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: none;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .back-btn:hover {
+            background: rgba(255,255,255,0.3);
+            transform: translateY(-2px);
+        }
+        
+        .product-detail {
+            background: white;
+            border-radius: 20px;
+            overflow: hidden;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.1);
+            margin-bottom: 30px;
+        }
+        
+        .product-content {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0;
+        }
+        
+        .product-image-section {
+            background: linear-gradient(135deg, #f5f7fa, #c3cfe2);
+            padding: 40px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 500px;
+        }
+        
+        .product-image {
+            max-width: 100%;
+            max-height: 400px;
+            border-radius: 15px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .product-info-section {
+            padding: 40px;
+        }
+        
+        .product-name {
+            font-size: 2.2rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 20px;
+            line-height: 1.3;
+        }
+        
+        .product-price {
+            font-size: 2.5rem;
+            font-weight: bold;
+            color: #e74c3c;
+            margin-bottom: 30px;
+        }
+        
+        .product-stock {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 15px;
+        }
+        
+        .stock-indicator {
+            width: 20px;
+            height: 20px;
+            border-radius: 50%;
+        }
+        
+        .stock-high { background: #27ae60; }
+        .stock-medium { background: #f39c12; }
+        .stock-low { background: #e74c3c; }
+        .stock-out { background: #95a5a6; }
+        
+        .stock-info {
+            flex: 1;
+        }
+        
+        .stock-text {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 5px;
+        }
+        
+        .stock-detail {
+            font-size: 1rem;
+            color: #7f8c8d;
+        }
+        
+        .quantity-section {
+            margin-bottom: 30px;
+        }
+        
+        .quantity-label {
+            font-size: 1.1rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+            display: block;
+        }
+        
+        .quantity-controls {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .quantity-btn {
+            width: 40px;
+            height: 40px;
+            border: 2px solid #e1e5e9;
+            background: white;
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 18px;
+            font-weight: bold;
+            color: #667eea;
+            transition: all 0.3s ease;
+        }
+        
+        .quantity-btn:hover {
+            background: #667eea;
+            color: white;
+            border-color: #667eea;
+        }
+        
+        .quantity-btn:disabled {
+            background: #f8f9fa;
+            color: #adb5bd;
+            border-color: #e9ecef;
+            cursor: not-allowed;
+        }
+        
+        .quantity-input {
+            width: 80px;
+            height: 40px;
+            text-align: center;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+        }
+        
+        .quantity-input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 30px;
+        }
+        
+        .btn {
+            flex: 1;
+            padding: 15px 25px;
+            border: none;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        
+        .btn-secondary:hover {
+            background: #5a6268;
+        }
+        
+        .btn:disabled {
+            background: #e9ecef;
+            color: #adb5bd;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .product-description {
+            background: #f8f9fa;
+            padding: 30px;
+            border-radius: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .description-title {
+            font-size: 1.3rem;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+        
+        .description-text {
+            font-size: 1rem;
+            color: #7f8c8d;
+            line-height: 1.6;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 100px;
+            color: white;
+            font-size: 1.2rem;
+        }
+        
+        .error {
+            text-align: center;
+            padding: 100px;
+            color: #e74c3c;
+            font-size: 1.2rem;
+            background: white;
+            border-radius: 15px;
+            margin: 20px 0;
+        }
+        
+        .inventory-info {
+            background: #e8f5e8;
+            border: 2px solid #27ae60;
+            border-radius: 15px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .inventory-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            color: #27ae60;
+            margin-bottom: 10px;
+        }
+        
+        .inventory-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+        }
+        
+        .inventory-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 10px;
+            background: white;
+            border-radius: 8px;
+        }
+        
+        .inventory-label {
+            font-weight: bold;
+            color: #2c3e50;
+        }
+        
+        .inventory-value {
+            color: #27ae60;
+            font-weight: bold;
+        }
+        
+        @media (max-width: 768px) {
+            .product-content {
+                grid-template-columns: 1fr;
+            }
+            
+            .product-image-section {
+                min-height: 300px;
+                padding: 20px;
+            }
+            
+            .product-info-section {
+                padding: 20px;
+            }
+            
+            .product-name {
+                font-size: 1.8rem;
+            }
+            
+            .product-price {
+                font-size: 2rem;
+            }
+            
+            .action-buttons {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <button class="back-btn" onclick="goBack()">← 返回列表</button>
+        
+        <div class="header">
+            <h1>🛍️ 商品详情</h1>
+        </div>
+        
+        <div id="productContainer">
+            <div class="loading">正在加载商品详情...</div>
+        </div>
+    </div>
+
+    <script>
+        let product = null;
+        let quantity = 1;
+        
+        // 页面加载时获取商品详情
+        document.addEventListener('DOMContentLoaded', function() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const productId = urlParams.get('id');
+            
+            if (productId) {
+                loadProductDetail(productId);
+            } else {
+                showError('商品ID不能为空');
+            }
+        });
+        
+        // 加载商品详情（已聚合库存信息）
+        async function loadProductDetail(productId) {
+            try {
+                // 只调用商品API，库存信息已由后端聚合
+                const productResponse = await fetch(`/api/products/${productId}`);
+                const productResult = await productResponse.json();
+                
+                if (productResult.code === 200) {
+                    product = productResult.data;
+                    // 库存信息已经由后端聚合，直接渲染
+                    renderProductDetail();
+                } else {
+                    showError('加载商品详情失败: ' + productResult.message);
+                }
+            } catch (error) {
+                showError('网络错误: ' + error.message);
+            }
+        }
+        
+        // 渲染商品详情
+        function renderProductDetail() {
+            if (!product) return;
+            
+            const container = document.getElementById('productContainer');
+            
+            container.innerHTML = `
+                <div class="product-detail">
+                    <div class="product-content">
+                        <div class="product-image-section">
+                            <img src="${product.productImage || 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDQwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iNDAwIiBmaWxsPSIjRjVGNUZBIi8+CjxwYXRoIGQ9Ik0yMDAgMTAwQzI0NS4yMjkgMTAwIDI4MCAxMTQuNzcxIDI4MCAxMzJDMjgwIDE0OS4yMjkgMjQ1LjIyOSAxNjQgMjAwIDE2NEMxNTQuNzcxIDE2NCAxMjAgMTQ5LjIyOSAxMjAgMTMyQzEyMCAxMTQuNzcxIDE1NC43NzEgMTAwIDIwMCAxMDBaIiBmaWxsPSIjNjY3RUVBIi8+CjxwYXRoIGQ9Ik0xMjAgMjAwSDI4MFYyODBIMTIwVjIwMFoiIGZpbGw9IiM2NjdFRUEiLz4KPC9zdmc+'}" 
+                                 alt="${product.productName}" 
+                                 class="product-image" 
+                                 onerror="this.src='data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNDAwIiBoZWlnaHQ9IjQwMCIgdmlld0JveD0iMCAwIDQwMCA0MDAiIGZpbGw9Im5vbmUiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CjxyZWN0IHdpZHRoPSI0MDAiIGhlaWdodD0iNDAwIiBmaWxsPSIjRjVGNUZBIi8+CjxwYXRoIGQ9Ik0yMDAgMTAwQzI0NS4yMjkgMTAwIDI4MCAxMTQuNzcxIDI4MCAxMzJDMjgwIDE0OS4yMjkgMjQ1LjIyOSAxNjQgMjAwIDE2NEMxNTQuNzcxIDE2NCAxMjAgMTQ5LjIyOSAxMjAgMTMyQzEyMCAxMTQuNzcxIDE1NC43NzEgMTAwIDIwMCAxMDBaIiBmaWxsPSIjNjY3RUVBIi8+CjxwYXRoIGQ9Ik0xMjAgMjAwSDI4MFYyODBIMTIwVjIwMFoiIGZpbGw9IiM2NjdFRUEiLz4KPC9zdmc+'">
+                        </div>
+                        
+                        <div class="product-info-section">
+                            <h1 class="product-name">${product.productName}</h1>
+                            <div class="product-price">¥${product.unitPrice}</div>
+                            
+                            <div class="product-stock">
+                                <div class="stock-indicator ${getStockClass(product.currentStock)}"></div>
+                                <div class="stock-info">
+                                    <div class="stock-text">${getStockText(product.currentStock)}</div>
+                                    <div class="stock-detail">当前库存: ${product.currentStock} 件</div>
+                                </div>
+                            </div>
+                            
+                            <div class="quantity-section">
+                                <label class="quantity-label">购买数量:</label>
+                                <div class="quantity-controls">
+                                    <button class="quantity-btn" onclick="changeQuantity(-1)" ${product.currentStock === 0 ? 'disabled' : ''}>-</button>
+                                    <input type="number" class="quantity-input" id="quantityInput" value="1" min="1" max="${product.currentStock}" onchange="updateQuantity()">
+                                    <button class="quantity-btn" onclick="changeQuantity(1)" ${product.currentStock === 0 ? 'disabled' : ''}>+</button>
+                                </div>
+                            </div>
+                            
+                            <div class="action-buttons">
+                                <button class="btn btn-primary" onclick="addToCart()" ${product.currentStock === 0 ? 'disabled' : ''}>
+                                    🛒 加入购物车
+                                </button>
+                                <button class="btn btn-secondary" onclick="buyNow()" ${product.currentStock === 0 ? 'disabled' : ''}>
+                                    💳 立即购买
+                                </button>
+                            </div>
+                            
+                            <div class="product-description">
+                                <div class="description-title">商品描述</div>
+                                <div class="description-text">
+                                    ${product.description || '暂无商品描述'}
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="inventory-info">
+                    <div class="inventory-title">📦 库存信息</div>
+                    <div class="inventory-details">
+                        <div class="inventory-item">
+                            <span class="inventory-label">当前库存:</span>
+                            <span class="inventory-value">${product.currentStock} 件</span>
+                        </div>
+                        <div class="inventory-item">
+                            <span class="inventory-label">锁定库存:</span>
+                            <span class="inventory-value">${product.lockedStock || 0} 件</span>
+                        </div>
+                        <div class="inventory-item">
+                            <span class="inventory-label">可用库存:</span>
+                            <span class="inventory-value">${product.currentStock - (product.lockedStock || 0)} 件</span>
+                        </div>
+                        <div class="inventory-item">
+                            <span class="inventory-label">最低库存预警:</span>
+                            <span class="inventory-value">${product.minStock || 0} 件</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            // 更新页面标题
+            document.title = `${product.productName} - 商品详情`;
+        }
+        
+        // 获取库存状态样式类
+        function getStockClass(stock) {
+            if (stock === 0) return 'stock-out';
+            if (stock < 10) return 'stock-low';
+            if (stock < 50) return 'stock-medium';
+            return 'stock-high';
+        }
+        
+        // 获取库存状态文本
+        function getStockText(stock) {
+            if (stock === 0) return '缺货';
+            if (stock < 10) return '库存不足';
+            if (stock < 50) return '库存充足';
+            return '库存充足';
+        }
+        
+        // 改变数量
+        function changeQuantity(delta) {
+            if (product.currentStock === 0) return;
+            
+            const newQuantity = quantity + delta;
+            if (newQuantity >= 1 && newQuantity <= product.currentStock) {
+                quantity = newQuantity;
+                document.getElementById('quantityInput').value = quantity;
+            }
+        }
+        
+        // 更新数量
+        function updateQuantity() {
+            const input = document.getElementById('quantityInput');
+            const newQuantity = parseInt(input.value) || 1;
+            
+            if (newQuantity < 1) {
+                quantity = 1;
+            } else if (newQuantity > product.currentStock) {
+                quantity = product.currentStock;
+            } else {
+                quantity = newQuantity;
+            }
+            
+            input.value = quantity;
+        }
+        
+        // 加入购物车
+        function addToCart() {
+            if (product.currentStock === 0) {
+                alert('商品缺货，无法加入购物车');
+                return;
+            }
+            
+            // TODO: 实现加入购物车功能
+            alert(`已将 ${quantity} 件 ${product.productName} 加入购物车`);
+        }
+        
+        // 立即购买
+        function buyNow() {
+            if (product.currentStock === 0) {
+                alert('商品缺货，无法购买');
+                return;
+            }
+            
+            // 跳转到创建订单页面，传递商品信息
+            const params = new URLSearchParams({
+                productId: product.id,
+                productName: product.productName,
+                unitPrice: product.unitPrice,
+                quantity: quantity,
+                productImage: product.productImage || ''
+            });
+            
+            window.location.href = `payment.html?${params.toString()}`;
+        }
+        
+        // 返回列表
+        function goBack() {
+            window.history.back();
+        }
+        
+        // 显示错误信息
+        function showError(message) {
+            const container = document.getElementById('productContainer');
+            container.innerHTML = `<div class="error">❌ ${message}</div>`;
+        }
+    </script>
+</body>
+</html>

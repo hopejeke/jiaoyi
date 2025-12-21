@@ -1,0 +1,14 @@
+# 本地配置文件示例
+# 复制此文件为 application-local.properties（不提交到 Git）
+# 并填入您的实际配置值
+
+# Stripe 配置
+# 从 https://dashboard.stripe.com/test/apikeys 获取测试密钥
+stripe.secret-key=sk_test_YOUR_SECRET_KEY_HERE
+stripe.publishable-key=pk_test_YOUR_PUBLISHABLE_KEY_HERE
+stripe.webhook-secret=whsec_YOUR_WEBHOOK_SECRET_HERE
+
+# 支付宝配置
+alipay.private-key=YOUR_ALIPAY_PRIVATE_KEY_HERE
+alipay.alipay-public-key=YOUR_ALIPAY_PUBLIC_KEY_HERE
+

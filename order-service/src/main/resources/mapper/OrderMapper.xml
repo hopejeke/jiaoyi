@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.OrderMapper">
+
+    <!-- 结果映射（在线点餐订单） -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.Order">
+        <id column="id" property="id"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="user_id" property="userId"/>
+        <result column="order_type" property="orderType" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="status" property="status"/>
+        <result column="local_status" property="localStatus"/>
+        <result column="kitchen_status" property="kitchenStatus"/>
+        <result column="order_price" property="orderPrice"/>
+        <result column="customer_info" property="customerInfo"/>
+        <result column="delivery_address" property="deliveryAddress"/>
+        <result column="notes" property="notes"/>
+        <result column="pos_order_id" property="posOrderId"/>
+        <result column="payment_method" property="paymentMethod"/>
+        <result column="payment_status" property="paymentStatus"/>
+        <result column="stripe_payment_intent_id" property="stripePaymentIntentId"/>
+        <result column="refund_amount" property="refundAmount"/>
+        <result column="refund_reason" property="refundReason"/>
+        <result column="delivery_id" property="deliveryId"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入订单（在线点餐） -->
+    <!-- 注意：已配置 ShardingSphere 的雪花算法主键生成策略 -->
+    <!-- ShardingSphere 会在 INSERT 时自动生成全局唯一的 ID 并填充到 order.id 中 -->
+    <!-- 注意：INSERT 语句中不包含 id 字段，让 ShardingSphere 自动生成并填充 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.Order" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO orders (
+            merchant_id, user_id, order_type, status, local_status, kitchen_status,
+            order_price, customer_info, delivery_address, notes,
+            pos_order_id, payment_method, payment_status, stripe_payment_intent_id,
+            refund_amount, refund_reason, version,
+            create_time, update_time
+        ) VALUES (
+            #{merchantId}, #{userId}, #{orderType, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{status}, #{localStatus}, #{kitchenStatus},
+            #{orderPrice}, #{customerInfo}, #{deliveryAddress}, #{notes},
+            #{posOrderId}, #{paymentMethod}, #{paymentStatus}, #{stripePaymentIntentId},
+            #{refundAmount}, #{refundReason}, #{version},
+            #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 根据ID查询订单 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE id = #{id}
+    </select>
+
+    <!-- 根据merchantId和id查询订单（在线点餐，包含分片键） -->
+    <select id="selectByMerchantIdAndId" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE merchant_id = #{merchantId} AND id = #{id}
+    </select>
+
+    <!-- 查询所有订单 -->
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT * FROM orders ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据用户ID查询订单列表 -->
+    <select id="selectByUserId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE user_id = #{userId} ORDER BY create_time DESC
+    </select>
+    
+    <!-- 根据merchantId查询所有订单 -->
+    <select id="selectByMerchantId" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE merchant_id = #{merchantId} ORDER BY create_time DESC
+    </select>
+    
+    <!-- 根据merchantId和status查询订单 -->
+    <select id="selectByMerchantIdAndStatus" resultMap="BaseResultMap">
+        SELECT * FROM orders 
+        WHERE merchant_id = #{merchantId} AND status = #{status} 
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据用户ID和状态查询订单列表（在线点餐：status 是 Integer） -->
+    <select id="selectByUserIdAndStatus" resultMap="BaseResultMap">
+        SELECT * FROM orders 
+        WHERE user_id = #{userId} AND status = #{status} 
+        ORDER BY create_time DESC
+    </select>
+    
+    <!-- 根据状态查询订单列表（在线点餐：status 是 Integer） -->
+    <select id="selectByStatus" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE status = #{status} ORDER BY create_time DESC
+    </select>
+    
+    <!-- 更新订单（使用乐观锁） -->
+    <update id="update" parameterType="com.jiaoyi.order.entity.Order">
+        UPDATE orders SET
+            order_type = #{orderType, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            status = #{status},
+            local_status = #{localStatus},
+            kitchen_status = #{kitchenStatus},
+            order_price = #{orderPrice},
+            customer_info = #{customerInfo},
+            delivery_address = #{deliveryAddress},
+            notes = #{notes},
+            pos_order_id = #{posOrderId},
+            payment_method = #{paymentMethod},
+            payment_status = #{paymentStatus},
+            stripe_payment_intent_id = #{stripePaymentIntentId},
+            refund_amount = #{refundAmount},
+            refund_reason = #{refundReason},
+            version = version + 1,
+            update_time = NOW()
+        WHERE id = #{id} AND merchant_id = #{merchantId} AND version = #{version}
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM orders WHERE id = #{id}
+        </selectKey>
+    </update>
+    
+    <!-- 更新订单状态（在线点餐：status 是 Integer） -->
+    <update id="updateStatus">
+        UPDATE orders SET status = #{status}, update_time = NOW() WHERE id = #{id}
+    </update>
+    
+    <!-- 删除订单（逻辑删除，在线点餐） -->
+    <update id="deleteById" parameterType="com.jiaoyi.order.entity.Order">
+        UPDATE orders SET
+            status = -1,
+            version = version + 1,
+            update_time = NOW()
+        WHERE id = #{id} AND merchant_id = #{merchantId} AND version = #{version}
+        <selectKey keyProperty="version" resultType="long" order="AFTER">
+            SELECT version FROM orders WHERE id = #{id}
+        </selectKey>
+    </update>
+    
+    <!-- 原子更新订单状态：只有当状态为1（已下单）时才更新为新状态（在线点餐） -->
+    <update id="updateStatusIfPending">
+        UPDATE orders SET status = #{newStatus}, update_time = NOW() 
+        WHERE id = #{id} AND status = #{oldStatus}
+    </update>
+    
+    <!-- 统计用户订单数量 -->
+    <select id="countByUserId" parameterType="long" resultType="long">
+        SELECT COUNT(*) FROM orders WHERE user_id = #{userId}
+    </select>
+    
+    <!-- 统计指定状态的订单数量（在线点餐：status 是 Integer） -->
+    <select id="countByStatus" resultType="long">
+        SELECT COUNT(*) FROM orders WHERE status = #{status}
+    </select>
+    
+    <!-- 查询超时订单（在线点餐：status = 1 表示已下单待支付） -->
+    <select id="selectTimeoutOrders" parameterType="java.time.LocalDateTime" resultMap="BaseResultMap">
+        SELECT * FROM orders 
+        WHERE status = 1 
+        AND create_time &lt; #{timeoutThreshold}
+        ORDER BY create_time ASC
+    </select>
+    
+    <!-- 更新订单的配送ID -->
+    <update id="updateDeliveryId">
+        UPDATE orders SET
+            delivery_id = #{deliveryId},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>
+

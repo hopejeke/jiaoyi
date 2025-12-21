@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.MerchantFeeConfigMapper">
+
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.MerchantFeeConfig">
+        <id column="id" property="id"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="delivery_fee_type" property="deliveryFeeType" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="delivery_fee_fixed" property="deliveryFeeFixed"/>
+        <result column="delivery_fee_percentage" property="deliveryFeePercentage"/>
+        <result column="delivery_fee_min" property="deliveryFeeMin"/>
+        <result column="delivery_fee_max" property="deliveryFeeMax"/>
+        <result column="delivery_fee_free_threshold" property="deliveryFeeFreeThreshold"/>
+        <result column="delivery_variable_rate" property="deliveryVariableRate"/>
+        <result column="delivery_zone_rate" property="deliveryZoneRate"/>
+        <result column="delivery_maximum_distance" property="deliveryMaximumDistance"/>
+        <result column="merchant_latitude" property="merchantLatitude"/>
+        <result column="merchant_longitude" property="merchantLongitude"/>
+        <result column="delivery_time_slots" property="deliveryTimeSlots"/>
+        <result column="tax_rate" property="taxRate"/>
+        <result column="tax_exempt" property="taxExempt"/>
+        <result column="online_service_fee_type" property="onlineServiceFeeType" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="online_service_fee_fixed" property="onlineServiceFeeFixed"/>
+        <result column="online_service_fee_percentage" property="onlineServiceFeePercentage"/>
+        <result column="online_service_fee_strategy" property="onlineServiceFeeStrategy"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <select id="selectByMerchantId" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM merchant_fee_config
+        WHERE merchant_id = #{merchantId}
+        LIMIT 1
+    </select>
+
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.MerchantFeeConfig" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO merchant_fee_config (
+            merchant_id, delivery_fee_type, delivery_fee_fixed, delivery_fee_percentage,
+            delivery_fee_min, delivery_fee_max, delivery_fee_free_threshold,
+            delivery_variable_rate, delivery_zone_rate, delivery_maximum_distance,
+            merchant_latitude, merchant_longitude, delivery_time_slots,
+            tax_rate, tax_exempt,
+            online_service_fee_type, online_service_fee_fixed, online_service_fee_percentage, online_service_fee_strategy,
+            version, create_time, update_time
+        ) VALUES (
+            #{merchantId}, #{deliveryFeeType, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{deliveryFeeFixed}, #{deliveryFeePercentage},
+            #{deliveryFeeMin}, #{deliveryFeeMax}, #{deliveryFeeFreeThreshold},
+            #{deliveryVariableRate}, #{deliveryZoneRate}, #{deliveryMaximumDistance},
+            #{merchantLatitude}, #{merchantLongitude}, #{deliveryTimeSlots},
+            #{taxRate}, #{taxExempt},
+            #{onlineServiceFeeType, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{onlineServiceFeeFixed}, #{onlineServiceFeePercentage}, #{onlineServiceFeeStrategy},
+            #{version}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <update id="update" parameterType="com.jiaoyi.order.entity.MerchantFeeConfig">
+        UPDATE merchant_fee_config
+        SET delivery_fee_type = #{deliveryFeeType},
+            delivery_fee_fixed = #{deliveryFeeFixed},
+            delivery_fee_percentage = #{deliveryFeePercentage},
+            delivery_fee_min = #{deliveryFeeMin},
+            delivery_fee_max = #{deliveryFeeMax},
+            delivery_fee_free_threshold = #{deliveryFeeFreeThreshold},
+            delivery_variable_rate = #{deliveryVariableRate},
+            delivery_zone_rate = #{deliveryZoneRate},
+            delivery_maximum_distance = #{deliveryMaximumDistance},
+            merchant_latitude = #{merchantLatitude},
+            merchant_longitude = #{merchantLongitude},
+            delivery_time_slots = #{deliveryTimeSlots},
+            tax_rate = #{taxRate},
+            tax_exempt = #{taxExempt},
+            online_service_fee_type = #{onlineServiceFeeType, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            online_service_fee_fixed = #{onlineServiceFeeFixed},
+            online_service_fee_percentage = #{onlineServiceFeePercentage},
+            online_service_fee_strategy = #{onlineServiceFeeStrategy},
+            version = #{version} + 1,
+            update_time = #{updateTime}
+        WHERE id = #{id} AND version = #{version}
+    </update>
+
+    <delete id="deleteByMerchantId" parameterType="string">
+        DELETE FROM merchant_fee_config
+        WHERE merchant_id = #{merchantId}
+    </delete>
+</mapper>
+

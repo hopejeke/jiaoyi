@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>库存缓存测试</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin-bottom: 30px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #555;
+        }
+        button {
+            background-color: #007bff;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background-color: #0056b3;
+        }
+        button:disabled {
+            background-color: #6c757d;
+            cursor: not-allowed;
+        }
+        .status {
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-weight: bold;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        .log {
+            background-color: #f8f9fa;
+            border: 1px solid #dee2e6;
+            border-radius: 4px;
+            padding: 15px;
+            margin-top: 15px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        input[type="number"] {
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px;
+        }
+        .form-group {
+            margin: 10px 0;
+        }
+        .form-group label {
+            display: inline-block;
+            width: 120px;
+            font-weight: bold;
+        }
+        .inventory-item {
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 15px;
+            margin: 10px 0;
+            background-color: #f9f9f9;
+        }
+        .inventory-item h4 {
+            margin-top: 0;
+            color: #333;
+        }
+        .inventory-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .detail-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 5px 0;
+            border-bottom: 1px solid #eee;
+        }
+        .detail-label {
+            font-weight: bold;
+            color: #666;
+        }
+        .detail-value {
+            color: #333;
+        }
+        .cache-info {
+            background-color: #e3f2fd;
+            border: 1px solid #2196f3;
+            border-radius: 4px;
+            padding: 10px;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📦 库存缓存测试</h1>
+        
+        <!-- 查询库存 -->
+        <div class="section">
+            <h3>🔍 查询库存信息</h3>
+            <div class="form-group">
+                <label>商品ID:</label>
+                <input type="number" id="productId" placeholder="输入商品ID" min="1" value="1">
+                <button onclick="queryInventory()">查询库存</button>
+            </div>
+            <div id="inventoryResult"></div>
+        </div>
+
+        <!-- 查询库存不足商品 -->
+        <div class="section">
+            <h3>⚠️ 库存不足商品</h3>
+            <button onclick="queryLowStockItems()">查询库存不足商品</button>
+            <div id="lowStockResult"></div>
+        </div>
+
+        <!-- 缓存管理 -->
+        <div class="section">
+            <h3>🔄 缓存管理</h3>
+            <div class="form-group">
+                <label>商品ID:</label>
+                <input type="number" id="refreshProductId" placeholder="输入商品ID" min="1" value="1">
+                <button onclick="refreshInventoryCache()">刷新库存缓存</button>
+            </div>
+            <button onclick="refreshLowStockCache()">刷新库存不足缓存</button>
+            <button onclick="clearAllCache()">清空所有缓存</button>
+            <div id="cacheResult"></div>
+        </div>
+
+        <!-- 缓存状态检查 -->
+        <div class="section">
+            <h3>📊 缓存状态</h3>
+            <div class="form-group">
+                <label>商品ID:</label>
+                <input type="number" id="statusProductId" placeholder="输入商品ID" min="1" value="1">
+                <button onclick="checkCacheStatus()">检查缓存状态</button>
+            </div>
+            <button onclick="getCacheStats()">获取缓存统计</button>
+            <div id="statusResult"></div>
+        </div>
+
+        <!-- 操作日志 -->
+        <div class="section">
+            <h3>📋 操作日志</h3>
+            <button onclick="clearLog()">清空日志</button>
+            <div id="log" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        const API_BASE = '/api/inventory-cache';
+        
+        function log(message, type = 'info') {
+            const logDiv = document.getElementById('log');
+            const timestamp = new Date().toLocaleString();
+            const logEntry = document.createElement('div');
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            logEntry.className = type;
+            logDiv.appendChild(logEntry);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        function showStatus(elementId, message, type) {
+            const statusDiv = document.getElementById(elementId);
+            statusDiv.innerHTML = `<div class="status ${type}">${message}</div>`;
+        }
+
+        async function queryInventory() {
+            const productId = document.getElementById('productId').value;
+            if (!productId) {
+                showStatus('inventoryResult', '请输入商品ID', 'error');
+                return;
+            }
+
+            try {
+                log(`正在查询库存信息，商品ID: ${productId}`);
+                const response = await fetch(`${API_BASE}/product/${productId}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const inventory = result.data;
+                    const fromCache = result.fromCache;
+                    const expireTime = result.cacheExpireTime;
+                    
+                    const html = `
+                        <div class="inventory-item">
+                            <h4>商品: ${inventory.productName || '未知商品'}</h4>
+                            <div class="inventory-details">
+                                <div class="detail-item">
+                                    <span class="detail-label">商品ID:</span>
+                                    <span class="detail-value">${inventory.productId}</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">当前库存:</span>
+                                    <span class="detail-value">${inventory.currentStock}</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">锁定库存:</span>
+                                    <span class="detail-value">${inventory.lockedStock}</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">可用库存:</span>
+                                    <span class="detail-value">${inventory.currentStock - inventory.lockedStock}</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">最低库存:</span>
+                                    <span class="detail-value">${inventory.minStock}</span>
+                                </div>
+                                <div class="detail-item">
+                                    <span class="detail-label">最大库存:</span>
+                                    <span class="detail-value">${inventory.maxStock}</span>
+                                </div>
+                            </div>
+                            <div class="cache-info">
+                                <strong>缓存信息:</strong> ${fromCache ? '来自缓存' : '来自数据库'} | 
+                                过期时间: ${expireTime > 0 ? expireTime + '秒' : '已过期'}
+                            </div>
+                        </div>
+                    `;
+                    
+                    document.getElementById('inventoryResult').innerHTML = html;
+                    log(`库存查询成功，商品ID: ${productId}，来源: ${fromCache ? '缓存' : '数据库'}`);
+                } else {
+                    showStatus('inventoryResult', result.message, 'error');
+                    log(`库存查询失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                const errorMsg = `查询库存失败: ${error.message}`;
+                showStatus('inventoryResult', errorMsg, 'error');
+                log(errorMsg, 'error');
+            }
+        }
+
+        async function queryLowStockItems() {
+            try {
+                log('正在查询库存不足商品列表');
+                const response = await fetch(`${API_BASE}/low-stock`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const items = result.data;
+                    let html = `<div class="status info">找到 ${items.length} 个库存不足的商品</div>`;
+                    
+                    if (items.length > 0) {
+                        items.forEach(item => {
+                            const availableStock = item.currentStock - item.lockedStock;
+                            html += `
+                                <div class="inventory-item">
+                                    <h4>${item.productName || '未知商品'}</h4>
+                                    <div class="inventory-details">
+                                        <div class="detail-item">
+                                            <span class="detail-label">商品ID:</span>
+                                            <span class="detail-value">${item.productId}</span>
+                                        </div>
+                                        <div class="detail-item">
+                                            <span class="detail-label">当前库存:</span>
+                                            <span class="detail-value">${item.currentStock}</span>
+                                        </div>
+                                        <div class="detail-item">
+                                            <span class="detail-label">锁定库存:</span>
+                                            <span class="detail-value">${item.lockedStock}</span>
+                                        </div>
+                                        <div class="detail-item">
+                                            <span class="detail-label">可用库存:</span>
+                                            <span class="detail-value" style="color: red;">${availableStock}</span>
+                                        </div>
+                                        <div class="detail-item">
+                                            <span class="detail-label">最低库存:</span>
+                                            <span class="detail-value">${item.minStock}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    document.getElementById('lowStockResult').innerHTML = html;
+                    log(`库存不足商品查询成功，数量: ${items.length}`);
+                } else {
+                    showStatus('lowStockResult', result.message, 'error');
+                    log(`库存不足商品查询失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                const errorMsg = `查询库存不足商品失败: ${error.message}`;
+                showStatus('lowStockResult', errorMsg, 'error');
+                log(errorMsg, 'error');
+            }
+        }
+
+        async function refreshInventoryCache() {
+            const productId = document.getElementById('refreshProductId').value;
+            if (!productId) {
+                showStatus('cacheResult', '请输入商品ID', 'error');
+                return;
+            }
+
+            try {
+                log(`正在刷新库存缓存，商品ID: ${productId}`);
+                const response = await fetch(`${API_BASE}/refresh/${productId}`, { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('cacheResult', result.message, 'success');
+                    log(`库存缓存刷新成功，商品ID: ${productId}`);
+                } else {
+                    showStatus('cacheResult', result.message, 'error');
+                    log(`库存缓存刷新失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                const errorMsg = `刷新库存缓存失败: ${error.message}`;
+                showStatus('cacheResult', errorMsg, 'error');
+                log(errorMsg, 'error');
+            }
+        }
+
+        async function refreshLowStockCache() {
+            try {
+                log('正在刷新库存不足商品列表缓存');
+                const response = await fetch(`${API_BASE}/refresh/low-stock`, { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('cacheResult', result.message, 'success');
+                    log('库存不足商品列表缓存刷新成功');
+                } else {
+                    showStatus('cacheResult', result.message, 'error');
+                    log(`库存不足商品列表缓存刷新失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                const errorMsg = `刷新库存不足商品列表缓存失败: ${error.message}`;
+                showStatus('cacheResult', errorMsg, 'error');
+                log(errorMsg, 'error');
+            }
+        }
+
+        async function clearAllCache() {
+            try {
+                log('正在清空所有库存缓存');
+                const response = await fetch(`${API_BASE}/clear`, { method: 'POST' });
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('cacheResult', result.message, 'success');
+                    log('所有库存缓存已清空');
+                } else {
+                    showStatus('cacheResult', result.message, 'error');
+                    log(`清空缓存失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                const errorMsg = `清空缓存失败: ${error.message}`;
+                showStatus('cacheResult', errorMsg, 'error');
+                log(errorMsg, 'error');
+            }
+        }
+
+        async function checkCacheStatus() {
+            const productId = document.getElementById('statusProductId').value;
+            if (!productId) {
+                showStatus('statusResult', '请输入商品ID', 'error');
+                return;
+            }
+
+            try {
+                log(`正在检查缓存状态，商品ID: ${productId}`);
+                const response = await fetch(`${API_BASE}/status/${productId}`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    const html = `
+                        <div class="status info">
+                            <strong>缓存状态信息:</strong><br>
+                            商品ID: ${result.productId}<br>
+                            缓存存在: ${result.hasCache ? '是' : '否'}<br>
+                            过期时间: ${result.expireTimeText}
+                        </div>
+                    `;
+                    document.getElementById('statusResult').innerHTML = html;
+                    log(`缓存状态检查成功，商品ID: ${productId}，缓存存在: ${result.hasCache}`);
+                } else {
+                    showStatus('statusResult', result.message, 'error');
+                    log(`缓存状态检查失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                const errorMsg = `检查缓存状态失败: ${error.message}`;
+                showStatus('statusResult', errorMsg, 'error');
+                log(errorMsg, 'error');
+            }
+        }
+
+        async function getCacheStats() {
+            try {
+                log('正在获取缓存统计信息');
+                const response = await fetch(`${API_BASE}/stats`);
+                const result = await response.json();
+                
+                if (result.success) {
+                    showStatus('statusResult', result.message, 'info');
+                    log('缓存统计信息获取成功');
+                } else {
+                    showStatus('statusResult', result.message, 'error');
+                    log(`获取缓存统计失败: ${result.message}`, 'error');
+                }
+            } catch (error) {
+                const errorMsg = `获取缓存统计失败: ${error.message}`;
+                showStatus('statusResult', errorMsg, 'error');
+                log(errorMsg, 'error');
+            }
+        }
+
+        function clearLog() {
+            document.getElementById('log').innerHTML = '';
+            log('日志已清空');
+        }
+
+        // 页面加载时自动查询一个库存信息
+        window.onload = function() {
+            log('页面加载完成，库存缓存测试页面已就绪');
+            queryInventory();
+        };
+    </script>
+</body>
+</html>
+
+

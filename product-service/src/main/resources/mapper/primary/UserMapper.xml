@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.primary.UserMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.User">
+        <id column="id" property="id"/>
+        <result column="email" property="email"/>
+        <result column="phone" property="phone"/>
+        <result column="country_code" property="countryCode"/>
+        <result column="name" property="name"/>
+        <result column="password" property="password"/>
+        <result column="avatar_url" property="avatarUrl"/>
+        <result column="status" property="status"/>
+        <result column="delivery_address" property="deliveryAddress"/>
+        <result column="stripe_customer_id" property="stripeCustomerId"/>
+        <result column="openid" property="openid"/>
+        <result column="unionid" property="unionid"/>
+        <result column="head_img_url" property="headImgUrl"/>
+        <result column="regist_channel" property="registChannel"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <sql id="Base_Column_List">
+        id, email, phone, country_code, name, password, avatar_url, status, delivery_address,
+        stripe_customer_id, openid, unionid, head_img_url, regist_channel, create_time, update_time
+    </sql>
+
+    <!-- 插入用户 -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.User" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO users (
+            email, phone, country_code, name, password, avatar_url, status, delivery_address,
+            stripe_customer_id, openid, unionid, head_img_url, regist_channel, create_time, update_time
+        ) VALUES (
+            #{email}, #{phone}, #{countryCode}, #{name}, #{password}, #{avatarUrl}, 
+            #{status}, #{deliveryAddress}, #{stripeCustomerId}, #{openid}, #{unionid}, 
+            #{headImgUrl}, #{registChannel}, NOW(), NOW()
+        )
+    </insert>
+
+    <!-- 根据ID查询用户 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM users
+        WHERE id = #{id}
+    </select>
+
+    <!-- 根据email查询用户 -->
+    <select id="selectByEmail" parameterType="string" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM users
+        WHERE email = #{email}
+    </select>
+
+    <!-- 根据phone查询用户 -->
+    <select id="selectByPhone" parameterType="string" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM users
+        WHERE phone = #{phone}
+    </select>
+
+    <!-- 根据openid查询用户 -->
+    <select id="selectByOpenid" parameterType="string" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM users
+        WHERE openid = #{openid}
+    </select>
+
+    <!-- 查询所有用户 -->
+    <select id="selectAll" resultMap="BaseResultMap">
+        SELECT
+        <include refid="Base_Column_List"/>
+        FROM users
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 更新用户 -->
+    <update id="update" parameterType="com.jiaoyi.product.entity.User">
+        UPDATE users SET
+            email = #{email},
+            phone = #{phone},
+            country_code = #{countryCode},
+            name = #{name},
+            <if test="password != null">
+                password = #{password},
+            </if>
+            avatar_url = #{avatarUrl},
+            status = #{status},
+            delivery_address = #{deliveryAddress},
+            stripe_customer_id = #{stripeCustomerId},
+            openid = #{openid},
+            unionid = #{unionid},
+            head_img_url = #{headImgUrl},
+            regist_channel = #{registChannel},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 删除用户 -->
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM users WHERE id = #{id}
+    </delete>
+
+</mapper>
+
