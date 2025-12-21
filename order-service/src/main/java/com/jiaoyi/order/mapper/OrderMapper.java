@@ -98,33 +98,11 @@ public interface OrderMapper {
     List<Order> selectTimeoutOrders(@Param("timeoutThreshold") LocalDateTime timeoutThreshold);
     
     /**
-     * 更新订单的配送信息（deliveryId 和 additionalData）
+     * 更新订单的配送ID
      */
-    int updateDeliveryInfo(
+    int updateDeliveryId(
             @Param("id") Long id,
-            @Param("deliveryId") String deliveryId,
-            @Param("additionalData") String additionalData
-    );
-    
-    /**
-     * 更新订单的配送费信息
-     */
-    int updateDeliveryFeeInfo(
-            @Param("id") Long id,
-            @Param("deliveryFeeQuoted") java.math.BigDecimal deliveryFeeQuoted,
-            @Param("deliveryFeeChargedToUser") java.math.BigDecimal deliveryFeeChargedToUser,
-            @Param("deliveryFeeBilled") java.math.BigDecimal deliveryFeeBilled,
-            @Param("deliveryFeeVariance") String deliveryFeeVariance
-    );
-    
-    /**
-     * 更新订单的报价信息（报价时间、报价ID）
-     */
-    int updateQuoteInfo(
-            @Param("id") Long id,
-            @Param("deliveryFeeQuoted") java.math.BigDecimal deliveryFeeQuoted,
-            @Param("deliveryFeeQuotedAt") LocalDateTime deliveryFeeQuotedAt,
-            @Param("deliveryFeeQuoteId") String deliveryFeeQuoteId
+            @Param("deliveryId") String deliveryId
     );
 }
 

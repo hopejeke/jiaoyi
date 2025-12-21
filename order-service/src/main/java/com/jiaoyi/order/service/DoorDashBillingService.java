@@ -2,7 +2,9 @@ package com.jiaoyi.order.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jiaoyi.order.entity.Order;
+import com.jiaoyi.order.entity.Delivery;
 import com.jiaoyi.order.mapper.OrderMapper;
+import com.jiaoyi.order.mapper.DeliveryMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,6 +29,7 @@ public class DoorDashBillingService {
     
     private final RestTemplate restTemplate;
     private final OrderMapper orderMapper;
+    private final DeliveryMapper deliveryMapper;
     private final ObjectMapper objectMapper;
     private final DeliveryFeeVarianceService varianceService;
     
@@ -184,6 +187,20 @@ public class DoorDashBillingService {
                     continue;
                 }
                 
+                // 查询配送记录
+                Delivery delivery = null;
+                if (order.getDeliveryId() != null && !order.getDeliveryId().isEmpty()) {
+                    delivery = deliveryMapper.selectById(order.getDeliveryId());
+                }
+                if (delivery == null) {
+                    delivery = deliveryMapper.selectByOrderId(orderId);
+                }
+                if (delivery == null) {
+                    log.warn("配送记录不存在，订单ID: {}", orderId);
+                    unmatchedCount++;
+                    continue;
+                }
+                
                 // 更新 delivery_fee_billed
                 BigDecimal billedFee = billItem.getDeliveryFee();
                 if (billItem.getWaitingFee() != null) {
@@ -198,20 +215,20 @@ public class DoorDashBillingService {
                 
                 // 计算差额并归因
                 BigDecimal variance = varianceService.calculateAndAttributeVariance(
-                        order,
+                        delivery,
                         billedFee,
                         billItem.getWaitingFee(),
                         billItem.getExtraFee(),
                         billItem.getCancellationFee()
                 );
                 
-                // 更新订单
-                orderMapper.updateDeliveryFeeInfo(
-                        orderId,
-                        order.getDeliveryFeeQuoted(),
-                        order.getDeliveryFeeChargedToUser(),
+                // 更新配送记录
+                deliveryMapper.updateDeliveryFeeInfo(
+                        delivery.getId(),
+                        delivery.getDeliveryFeeQuoted(),
+                        delivery.getDeliveryFeeChargedToUser(),
                         billedFee,
-                        varianceService.buildVarianceJson(order, billedFee, billItem)
+                        varianceService.buildVarianceJson(delivery, billedFee, billItem)
                 );
                 
                 matchedCount++;

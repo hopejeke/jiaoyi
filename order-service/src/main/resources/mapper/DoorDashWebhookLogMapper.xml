@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.DoorDashWebhookLogMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.DoorDashWebhookLog">
+        <id column="id" property="id"/>
+        <result column="event_id" property="eventId"/>
+        <result column="order_id" property="orderId"/>
+        <result column="delivery_id" property="deliveryId"/>
+        <result column="external_delivery_id" property="externalDeliveryId"/>
+        <result column="event_type" property="eventType" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="payload" property="payload"/>
+        <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="result" property="result"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="retry_count" property="retryCount"/>
+        <result column="processed_at" property="processedAt"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <!-- 插入 Webhook 事件日志 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.DoorDashWebhookLog" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO doordash_webhook_log (
+            event_id, order_id, delivery_id, external_delivery_id, event_type,
+            payload, status, result, error_message, retry_count, processed_at, create_time
+        ) VALUES (
+            #{eventId}, #{orderId}, #{deliveryId}, #{externalDeliveryId}, #{eventType, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            #{payload}, #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{result}, #{errorMessage}, #{retryCount}, #{processedAt}, #{createTime}
+        )
+    </insert>
+
+    <!-- 根据事件ID查询（用于幂等性检查） -->
+    <select id="selectByEventId" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM doordash_webhook_log 
+        WHERE event_id = #{eventId}
+        ORDER BY create_time DESC
+        LIMIT 1
+    </select>
+
+    <!-- 更新处理状态 -->
+    <update id="updateStatus">
+        UPDATE doordash_webhook_log
+        SET status = #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            result = #{result},
+            error_message = #{errorMessage},
+            retry_count = #{retryCount},
+            processed_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>
+

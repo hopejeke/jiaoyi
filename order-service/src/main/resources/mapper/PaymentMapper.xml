@@ -11,7 +11,7 @@
         <result column="status" property="status"/>
         <result column="type" property="type"/>
         <result column="category" property="category"/>
-        <result column="payment_service" property="paymentService"/>
+        <result column="payment_service" property="paymentService" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
         <result column="payment_no" property="paymentNo"/>
         <result column="third_party_trade_no" property="thirdPartyTradeNo"/>
         <result column="amount" property="amount"/>
@@ -33,7 +33,7 @@
             card_info, extra, stripe_payment_intent_id, version,
             create_time, update_time
         ) VALUES (
-            #{orderId}, #{transactionId}, #{merchantId}, #{status}, #{type}, #{category}, #{paymentService},
+            #{orderId}, #{transactionId}, #{merchantId}, #{status}, #{type}, #{category}, #{paymentService, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
             #{paymentNo}, #{thirdPartyTradeNo}, #{amount}, #{tipAmount}, #{orderPrice},
             #{cardInfo}, #{extra}, #{stripePaymentIntentId}, #{version},
             #{createTime}, #{updateTime}

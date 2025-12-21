@@ -1,5 +1,6 @@
 package com.jiaoyi.order.entity;
 
+import com.jiaoyi.order.enums.PaymentServiceEnum;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -52,9 +53,9 @@ public class Payment {
     private Integer category;
     
     /**
-     * 支付服务：STRIPE, ALIPAY, WECHAT_PAY, CASH
+     * 支付服务（枚举）
      */
-    private String paymentService;
+    private PaymentServiceEnum paymentService;
     
     /**
      * 支付流水号

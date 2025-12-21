@@ -5,7 +5,7 @@
     <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.MerchantFeeConfig">
         <id column="id" property="id"/>
         <result column="merchant_id" property="merchantId"/>
-        <result column="delivery_fee_type" property="deliveryFeeType"/>
+        <result column="delivery_fee_type" property="deliveryFeeType" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
         <result column="delivery_fee_fixed" property="deliveryFeeFixed"/>
         <result column="delivery_fee_percentage" property="deliveryFeePercentage"/>
         <result column="delivery_fee_min" property="deliveryFeeMin"/>
@@ -19,7 +19,7 @@
         <result column="delivery_time_slots" property="deliveryTimeSlots"/>
         <result column="tax_rate" property="taxRate"/>
         <result column="tax_exempt" property="taxExempt"/>
-        <result column="online_service_fee_type" property="onlineServiceFeeType"/>
+        <result column="online_service_fee_type" property="onlineServiceFeeType" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
         <result column="online_service_fee_fixed" property="onlineServiceFeeFixed"/>
         <result column="online_service_fee_percentage" property="onlineServiceFeePercentage"/>
         <result column="online_service_fee_strategy" property="onlineServiceFeeStrategy"/>
@@ -44,12 +44,12 @@
             online_service_fee_type, online_service_fee_fixed, online_service_fee_percentage, online_service_fee_strategy,
             version, create_time, update_time
         ) VALUES (
-            #{merchantId}, #{deliveryFeeType}, #{deliveryFeeFixed}, #{deliveryFeePercentage},
+            #{merchantId}, #{deliveryFeeType, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{deliveryFeeFixed}, #{deliveryFeePercentage},
             #{deliveryFeeMin}, #{deliveryFeeMax}, #{deliveryFeeFreeThreshold},
             #{deliveryVariableRate}, #{deliveryZoneRate}, #{deliveryMaximumDistance},
             #{merchantLatitude}, #{merchantLongitude}, #{deliveryTimeSlots},
             #{taxRate}, #{taxExempt},
-            #{onlineServiceFeeType}, #{onlineServiceFeeFixed}, #{onlineServiceFeePercentage}, #{onlineServiceFeeStrategy},
+            #{onlineServiceFeeType, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{onlineServiceFeeFixed}, #{onlineServiceFeePercentage}, #{onlineServiceFeeStrategy},
             #{version}, #{createTime}, #{updateTime}
         )
     </insert>
@@ -70,7 +70,7 @@
             delivery_time_slots = #{deliveryTimeSlots},
             tax_rate = #{taxRate},
             tax_exempt = #{taxExempt},
-            online_service_fee_type = #{onlineServiceFeeType},
+            online_service_fee_type = #{onlineServiceFeeType, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
             online_service_fee_fixed = #{onlineServiceFeeFixed},
             online_service_fee_percentage = #{onlineServiceFeePercentage},
             online_service_fee_strategy = #{onlineServiceFeeStrategy},

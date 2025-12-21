@@ -2,9 +2,12 @@ package com.jiaoyi.order.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jiaoyi.order.entity.Order;
+import com.jiaoyi.order.entity.Delivery;
 import com.jiaoyi.order.entity.DoorDashWebhookLog;
 import com.jiaoyi.order.enums.OrderStatusEnum;
+import com.jiaoyi.order.enums.DoorDashWebhookLogStatusEnum;
 import com.jiaoyi.order.mapper.OrderMapper;
+import com.jiaoyi.order.mapper.DeliveryMapper;
 import com.jiaoyi.order.mapper.DoorDashWebhookLogMapper;
 import com.jiaoyi.order.service.DoorDashService;
 import lombok.RequiredArgsConstructor;
@@ -27,6 +30,7 @@ import java.util.Map;
 public class DoorDashWebhookController {
     
     private final OrderMapper orderMapper;
+    private final DeliveryMapper deliveryMapper;
     private final DoorDashWebhookLogMapper webhookLogMapper;
     private final DoorDashService doorDashService;
     private final ObjectMapper objectMapper;
@@ -65,7 +69,7 @@ public class DoorDashWebhookController {
                 deliveryId = "MOCK_DD_" + System.currentTimeMillis();
                 
                 // 更新订单的 deliveryId
-                orderMapper.updateDeliveryInfo(orderId, deliveryId, null);
+                orderMapper.updateDeliveryId(orderId, deliveryId);
                 log.info("已为订单生成 Mock deliveryId: {}", deliveryId);
             }
             
@@ -213,13 +217,13 @@ public class DoorDashWebhookController {
                 existingLog = webhookLogMapper.selectByEventId(eventId);
                 if (existingLog != null) {
                     // 如果已处理成功，直接返回
-                    if ("SUCCESS".equals(existingLog.getStatus())) {
+                    if (DoorDashWebhookLogStatusEnum.SUCCESS.equals(existingLog.getStatus())) {
                         log.info("Webhook 事件已处理（幂等性检查），event_id: {}, 事件类型: {}, 订单ID: {}, 处理时间: {}", 
                                 eventId, eventType, existingLog.getOrderId(), existingLog.getProcessedAt());
                         return ResponseEntity.ok("OK");
                     }
                     // 如果正在处理中，等待或返回（避免并发处理）
-                    if ("PROCESSING".equals(existingLog.getStatus())) {
+                    if (DoorDashWebhookLogStatusEnum.PROCESSING.equals(existingLog.getStatus())) {
                         log.warn("Webhook 事件正在处理中（可能并发调用），event_id: {}, 事件类型: {}, 订单ID: {}", 
                                 eventId, eventType, existingLog.getOrderId());
                         // 可以选择等待或直接返回，让 DoorDash 重试
@@ -261,7 +265,7 @@ public class DoorDashWebhookController {
                 // 更新状态为处理中
                 webhookLogMapper.updateStatus(
                         webhookLog.getId(), 
-                        "PROCESSING", 
+                        DoorDashWebhookLogStatusEnum.PROCESSING, 
                         null, 
                         null,
                         webhookLog.getRetryCount() != null ? webhookLog.getRetryCount() + 1 : 1
@@ -274,7 +278,7 @@ public class DoorDashWebhookController {
                 webhookLog.setDeliveryId(deliveryId);
                 webhookLog.setExternalDeliveryId(externalDeliveryId);
                 webhookLog.setEventType(eventType);
-                webhookLog.setStatus("PROCESSING");
+                webhookLog.setStatus(DoorDashWebhookLogStatusEnum.PROCESSING);
                 webhookLog.setRetryCount(0);
                 webhookLog.setCreateTime(java.time.LocalDateTime.now());
                 try {
@@ -286,7 +290,7 @@ public class DoorDashWebhookController {
                     log.warn("插入 Webhook 日志失败（可能是并发插入），event_id: {}, 错误: {}", eventId, e.getMessage());
                     if (eventId != null && !eventId.isEmpty()) {
                         existingLog = webhookLogMapper.selectByEventId(eventId);
-                        if (existingLog != null && "SUCCESS".equals(existingLog.getStatus())) {
+                        if (existingLog != null && DoorDashWebhookLogStatusEnum.SUCCESS.equals(existingLog.getStatus())) {
                             log.info("并发插入时发现已处理成功的记录，event_id: {}", eventId);
                             return ResponseEntity.ok("OK");
                         }
@@ -312,7 +316,7 @@ public class DoorDashWebhookController {
                         
                         webhookLogMapper.updateStatus(
                                 webhookLog.getId(), 
-                                "SUCCESS", 
+                                DoorDashWebhookLogStatusEnum.SUCCESS, 
                                 objectMapper.writeValueAsString(result), 
                                 null,
                                 webhookLog.getRetryCount()
@@ -329,7 +333,7 @@ public class DoorDashWebhookController {
                     try {
                         webhookLogMapper.updateStatus(
                                 webhookLog.getId(), 
-                                "FAILED", 
+                                DoorDashWebhookLogStatusEnum.FAILED, 
                                 null, 
                                 e.getMessage(),
                                 webhookLog.getRetryCount()
@@ -522,18 +526,31 @@ public class DoorDashWebhookController {
     }
     
     /**
-     * 更新订单的 additionalData，保存 tracking_url、骑手信息、距离、ETA 等
+     * 更新配送记录的 additionalData，保存 tracking_url、骑手信息、距离、ETA 等
      */
     private void updateAdditionalData(Order order, Map<String, Object> data) {
         try {
+            // 获取配送记录
+            Delivery delivery = null;
+            if (order.getDeliveryId() != null && !order.getDeliveryId().isEmpty()) {
+                delivery = deliveryMapper.selectById(order.getDeliveryId());
+            }
+            if (delivery == null) {
+                delivery = deliveryMapper.selectByOrderId(order.getId());
+            }
+            if (delivery == null) {
+                log.warn("配送记录不存在，无法更新 additionalData，订单ID: {}", order.getId());
+                return;
+            }
+            
             Map<String, Object> additionalData = new HashMap<>();
             
-            // 如果订单已有 additionalData，先解析它
-            if (order.getAdditionalData() != null && !order.getAdditionalData().isEmpty()) {
+            // 如果配送记录已有 additionalData，先解析它
+            if (delivery.getAdditionalData() != null && !delivery.getAdditionalData().isEmpty()) {
                 try {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> existingData = objectMapper.readValue(
-                            order.getAdditionalData(), 
+                            delivery.getAdditionalData(), 
                             Map.class
                     );
                     additionalData.putAll(existingData);
@@ -573,14 +590,15 @@ public class DoorDashWebhookController {
             
             additionalData.put("deliveryInfo", deliveryInfo);
             
-            // 保存更新后的 additionalData
+            // 保存更新后的 additionalData 到配送记录
             String updatedAdditionalData = objectMapper.writeValueAsString(additionalData);
-            orderMapper.updateDeliveryInfo(order.getId(), order.getDeliveryId(), updatedAdditionalData);
+            delivery.setAdditionalData(updatedAdditionalData);
+            deliveryMapper.update(delivery);
             
-            log.info("订单 additionalData 更新成功，订单ID: {}", order.getId());
+            log.info("配送记录 additionalData 更新成功，订单ID: {}, 配送ID: {}", order.getId(), delivery.getId());
             
         } catch (Exception e) {
-            log.error("更新订单 additionalData 失败，订单ID: {}", order.getId(), e);
+            log.error("更新配送记录 additionalData 失败，订单ID: {}", order.getId(), e);
         }
     }
 }

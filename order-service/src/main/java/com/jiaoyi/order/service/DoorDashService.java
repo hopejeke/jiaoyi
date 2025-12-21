@@ -277,17 +277,19 @@ public class DoorDashService {
      * @param pickupAddress 商户地址
      * @param dropoffAddress 用户地址
      * @param tip 小费（可选）
+     * @param delivery 配送记录（可选，用于获取quoteId）
      * @return DoorDash 配送信息，包含 delivery_id、tracking_url、ETA 等
      */
     public DoorDashDeliveryResponse createDelivery(
             Order order,
             Map<String, Object> pickupAddress,
             Map<String, Object> dropoffAddress,
-            BigDecimal tip) {
+            BigDecimal tip,
+            com.jiaoyi.order.entity.Delivery delivery) {
         
         // 如果启用 Mock 模式或没有 API Key，使用模拟数据
         if (shouldUseMock()) {
-            return createDeliveryMock(order, pickupAddress, dropoffAddress, tip);
+            return createDeliveryMock(order, pickupAddress, dropoffAddress, tip, delivery);
         }
         
         log.info("创建 DoorDash 配送订单，订单ID: {}, 商户ID: {}", order.getId(), order.getMerchantId());
@@ -324,10 +326,13 @@ public class DoorDashService {
                 requestBody.put("special_instructions", order.getNotes());
             }
             
-            // 如果订单有 quote_id，在创建配送时传递 quote_id 来锁定价格
+            // 如果配送记录有 quote_id，在创建配送时传递 quote_id 来锁定价格
             // 注意：这需要 DoorDash API 支持在 createDelivery 时传递 quote_id
             // 如果不支持，应该使用 acceptQuote 方法
-            String quoteId = order.getDeliveryFeeQuoteId();
+            String quoteId = null;
+            if (delivery != null) {
+                quoteId = delivery.getDeliveryFeeQuoteId();
+            }
             if (quoteId != null && !quoteId.isEmpty()) {
                 requestBody.put("quote_id", quoteId);
                 log.info("创建配送订单时传递 quote_id 以锁定价格，订单ID: {}, quote_id: {}", order.getId(), quoteId);
@@ -575,7 +580,8 @@ public class DoorDashService {
             Order order,
             Map<String, Object> pickupAddress,
             Map<String, Object> dropoffAddress,
-            BigDecimal tip) {
+            BigDecimal tip,
+            com.jiaoyi.order.entity.Delivery delivery) {
         
         log.info("【MOCK】模拟创建 DoorDash 配送订单，订单ID: {}", order.getId());
         log.info("【MOCK】商户地址: {}", pickupAddress);

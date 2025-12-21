@@ -56,7 +56,12 @@ public class OrderService {
         Order tempOrder = new Order();
         tempOrder.setMerchantId(request.getMerchantId());
         tempOrder.setUserId(request.getUserId());
-        tempOrder.setOrderType(request.getOrderType());
+        // 将字符串转换为枚举
+        OrderTypeEnum orderTypeEnum = OrderTypeEnum.fromCode(request.getOrderType());
+        if (orderTypeEnum == null) {
+            throw new BusinessException("无效的订单类型: " + request.getOrderType());
+        }
+        tempOrder.setOrderType(orderTypeEnum);
 
         // 设置配送地址信息（用于计算配送费）
         try {
@@ -169,7 +174,11 @@ public class OrderService {
         BigDecimal deliveryFee;
         BigDecimal deliveryFeeQuoted = null; // DoorDash 报价
         
-        if ("DELIVERY".equalsIgnoreCase(request.getOrderType())) {
+        OrderTypeEnum orderTypeEnum = OrderTypeEnum.fromCode(request.getOrderType());
+        if (orderTypeEnum == null) {
+            throw new BusinessException("无效的订单类型: " + request.getOrderType());
+        }
+        if (OrderTypeEnum.DELIVERY.equals(orderTypeEnum)) {
             try {
                 // 【步骤1】先检查商家基础规则（距离、时段）
                 // 这会快速筛选掉不符合商家规则的地址，避免不必要的 DoorDash API 调用
@@ -319,7 +328,7 @@ public class OrderService {
         if (order.getUserId() == null) {
             throw new BusinessException("userId 不能为空");
         }
-        if (order.getOrderType() == null || order.getOrderType().isEmpty()) {
+        if (order.getOrderType() == null) {
             throw new BusinessException("orderType 不能为空");
         }
         

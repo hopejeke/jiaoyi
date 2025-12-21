@@ -1,7 +1,7 @@
 package com.jiaoyi.order.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.jiaoyi.order.entity.Order;
+import com.jiaoyi.order.entity.Delivery;
 import com.jiaoyi.order.service.DoorDashBillingService.DoorDashBillItem;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -25,7 +25,7 @@ public class DeliveryFeeVarianceService {
     /**
      * 计算并归因配送费差额
      * 
-     * @param order 订单
+     * @param delivery 配送记录
      * @param billedFee DoorDash 账单费用
      * @param waitingFee 等待费用（商户出餐慢）
      * @param extraFee 额外费用（用户改址等）
@@ -33,13 +33,13 @@ public class DeliveryFeeVarianceService {
      * @return 总差额
      */
     public BigDecimal calculateAndAttributeVariance(
-            Order order,
+            Delivery delivery,
             BigDecimal billedFee,
             BigDecimal waitingFee,
             BigDecimal extraFee,
             BigDecimal cancellationFee) {
         
-        BigDecimal quotedFee = order.getDeliveryFeeQuoted();
+        BigDecimal quotedFee = delivery.getDeliveryFeeQuoted();
         if (quotedFee == null) {
             quotedFee = BigDecimal.ZERO;
         }
@@ -48,7 +48,7 @@ public class DeliveryFeeVarianceService {
         BigDecimal totalVariance = billedFee.subtract(quotedFee);
         
         log.info("计算配送费差额，订单ID: {}, quoted_fee: {}, billed_fee: {}, variance: {}", 
-                order.getId(), quotedFee, billedFee, totalVariance);
+                delivery.getOrderId(), quotedFee, billedFee, totalVariance);
         
         return totalVariance;
     }
@@ -56,16 +56,16 @@ public class DeliveryFeeVarianceService {
     /**
      * 构建差额归因 JSON
      * 
-     * @param order 订单
+     * @param delivery 配送记录
      * @param billedFee DoorDash 账单费用
      * @param billItem 账单项
      * @return 差额归因 JSON 字符串
      */
-    public String buildVarianceJson(Order order, BigDecimal billedFee, DoorDashBillItem billItem) {
+    public String buildVarianceJson(Delivery delivery, BigDecimal billedFee, DoorDashBillItem billItem) {
         try {
             Map<String, Object> variance = new HashMap<>();
             
-            BigDecimal quotedFee = order.getDeliveryFeeQuoted();
+            BigDecimal quotedFee = delivery.getDeliveryFeeQuoted();
             if (quotedFee == null) {
                 quotedFee = BigDecimal.ZERO;
             }
@@ -119,10 +119,14 @@ public class DeliveryFeeVarianceService {
             return objectMapper.writeValueAsString(variance);
             
         } catch (Exception e) {
-            log.error("构建差额归因 JSON 失败，订单ID: {}", order.getId(), e);
+            log.error("构建差额归因 JSON 失败，订单ID: {}", delivery.getOrderId(), e);
             return "{}";
         }
     }
 }
+
+
+
+
 
 

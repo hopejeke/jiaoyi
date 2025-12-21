@@ -49,70 +49,13 @@ public class StoreProductController {
     
     /**
      * 根据ID获取店铺商品详情
-     * @deprecated 建议使用通过 merchantId 和 productId 查询的接口，避免查询所有分片
      */
     @GetMapping("/{id}")
-    @Deprecated
     public ResponseEntity<ApiResponse<StoreProduct>> getStoreProductById(@PathVariable Long id) {
         log.info("获取店铺商品详情，ID: {}", id);
         Optional<StoreProduct> storeProduct = storeProductService.getStoreProductById(id);
         return storeProduct.map(value -> ResponseEntity.ok(ApiResponse.success("查询成功", value)))
                 .orElseGet(() -> ResponseEntity.ok(ApiResponse.error(404, "商品不存在")));
-    }
-    
-    /**
-     * 通过商户ID获取该商户的所有商品（推荐，包含分片键，性能更好）
-     */
-    @GetMapping("/merchant/{merchantId}")
-    public ResponseEntity<ApiResponse<List<StoreProduct>>> getStoreProductsByMerchantId(
-            @PathVariable String merchantId) {
-        log.info("通过商户ID获取商品列表，商户ID: {}", merchantId);
-        
-        try {
-            // 先通过 merchantId 找到 storeId
-            Long storeId = storeProductService.getStoreIdByMerchantId(merchantId);
-            if (storeId == null) {
-                log.warn("商户不存在，商户ID: {}", merchantId);
-                return ResponseEntity.ok(ApiResponse.error(404, "商户不存在"));
-            }
-            
-            log.info("查询商品列表，商户ID: {}, 店铺ID: {}", merchantId, storeId);
-            
-            // 使用包含分片键的查询（推荐，性能更好）
-            List<StoreProduct> storeProducts = storeProductService.getStoreProductsFromDb(storeId);
-            log.info("查询到商品数量: {}, 店铺ID: {}", storeProducts != null ? storeProducts.size() : 0, storeId);
-            return ResponseEntity.ok(ApiResponse.success("查询成功", storeProducts));
-        } catch (Exception e) {
-            log.error("查询商品列表失败，商户ID: {}", merchantId, e);
-            return ResponseEntity.ok(ApiResponse.error(500, "查询失败: " + e.getMessage()));
-        }
-    }
-    
-    /**
-     * 通过商户ID和商品ID获取商品信息（推荐，包含分片键，性能更好）
-     */
-    @GetMapping("/merchant/{merchantId}/{productId}")
-    public ResponseEntity<ApiResponse<StoreProduct>> getStoreProductByMerchantIdAndId(
-            @PathVariable String merchantId,
-            @PathVariable Long productId) {
-        log.info("通过商户ID和商品ID获取商品信息，商户ID: {}, 商品ID: {}", merchantId, productId);
-        
-        try {
-            // 先通过 merchantId 找到 storeId
-            Long storeId = storeProductService.getStoreIdByMerchantId(merchantId);
-            if (storeId == null) {
-                log.warn("商户不存在，商户ID: {}", merchantId);
-                return ResponseEntity.ok(ApiResponse.error(404, "商户不存在"));
-            }
-            
-            // 使用包含分片键的查询（推荐，性能更好）
-            Optional<StoreProduct> storeProduct = storeProductService.getStoreProductByIdFromDb(storeId, productId);
-            return storeProduct.map(value -> ResponseEntity.ok(ApiResponse.success("查询成功", value)))
-                    .orElseGet(() -> ResponseEntity.ok(ApiResponse.error(404, "商品不存在")));
-        } catch (Exception e) {
-            log.error("查询商品失败，商户ID: {}, 商品ID: {}", merchantId, productId, e);
-            return ResponseEntity.ok(ApiResponse.error(500, "查询失败: " + e.getMessage()));
-        }
     }
     
     /**
@@ -273,7 +216,7 @@ public class StoreProductController {
      * 用于商家后台页面，确保修改后立即看到最新数据
      * 如果提供了storeId，使用包含分片键的查询（推荐）
      */
-    @GetMapping("/merchant/product/{id}")
+    @GetMapping("/merchant/{id}")
     public ResponseEntity<ApiResponse<StoreProduct>> getStoreProductByIdForMerchant(
             @PathVariable Long id,
             @RequestParam(required = false) Long storeId) {

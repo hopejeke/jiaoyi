@@ -24,3 +24,7 @@ ALTER TABLE merchant_fee_config_2 ADD COLUMN delivery_time_slots TEXT COMMENT '�
 -- 3. 如果字段为空或 NULL，表示全天可配送
 
 
+
+
+
+

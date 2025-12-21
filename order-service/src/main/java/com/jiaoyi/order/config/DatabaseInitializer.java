@@ -176,6 +176,9 @@ public class DatabaseInitializer {
             // 创建商户费用配置表分片
             createMerchantFeeConfigTables(stmt, dbIndex);
             
+            // 创建配送表分片
+            createDeliveriesTables(stmt, dbIndex);
+            
             // 注意：coupon_usage 表属于 coupon-service，不在 order-service 中创建
             // 如果需要，可以在 coupon-service 的 DatabaseInitializer 中创建
             
@@ -207,14 +210,7 @@ public class DatabaseInitializer {
                     "stripe_payment_intent_id VARCHAR(200) COMMENT 'Stripe支付意图ID', " +
                     "refund_amount DECIMAL(10,2) COMMENT '退款金额', " +
                     "refund_reason VARCHAR(500) COMMENT '退款原因', " +
-                    "delivery_id VARCHAR(100) COMMENT 'DoorDash配送ID', " +
-                    "delivery_fee_quoted DECIMAL(10,2) COMMENT 'DoorDash报价费用', " +
-                    "delivery_fee_quoted_at DATETIME COMMENT 'DoorDash报价时间（用于检查报价是否过期）', " +
-                    "delivery_fee_quote_id VARCHAR(100) COMMENT 'DoorDash报价ID（quote_id，用于接受报价）', " +
-                    "delivery_fee_charged_to_user DECIMAL(10,2) COMMENT '用户实际支付的配送费', " +
-                    "delivery_fee_billed DECIMAL(10,2) COMMENT 'DoorDash账单费用', " +
-                    "delivery_fee_variance TEXT COMMENT '配送费差额归因（JSON）', " +
-                    "additional_data TEXT COMMENT '额外数据（JSON，包含deliveryInfo和priceInfo）', " +
+                    "delivery_id VARCHAR(100) COMMENT 'DoorDash配送ID（外键，关联deliveries.id）', " +
                     "version BIGINT NOT NULL DEFAULT 0 COMMENT '版本号（乐观锁）', " +
                     "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
                     "update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
@@ -245,16 +241,9 @@ public class DatabaseInitializer {
                 }
                 rs.close();
                 
-                // 添加 DoorDash 相关字段（如果不存在）
+                // 添加 delivery_id 字段（如果不存在）
                 String[] alterStatements = {
-                    "ALTER TABLE " + tableName + " ADD COLUMN delivery_id VARCHAR(100) COMMENT 'DoorDash配送ID'",
-                    "ALTER TABLE " + tableName + " ADD COLUMN delivery_fee_quoted DECIMAL(10,2) COMMENT 'DoorDash报价费用'",
-                    "ALTER TABLE " + tableName + " ADD COLUMN delivery_fee_quoted_at DATETIME COMMENT 'DoorDash报价时间（用于检查报价是否过期）'",
-                    "ALTER TABLE " + tableName + " ADD COLUMN delivery_fee_quote_id VARCHAR(100) COMMENT 'DoorDash报价ID（quote_id，用于接受报价）'",
-                    "ALTER TABLE " + tableName + " ADD COLUMN delivery_fee_charged_to_user DECIMAL(10,2) COMMENT '用户实际支付的配送费'",
-                    "ALTER TABLE " + tableName + " ADD COLUMN delivery_fee_billed DECIMAL(10,2) COMMENT 'DoorDash账单费用'",
-                    "ALTER TABLE " + tableName + " ADD COLUMN delivery_fee_variance TEXT COMMENT '配送费差额归因（JSON）'",
-                    "ALTER TABLE " + tableName + " ADD COLUMN additional_data TEXT COMMENT '额外数据（JSON，包含deliveryInfo和priceInfo）'"
+                    "ALTER TABLE " + tableName + " ADD COLUMN delivery_id VARCHAR(100) COMMENT 'DoorDash配送ID（外键，关联deliveries.id）'"
                 };
                 
                 for (String sql : alterStatements) {
@@ -730,6 +719,44 @@ public class DatabaseInitializer {
      * 创建 DoorDash Webhook 事件日志表（用于幂等性去重）
      * 基于 event_id 去重，记录每次 Webhook 回调
      */
+    /**
+     * 创建配送表分片（deliveries）
+     */
+    private void createDeliveriesTables(Statement stmt, int dbIndex) throws Exception {
+        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+            String tableName = "deliveries_" + tableIndex;
+            String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
+                    "id VARCHAR(100) NOT NULL PRIMARY KEY COMMENT '配送ID（DoorDash 返回的 delivery_id）', " +
+                    "order_id BIGINT NOT NULL COMMENT '订单ID（关联orders.id）', " +
+                    "merchant_id VARCHAR(50) NOT NULL COMMENT '商户ID（分片键）', " +
+                    "external_delivery_id VARCHAR(100) COMMENT '外部订单ID（external_delivery_id，格式：order_123）', " +
+                    "status VARCHAR(20) NOT NULL DEFAULT 'CREATED' COMMENT 'DoorDash 配送状态：CREATED, ASSIGNED, PICKED_UP, DELIVERED, CANCELLED, FAILED', " +
+                    "delivery_fee_quoted DECIMAL(10,2) COMMENT 'DoorDash 报价费用', " +
+                    "delivery_fee_quoted_at DATETIME COMMENT 'DoorDash 报价时间（用于检查报价是否过期）', " +
+                    "delivery_fee_quote_id VARCHAR(100) COMMENT 'DoorDash 报价ID（quote_id，用于接受报价）', " +
+                    "delivery_fee_charged_to_user DECIMAL(10,2) COMMENT '用户实际支付的配送费', " +
+                    "delivery_fee_billed DECIMAL(10,2) COMMENT 'DoorDash 账单费用', " +
+                    "delivery_fee_variance TEXT COMMENT '配送费差额归因（JSON）', " +
+                    "tracking_url VARCHAR(500) COMMENT 'DoorDash 配送跟踪 URL', " +
+                    "distance_miles DECIMAL(10,2) COMMENT '配送距离（英里）', " +
+                    "eta_minutes INT COMMENT '预计送达时间（分钟）', " +
+                    "driver_name VARCHAR(100) COMMENT '骑手姓名', " +
+                    "driver_phone VARCHAR(20) COMMENT '骑手电话', " +
+                    "additional_data TEXT COMMENT '额外数据（JSON，包含deliveryInfo和priceInfo）', " +
+                    "version BIGINT NOT NULL DEFAULT 0 COMMENT '版本号（乐观锁）', " +
+                    "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
+                    "update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
+                    "INDEX idx_order_id (order_id), " +
+                    "INDEX idx_merchant_id (merchant_id), " +
+                    "INDEX idx_external_delivery_id (external_delivery_id), " +
+                    "INDEX idx_status (status), " +
+                    "INDEX idx_create_time (create_time)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='配送表_库" + dbIndex + "_分片" + tableIndex + "'";
+            stmt.executeUpdate(createTableSql);
+        }
+        log.info("✓ 配送表分片创建完成（3个分片表）");
+    }
+    
     private void createDoorDashWebhookLogTable(Connection conn, DatabaseMetaData metaData) {
         try (Statement stmt = conn.createStatement()) {
             // 检查表是否存在

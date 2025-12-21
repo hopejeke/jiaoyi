@@ -4,11 +4,13 @@ import com.jiaoyi.common.annotation.PreventDuplicateSubmission;
 import com.jiaoyi.common.ApiResponse;
 import com.jiaoyi.order.dto.*;
 import com.jiaoyi.order.entity.Order;
+import com.jiaoyi.order.entity.Delivery;
 import com.jiaoyi.order.entity.OrderItem;
 import com.jiaoyi.order.service.OrderService;
 import com.jiaoyi.order.service.PaymentService;
 import com.jiaoyi.order.service.DoorDashService;
 import com.jiaoyi.order.client.ProductServiceClient;
+import com.jiaoyi.order.mapper.DeliveryMapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +38,7 @@ public class OrderController {
     private final ObjectMapper objectMapper;
     private final ProductServiceClient productServiceClient;
     private final DoorDashService doorDashService;
+    private final DeliveryMapper deliveryMapper;
     
     /**
      * 计算订单价格（预览价格，不创建订单）
@@ -496,12 +499,19 @@ public class OrderController {
             response.put("dasherName", status.getDasherName());
             response.put("dasherPhone", status.getDasherPhone());
             
-            // 从 additionalData 中获取更多信息
-            if (order.getAdditionalData() != null && !order.getAdditionalData().isEmpty()) {
+            // 从配送记录的 additionalData 中获取更多信息
+            Delivery delivery = null;
+            if (order.getDeliveryId() != null && !order.getDeliveryId().isEmpty()) {
+                delivery = deliveryMapper.selectById(order.getDeliveryId());
+            }
+            if (delivery == null) {
+                delivery = deliveryMapper.selectByOrderId(orderId);
+            }
+            if (delivery != null && delivery.getAdditionalData() != null && !delivery.getAdditionalData().isEmpty()) {
                 try {
                     @SuppressWarnings("unchecked")
                     Map<String, Object> additionalData = objectMapper.readValue(
-                            order.getAdditionalData(), 
+                            delivery.getAdditionalData(), 
                             Map.class
                     );
                     @SuppressWarnings("unchecked")

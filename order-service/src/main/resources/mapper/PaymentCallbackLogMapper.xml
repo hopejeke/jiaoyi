@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.PaymentCallbackLogMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.PaymentCallbackLog">
+        <id column="id" property="id"/>
+        <result column="order_id" property="orderId"/>
+        <result column="payment_id" property="paymentId"/>
+        <result column="third_party_trade_no" property="thirdPartyTradeNo"/>
+        <result column="payment_service" property="paymentService" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="callback_data" property="callbackData"/>
+        <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="result" property="result"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="processed_at" property="processedAt"/>
+        <result column="create_time" property="createTime"/>
+    </resultMap>
+
+    <!-- 插入支付回调日志 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.PaymentCallbackLog" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO payment_callback_log (
+            order_id, payment_id, third_party_trade_no, payment_service,
+            callback_data, status, result, error_message, processed_at, create_time
+        ) VALUES (
+            #{orderId}, #{paymentId}, #{thirdPartyTradeNo}, #{paymentService, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            #{callbackData}, #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{result}, #{errorMessage}, #{processedAt}, #{createTime}
+        )
+    </insert>
+
+    <!-- 根据第三方交易号查询（用于幂等性检查） -->
+    <select id="selectByThirdPartyTradeNo" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM payment_callback_log 
+        WHERE third_party_trade_no = #{thirdPartyTradeNo}
+        ORDER BY create_time DESC
+        LIMIT 1
+    </select>
+
+    <!-- 更新处理状态 -->
+    <update id="updateStatus">
+        UPDATE payment_callback_log
+        SET status = #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            result = #{result},
+            error_message = #{errorMessage},
+            processed_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>
+

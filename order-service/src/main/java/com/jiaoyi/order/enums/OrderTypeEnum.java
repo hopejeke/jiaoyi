@@ -1,28 +1,33 @@
 package com.jiaoyi.order.enums;
 
 /**
- * 支付类型枚举
+ * 订单类型枚举
  */
-public enum PaymentTypeEnum {
+public enum OrderTypeEnum {
     /**
-     * 扣款
+     * 自取
      */
-    CHARGE(100, "扣款"),
+    PICKUP("PICKUP", "自取"),
     
     /**
-     * 退款
+     * 配送
      */
-    REFUND(200, "退款");
+    DELIVERY("DELIVERY", "配送"),
     
-    private final Integer code;
+    /**
+     * 堂食
+     */
+    SELF_DINE_IN("SELF_DINE_IN", "堂食");
+    
+    private final String code;
     private final String description;
     
-    PaymentTypeEnum(Integer code, String description) {
+    OrderTypeEnum(String code, String description) {
         this.code = code;
         this.description = description;
     }
     
-    public Integer getCode() {
+    public String getCode() {
         return code;
     }
     
@@ -33,19 +38,18 @@ public enum PaymentTypeEnum {
     /**
      * 根据代码获取枚举
      */
-    public static PaymentTypeEnum fromCode(Integer code) {
+    public static OrderTypeEnum fromCode(String code) {
         if (code == null) {
             return null;
         }
-        for (PaymentTypeEnum type : values()) {
-            if (type.code.equals(code)) {
+        for (OrderTypeEnum type : values()) {
+            if (type.code.equalsIgnoreCase(code)) {
                 return type;
             }
         }
         return null;
     }
 }
-
 
 
 

@@ -1,5 +1,7 @@
 package com.jiaoyi.order.entity;
 
+import com.jiaoyi.order.enums.DeliveryFeeTypeEnum;
+import com.jiaoyi.order.enums.OnlineServiceFeeTypeEnum;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
@@ -27,9 +29,9 @@ public class MerchantFeeConfig {
     private String merchantId;
     
     /**
-     * 配送费类型：FLAT_RATE-固定费率，VARIABLE_RATE-按距离可变费率，ZONE_RATE-按邮编区域费率
+     * 配送费类型（枚举）
      */
-    private String deliveryFeeType;
+    private DeliveryFeeTypeEnum deliveryFeeType;
     
     /**
      * 配送费固定金额（元，FLAT_RATE 时使用）
@@ -103,9 +105,9 @@ public class MerchantFeeConfig {
     private Boolean taxExempt;
     
     /**
-     * 在线服务费类型：FIXED-固定费用，PERCENTAGE-百分比，NONE-无
+     * 在线服务费类型（枚举）
      */
-    private String onlineServiceFeeType;
+    private OnlineServiceFeeTypeEnum onlineServiceFeeType;
     
     /**
      * 在线服务费固定金额（元）

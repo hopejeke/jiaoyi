@@ -44,3 +44,7 @@ SELECT 'merchant_012 已插入到 jiaoyi_0.merchants_0' AS status;
 SELECT * FROM jiaoyi_0.merchants_0 WHERE merchant_id = 'merchant_012';
 
 
+
+
+
+

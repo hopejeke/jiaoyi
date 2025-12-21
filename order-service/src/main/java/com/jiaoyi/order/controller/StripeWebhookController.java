@@ -171,11 +171,9 @@ public class StripeWebhookController {
                 com.stripe.model.StripeObject obj = dataObject.get();
                 log.info("事件数据对象类型: {}", obj.getClass().getName());
                 
-                if (obj instanceof PaymentIntent) {
-                    PaymentIntent paymentIntent = (PaymentIntent) obj;
+                if (obj instanceof PaymentIntent paymentIntent) {
                     paymentIntentId = paymentIntent.getId();
                     orderIdStr = paymentIntent.getMetadata() != null ? paymentIntent.getMetadata().get("orderId") : null;
-                    latestChargeId = paymentIntent.getLatestCharge();
                     log.info("成功从 getDataObjectDeserializer 获取 PaymentIntent，ID: {}", paymentIntentId);
                 } else {
                     log.warn("事件数据对象不是 PaymentIntent 类型，实际类型: {}", obj.getClass().getName());

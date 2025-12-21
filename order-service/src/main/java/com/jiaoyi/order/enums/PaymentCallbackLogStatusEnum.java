@@ -1,33 +1,33 @@
 package com.jiaoyi.order.enums;
 
 /**
- * 支付状态枚举
+ * 支付回调日志状态枚举
  */
-public enum PaymentStatusEnum {
+public enum PaymentCallbackLogStatusEnum {
     /**
-     * 待支付
+     * 处理中
      */
-    PENDING(0, "待支付"),
+    PROCESSING("PROCESSING", "处理中"),
     
     /**
-     * 支付成功
+     * 处理成功
      */
-    SUCCESS(100, "支付成功"),
+    SUCCESS("SUCCESS", "处理成功"),
     
     /**
-     * 支付失败
+     * 处理失败
      */
-    FAILED(200, "支付失败");
+    FAILED("FAILED", "处理失败");
     
-    private final Integer code;
+    private final String code;
     private final String description;
     
-    PaymentStatusEnum(Integer code, String description) {
+    PaymentCallbackLogStatusEnum(String code, String description) {
         this.code = code;
         this.description = description;
     }
     
-    public Integer getCode() {
+    public String getCode() {
         return code;
     }
     
@@ -38,11 +38,11 @@ public enum PaymentStatusEnum {
     /**
      * 根据代码获取枚举
      */
-    public static PaymentStatusEnum fromCode(Integer code) {
+    public static PaymentCallbackLogStatusEnum fromCode(String code) {
         if (code == null) {
             return null;
         }
-        for (PaymentStatusEnum status : values()) {
+        for (PaymentCallbackLogStatusEnum status : values()) {
             if (status.code.equals(code)) {
                 return status;
             }
@@ -50,7 +50,6 @@ public enum PaymentStatusEnum {
         return null;
     }
 }
-
 
 
 

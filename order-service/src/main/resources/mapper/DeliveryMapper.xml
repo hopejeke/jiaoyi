@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.DeliveryMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.Delivery">
+        <id column="id" property="id"/>
+        <result column="order_id" property="orderId"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="external_delivery_id" property="externalDeliveryId"/>
+        <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="delivery_fee_quoted" property="deliveryFeeQuoted"/>
+        <result column="delivery_fee_quoted_at" property="deliveryFeeQuotedAt"/>
+        <result column="delivery_fee_quote_id" property="deliveryFeeQuoteId"/>
+        <result column="delivery_fee_charged_to_user" property="deliveryFeeChargedToUser"/>
+        <result column="delivery_fee_billed" property="deliveryFeeBilled"/>
+        <result column="delivery_fee_variance" property="deliveryFeeVariance"/>
+        <result column="tracking_url" property="trackingUrl"/>
+        <result column="distance_miles" property="distanceMiles"/>
+        <result column="eta_minutes" property="etaMinutes"/>
+        <result column="driver_name" property="driverName"/>
+        <result column="driver_phone" property="driverPhone"/>
+        <result column="additional_data" property="additionalData"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入配送记录 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.Delivery">
+        INSERT INTO deliveries (
+            id, order_id, merchant_id, external_delivery_id, status,
+            delivery_fee_quoted, delivery_fee_quoted_at, delivery_fee_quote_id,
+            delivery_fee_charged_to_user, delivery_fee_billed, delivery_fee_variance,
+            tracking_url, distance_miles, eta_minutes, driver_name, driver_phone,
+            additional_data, version, create_time, update_time
+        ) VALUES (
+            #{id}, #{orderId}, #{merchantId}, #{externalDeliveryId}, #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            #{deliveryFeeQuoted}, #{deliveryFeeQuotedAt}, #{deliveryFeeQuoteId},
+            #{deliveryFeeChargedToUser}, #{deliveryFeeBilled}, #{deliveryFeeVariance},
+            #{trackingUrl}, #{distanceMiles}, #{etaMinutes}, #{driverName}, #{driverPhone},
+            #{additionalData}, #{version}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 根据配送ID查询 -->
+    <select id="selectById" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM deliveries WHERE id = #{id}
+    </select>
+
+    <!-- 根据订单ID查询 -->
+    <select id="selectByOrderId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM deliveries WHERE order_id = #{orderId} LIMIT 1
+    </select>
+
+    <!-- 根据外部订单ID查询 -->
+    <select id="selectByExternalDeliveryId" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM deliveries WHERE external_delivery_id = #{externalDeliveryId} LIMIT 1
+    </select>
+
+    <!-- 更新配送信息 -->
+    <update id="update" parameterType="com.jiaoyi.order.entity.Delivery">
+        UPDATE deliveries SET
+            status = #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            delivery_fee_quoted = #{deliveryFeeQuoted},
+            delivery_fee_quoted_at = #{deliveryFeeQuotedAt},
+            delivery_fee_quote_id = #{deliveryFeeQuoteId},
+            delivery_fee_charged_to_user = #{deliveryFeeChargedToUser},
+            delivery_fee_billed = #{deliveryFeeBilled},
+            delivery_fee_variance = #{deliveryFeeVariance},
+            tracking_url = #{trackingUrl},
+            distance_miles = #{distanceMiles},
+            eta_minutes = #{etaMinutes},
+            driver_name = #{driverName},
+            driver_phone = #{driverPhone},
+            additional_data = #{additionalData},
+            version = #{version} + 1,
+            update_time = NOW()
+        WHERE id = #{id} AND version = #{version}
+    </update>
+
+    <!-- 更新配送状态 -->
+    <update id="updateStatus">
+        UPDATE deliveries SET
+            status = #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新配送跟踪信息 -->
+    <update id="updateTrackingInfo">
+        UPDATE deliveries SET
+            tracking_url = #{trackingUrl},
+            distance_miles = #{distanceMiles},
+            eta_minutes = #{etaMinutes},
+            driver_name = #{driverName},
+            driver_phone = #{driverPhone},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新配送费信息 -->
+    <update id="updateDeliveryFeeInfo">
+        UPDATE deliveries SET
+            delivery_fee_quoted = #{deliveryFeeQuoted},
+            delivery_fee_charged_to_user = #{deliveryFeeChargedToUser},
+            delivery_fee_billed = #{deliveryFeeBilled},
+            delivery_fee_variance = #{deliveryFeeVariance},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新报价信息 -->
+    <update id="updateQuoteInfo">
+        UPDATE deliveries SET
+            delivery_fee_quoted = #{deliveryFeeQuoted},
+            delivery_fee_quoted_at = #{deliveryFeeQuotedAt},
+            delivery_fee_quote_id = #{deliveryFeeQuoteId},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>
+
+
+
+
+

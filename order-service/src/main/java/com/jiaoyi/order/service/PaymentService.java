@@ -13,7 +13,10 @@ import com.jiaoyi.order.enums.PaymentTypeEnum;
 import com.jiaoyi.order.mapper.OrderMapper;
 import com.jiaoyi.order.mapper.PaymentMapper;
 import com.jiaoyi.order.mapper.PaymentCallbackLogMapper;
+import com.jiaoyi.order.mapper.DeliveryMapper;
+import com.jiaoyi.order.entity.Delivery;
 import com.jiaoyi.order.entity.PaymentCallbackLog;
+import com.jiaoyi.order.enums.PaymentCallbackLogStatusEnum;
 import com.jiaoyi.order.config.StripeConfig;
 import com.jiaoyi.order.entity.MerchantStripeConfig;
 import com.jiaoyi.order.mapper.MerchantStripeConfigMapper;
@@ -74,6 +77,7 @@ public class PaymentService {
     private final OrderMapper orderMapper;
     private final PaymentMapper paymentMapper;
     private final PaymentCallbackLogMapper paymentCallbackLogMapper;
+    private final DeliveryMapper deliveryMapper;
     private final AlipayService alipayService;
     private final StripeService stripeService;
     private final ObjectMapper objectMapper;
@@ -221,7 +225,7 @@ public class PaymentService {
             
             // 更新支付记录状态
             payment.setStatus(PaymentStatusEnum.PENDING.getCode());
-            payment.setPaymentService(PAYMENT_SERVICE_ALIPAY);
+            payment.setPaymentService(PaymentServiceEnum.ALIPAY);
             payment.setCategory(PaymentCategoryEnum.ALIPAY.getCode());
             
             return response;
@@ -229,7 +233,7 @@ public class PaymentService {
             log.error("调用支付宝支付失败，订单ID: {}, 错误: {}", order.getId(), e.getMessage(), e);
             // 更新支付记录状态为失败
             payment.setStatus(PaymentStatusEnum.FAILED.getCode());
-            payment.setPaymentService(PAYMENT_SERVICE_ALIPAY);
+            payment.setPaymentService(PaymentServiceEnum.ALIPAY);
             payment.setCategory(PaymentCategoryEnum.ALIPAY.getCode());
             // 重新抛出异常，让上层处理
             throw new BusinessException("支付宝支付创建失败: " + e.getMessage());
@@ -252,7 +256,7 @@ public class PaymentService {
         
         // 更新支付记录状态
         payment.setStatus(PaymentStatusEnum.PENDING.getCode());
-        payment.setPaymentService(PAYMENT_SERVICE_WECHAT_PAY);
+        payment.setPaymentService(PaymentServiceEnum.WECHAT_PAY);
         payment.setCategory(PaymentCategoryEnum.WECHAT_PAY.getCode());
         
         return response;
@@ -356,7 +360,7 @@ public class PaymentService {
             
             // 更新支付记录
             payment.setStatus(PaymentStatusEnum.PENDING.getCode());
-            payment.setPaymentService("STRIPE");
+            payment.setPaymentService(PaymentServiceEnum.STRIPE);
             payment.setCategory(PaymentCategoryEnum.CREDIT_CARD.getCode());
             payment.setStripePaymentIntentId(paymentIntentId);
             
@@ -397,7 +401,7 @@ public class PaymentService {
         
         // 现金支付直接成功
         payment.setStatus(PaymentStatusEnum.SUCCESS.getCode());
-        payment.setPaymentService(PAYMENT_SERVICE_CASH);
+        payment.setPaymentService(PaymentServiceEnum.CASH);
         payment.setCategory(PaymentCategoryEnum.CASH.getCode());
         
         return response;
@@ -423,21 +427,21 @@ public class PaymentService {
         String paymentMethod = request.getPaymentMethod().toUpperCase();
         if ("ALIPAY".equals(paymentMethod)) {
             payment.setCategory(PaymentCategoryEnum.ALIPAY.getCode());
-            payment.setPaymentService(PAYMENT_SERVICE_ALIPAY);
+            payment.setPaymentService(PaymentServiceEnum.ALIPAY);
         } else if ("WECHAT".equals(paymentMethod) || "WECHAT_PAY".equals(paymentMethod)) {
             payment.setCategory(PaymentCategoryEnum.WECHAT_PAY.getCode());
-            payment.setPaymentService(PAYMENT_SERVICE_WECHAT_PAY);
+            payment.setPaymentService(PaymentServiceEnum.WECHAT_PAY);
         } else if ("CREDIT_CARD".equals(paymentMethod) || "CARD".equals(paymentMethod) || "STRIPE".equals(paymentMethod)) {
             payment.setCategory(PaymentCategoryEnum.CREDIT_CARD.getCode());
-            payment.setPaymentService("STRIPE");
+            payment.setPaymentService(PaymentServiceEnum.STRIPE);
         } else if ("CASH".equals(paymentMethod)) {
             payment.setCategory(PaymentCategoryEnum.CASH.getCode());
-            payment.setPaymentService(PAYMENT_SERVICE_CASH);
+            payment.setPaymentService(PaymentServiceEnum.CASH);
         } else {
             // 默认值，避免 null
             log.warn("未知的支付方式: {}，使用默认值", paymentMethod);
             payment.setCategory(PaymentCategoryEnum.CREDIT_CARD.getCode());
-            payment.setPaymentService("STRIPE");
+            payment.setPaymentService(PaymentServiceEnum.STRIPE);
         }
         
         paymentMapper.insert(payment);
@@ -462,13 +466,13 @@ public class PaymentService {
             existingLog = paymentCallbackLogMapper.selectByThirdPartyTradeNo(thirdPartyTradeNo);
             if (existingLog != null) {
                 // 如果已处理成功，直接返回
-                if ("SUCCESS".equals(existingLog.getStatus())) {
+                if (PaymentCallbackLogStatusEnum.SUCCESS.equals(existingLog.getStatus())) {
                     log.info("支付回调已处理（幂等性检查），第三方交易号: {}, 订单ID: {}, 处理时间: {}", 
                             thirdPartyTradeNo, existingLog.getOrderId(), existingLog.getProcessedAt());
                     return true;
                 }
                 // 如果正在处理中，等待或返回（避免并发处理）
-                if ("PROCESSING".equals(existingLog.getStatus())) {
+                if (PaymentCallbackLogStatusEnum.PROCESSING.equals(existingLog.getStatus())) {
                     log.warn("支付回调正在处理中（可能并发调用），第三方交易号: {}, 订单ID: {}", 
                             thirdPartyTradeNo, existingLog.getOrderId());
                     // 可以选择等待或直接返回 false，让调用方重试
@@ -495,7 +499,7 @@ public class PaymentService {
             // 更新状态为处理中
             paymentCallbackLogMapper.updateStatus(
                     callbackLog.getId(), 
-                    "PROCESSING", 
+                    PaymentCallbackLogStatusEnum.PROCESSING, 
                     null, 
                     null
             );
@@ -504,7 +508,7 @@ public class PaymentService {
             callbackLog = new PaymentCallbackLog();
             callbackLog.setOrderId(orderId);
             callbackLog.setThirdPartyTradeNo(thirdPartyTradeNo);
-            callbackLog.setStatus("PROCESSING");
+            callbackLog.setStatus(PaymentCallbackLogStatusEnum.PROCESSING);
             callbackLog.setCreateTime(LocalDateTime.now());
             // 保存回调数据（用于审计）
             try {
@@ -522,7 +526,7 @@ public class PaymentService {
                 // 如果插入失败（可能是并发插入导致唯一键冲突），查询已存在的记录
                 log.warn("插入回调日志失败（可能是并发插入），第三方交易号: {}, 错误: {}", thirdPartyTradeNo, e.getMessage());
                 existingLog = paymentCallbackLogMapper.selectByThirdPartyTradeNo(thirdPartyTradeNo);
-                if (existingLog != null && "SUCCESS".equals(existingLog.getStatus())) {
+                if (existingLog != null && PaymentCallbackLogStatusEnum.SUCCESS.equals(existingLog.getStatus())) {
                     log.info("并发插入时发现已处理成功的记录，第三方交易号: {}", thirdPartyTradeNo);
                     return true;
                 }
@@ -539,7 +543,7 @@ public class PaymentService {
                 if (callbackLog != null) {
                     paymentCallbackLogMapper.updateStatus(
                             callbackLog.getId(), 
-                            "FAILED", 
+                            PaymentCallbackLogStatusEnum.FAILED, 
                             null, 
                             "订单不存在"
                     );
@@ -563,7 +567,7 @@ public class PaymentService {
                 if (callbackLog != null) {
                     paymentCallbackLogMapper.updateStatus(
                             callbackLog.getId(), 
-                            "FAILED", 
+                            PaymentCallbackLogStatusEnum.FAILED, 
                             null, 
                             "支付记录不存在"
                     );
@@ -668,7 +672,7 @@ public class PaymentService {
             // 6. 如果是 DoorDash 配送订单，创建配送订单
             // 注意：即使没有 deliveryFeeQuoted，只要是 DELIVERY 订单就尝试创建
             // 因为 deliveryFeeQuoted 可能在创建订单时没有保存（比如地址信息不完整时使用了本地计算）
-            if ("DELIVERY".equalsIgnoreCase(order.getOrderType())) {
+            if (OrderTypeEnum.DELIVERY.equals(order.getOrderType())) {
                 try {
                     // 检查是否应该使用 DoorDash（根据商户配置）
                     boolean useDoorDash = isDoorDashDelivery(order.getMerchantId());
@@ -695,7 +699,7 @@ public class PaymentService {
                     
                     paymentCallbackLogMapper.updateStatus(
                             callbackLog.getId(), 
-                            "SUCCESS", 
+                            PaymentCallbackLogStatusEnum.SUCCESS, 
                             objectMapper.writeValueAsString(result), 
                             null
                     );
@@ -715,7 +719,7 @@ public class PaymentService {
                 try {
                     paymentCallbackLogMapper.updateStatus(
                             callbackLog.getId(), 
-                            "FAILED", 
+                            PaymentCallbackLogStatusEnum.FAILED, 
                             null, 
                             e.getMessage()
                     );
@@ -734,7 +738,7 @@ public class PaymentService {
      * @param orderType 订单类型（DELIVERY/PICKUP/SELF_DINE_IN）
      * @return true 如果开启自动接单，false 如果未开启（默认返回 true，即默认自动接单）
      */
-    private boolean checkMerchantAutoAccept(String merchantId, String orderType) {
+    private boolean checkMerchantAutoAccept(String merchantId, OrderTypeEnum orderType) {
         try {
             // 从商品服务获取商户信息
             com.jiaoyi.common.ApiResponse<?> merchantResponse = productServiceClient.getMerchant(merchantId);
@@ -749,13 +753,13 @@ public class PaymentService {
             
             // 根据订单类型判断使用哪个自动接单配置
             Boolean enableAutoSend = null;
-            if ("DELIVERY".equalsIgnoreCase(orderType) || "PICKUP".equalsIgnoreCase(orderType)) {
+            if (OrderTypeEnum.DELIVERY.equals(orderType) || OrderTypeEnum.PICKUP.equals(orderType)) {
                 // 配送/自取订单：使用 enableAutoSend
                 Object enableAutoSendObj = merchantMap.get("enableAutoSend");
                 if (enableAutoSendObj != null) {
                     enableAutoSend = Boolean.parseBoolean(enableAutoSendObj.toString());
                 }
-            } else if ("SELF_DINE_IN".equalsIgnoreCase(orderType)) {
+            } else if (OrderTypeEnum.SELF_DINE_IN.equals(orderType)) {
                 // 堂食订单：使用 enableSdiAutoSend
                 Object enableSdiAutoSendObj = merchantMap.get("enableSdiAutoSend");
                 if (enableSdiAutoSendObj != null) {
@@ -1023,13 +1027,13 @@ public class PaymentService {
             String refundReason = "订单超时自动退款（订单创建后超过 " + orderTimeoutMinutes + " 分钟未支付）";
             
             // 根据支付方式选择退款服务
-            String paymentService = payment.getPaymentService();
+            PaymentServiceEnum paymentService = payment.getPaymentService();
             boolean refundSuccess = false;
             
-            if ("ALIPAY".equalsIgnoreCase(paymentService)) {
+            if (PaymentServiceEnum.ALIPAY.equals(paymentService)) {
                 // 支付宝退款
                 refundSuccess = alipayService.refund(thirdPartyTradeNo, refundAmount, refundReason);
-            } else if ("STRIPE".equalsIgnoreCase(paymentService)) {
+            } else if (PaymentServiceEnum.STRIPE.equals(paymentService)) {
                 // Stripe 退款
                 try {
                     String paymentIntentId = payment.getStripePaymentIntentId();
@@ -1046,7 +1050,8 @@ public class PaymentService {
                     refundSuccess = false;
                 }
             } else {
-                log.warn("不支持的支付方式，无法自动退款，支付方式: {}, 订单ID: {}", paymentService, order.getId());
+                log.warn("不支持的支付方式，无法自动退款，支付方式: {}, 订单ID: {}", 
+                        paymentService != null ? paymentService.getCode() : "null", order.getId());
                 return;
             }
             
@@ -1103,9 +1108,12 @@ public class PaymentService {
                 return;
             }
             
-            // 2. 检查报价是否过期，如果过期则重新报价
-            BigDecimal currentQuotedFee = order.getDeliveryFeeQuoted();
-            LocalDateTime quotedAt = order.getDeliveryFeeQuotedAt();
+            // 2. 获取或创建 Delivery 记录
+            Delivery delivery = getOrCreateDelivery(order);
+            
+            // 3. 检查报价是否过期，如果过期则重新报价
+            BigDecimal currentQuotedFee = delivery.getDeliveryFeeQuoted();
+            LocalDateTime quotedAt = delivery.getDeliveryFeeQuotedAt();
             boolean needReQuote = false;
             
             if (quotedAt == null) {
@@ -1123,7 +1131,7 @@ public class PaymentService {
                 }
             }
             
-            // 3. 如果报价过期，重新获取报价
+            // 4. 如果报价过期，重新获取报价
             if (needReQuote) {
                 log.info("重新获取 DoorDash 报价，订单ID: {}", order.getId());
                 
@@ -1175,7 +1183,7 @@ public class PaymentService {
                             reQuoteVariance.put("reason", "报价过期重新报价，费用增加");
                             variance.put("reQuoteVariance", reQuoteVariance);
                             
-                            order.setDeliveryFeeVariance(objectMapper.writeValueAsString(variance));
+                            delivery.setDeliveryFeeVariance(objectMapper.writeValueAsString(variance));
                         } catch (Exception e) {
                             log.error("构建费用差异归因 JSON 失败，订单ID: {}", order.getId(), e);
                         }
@@ -1185,28 +1193,36 @@ public class PaymentService {
                                 order.getId(), oldQuotedFee, newQuotedFee, feeDifference.abs());
                     }
                     
-                    // 更新订单的报价信息
-                    order.setDeliveryFeeQuoted(newQuotedFee);
-                    order.setDeliveryFeeQuotedAt(LocalDateTime.now());
-                    order.setDeliveryFeeQuoteId(newQuote.getQuoteId());
+                    // 更新 Delivery 的报价信息
+                    delivery.setDeliveryFeeQuoted(newQuotedFee);
+                    delivery.setDeliveryFeeQuotedAt(LocalDateTime.now());
+                    delivery.setDeliveryFeeQuoteId(newQuote.getQuoteId());
                     
-                    // 更新数据库中的报价信息和费用差异
-                    orderMapper.updateQuoteInfo(
-                            order.getId(),
-                            newQuotedFee,
-                            LocalDateTime.now(),
-                            newQuote.getQuoteId()
-                    );
+                    // 如果 Delivery 记录还没有 id，先插入
+                    if (delivery.getId() == null || delivery.getId().isEmpty()) {
+                        // 此时还没有 deliveryId，先保存报价信息，等创建 DoorDash 配送后再更新 id
+                        deliveryMapper.insert(delivery);
+                    } else {
+                        // 更新数据库中的报价信息
+                        deliveryMapper.updateQuoteInfo(
+                                delivery.getId(),
+                                newQuotedFee,
+                                LocalDateTime.now(),
+                                newQuote.getQuoteId()
+                        );
+                    }
                     
                     // 如果有费用差异，更新费用差异信息
-                    if (order.getDeliveryFeeVariance() != null && !order.getDeliveryFeeVariance().isEmpty()) {
-                        orderMapper.updateDeliveryFeeInfo(
-                                order.getId(),
-                                newQuotedFee,
-                                order.getDeliveryFeeChargedToUser(), // 用户已支付的费用不变
-                                null, // billedFee 还未确定
-                                order.getDeliveryFeeVariance()
-                        );
+                    if (delivery.getDeliveryFeeVariance() != null && !delivery.getDeliveryFeeVariance().isEmpty()) {
+                        if (delivery.getId() != null && !delivery.getId().isEmpty()) {
+                            deliveryMapper.updateDeliveryFeeInfo(
+                                    delivery.getId(),
+                                    newQuotedFee,
+                                    delivery.getDeliveryFeeChargedToUser(), // 用户已支付的费用不变
+                                    null, // billedFee 还未确定
+                                    delivery.getDeliveryFeeVariance()
+                            );
+                        }
                     }
                     
                     log.info("订单报价信息已更新，订单ID: {}, 新报价: ${}, quote_id: {}", 
@@ -1221,8 +1237,8 @@ public class PaymentService {
             // 如果订单有有效的 quote_id，使用 acceptQuote 来锁定价格
             // 否则直接调用 createDelivery
             DoorDashService.DoorDashDeliveryResponse deliveryResponse;
-            String quoteId = order.getDeliveryFeeQuoteId();
-            LocalDateTime quoteTime = order.getDeliveryFeeQuotedAt();
+            String quoteId = delivery.getDeliveryFeeQuoteId();
+            LocalDateTime quoteTime = delivery.getDeliveryFeeQuotedAt();
             
             if (quoteId != null && !quoteId.isEmpty() && quoteTime != null) {
                 // 检查 quote_id 是否还在有效期内（DoorDash 要求 5 分钟内 accept）
@@ -1250,7 +1266,8 @@ public class PaymentService {
                                 order,
                                 pickupAddress,
                                 dropoffAddress,
-                                tip
+                                tip,
+                                delivery
                         );
                     }
                 } else {
@@ -1261,7 +1278,8 @@ public class PaymentService {
                             order,
                             pickupAddress,
                             dropoffAddress,
-                            tip
+                            tip,
+                            delivery
                     );
                 }
             } else {
@@ -1271,14 +1289,35 @@ public class PaymentService {
                         order,
                         pickupAddress,
                         dropoffAddress,
-                        tip
+                        tip,
+                        delivery
                 );
             }
             
-            // 4. 更新订单信息
-            order.setDeliveryId(deliveryResponse.getDeliveryId());
+            // 6. 更新 Delivery 和 Order 信息
+            delivery.setId(deliveryResponse.getDeliveryId());
+            delivery.setTrackingUrl(deliveryResponse.getTrackingUrl());
+            if (deliveryResponse.getDistanceMiles() != null) {
+                delivery.setDistanceMiles(deliveryResponse.getDistanceMiles());
+            }
+            if (deliveryResponse.getEtaMinutes() != null) {
+                delivery.setEtaMinutes(deliveryResponse.getEtaMinutes());
+            }
             
-            // 5. 构建 additionalData（用于发送给 POS）
+            // 如果 Delivery 记录还没有 id，先插入（这种情况不应该发生，因为之前应该已经创建了）
+            if (delivery.getId() == null || delivery.getId().isEmpty()) {
+                delivery.setId(deliveryResponse.getDeliveryId());
+                deliveryMapper.insert(delivery);
+            } else {
+                // 更新 Delivery 记录
+                deliveryMapper.update(delivery);
+            }
+            
+            // 更新订单的 deliveryId
+            order.setDeliveryId(deliveryResponse.getDeliveryId());
+            orderMapper.updateDeliveryId(order.getId(), deliveryResponse.getDeliveryId());
+            
+            // 7. 构建 additionalData（用于发送给 POS）
             Map<String, Object> additionalData = new HashMap<>();
             
             // deliveryInfo
@@ -1293,7 +1332,7 @@ public class PaymentService {
             // deliveryFeeToThird（给 DoorDash 的费用，使用最新报价）
             Map<String, Object> deliveryFeeToThird = new HashMap<>();
             deliveryFeeToThird.put("name", "DeliveryFee");
-            deliveryFeeToThird.put("value", order.getDeliveryFeeQuoted());
+            deliveryFeeToThird.put("value", delivery.getDeliveryFeeQuoted());
             priceInfo.put("deliveryFeeToThird", deliveryFeeToThird);
             
             // deliveryFeeToRes（给餐厅的费用）
@@ -1301,10 +1340,10 @@ public class PaymentService {
             // 如果用户支付的费用 > 新报价，差额归平台所有（不额外给餐厅）
             Map<String, Object> deliveryFeeToRes = new HashMap<>();
             deliveryFeeToRes.put("name", "DeliveryFee");
-            BigDecimal userPaidFee = order.getDeliveryFeeChargedToUser() != null ? 
-                    order.getDeliveryFeeChargedToUser() : BigDecimal.ZERO;
-            BigDecimal quotedFee = order.getDeliveryFeeQuoted() != null ? 
-                    order.getDeliveryFeeQuoted() : BigDecimal.ZERO;
+            BigDecimal userPaidFee = delivery.getDeliveryFeeChargedToUser() != null ? 
+                    delivery.getDeliveryFeeChargedToUser() : BigDecimal.ZERO;
+            BigDecimal quotedFee = delivery.getDeliveryFeeQuoted() != null ? 
+                    delivery.getDeliveryFeeQuoted() : BigDecimal.ZERO;
             
             // deliveryFeeToRes = 用户支付的费用 - 新报价
             // 如果为负数，表示新报价 > 用户支付的费用，这部分差额由平台承担，不扣餐厅的钱
@@ -1323,15 +1362,9 @@ public class PaymentService {
             
             additionalData.put("priceInfo", priceInfo);
             
-            // 6. 保存 additionalData
-            order.setAdditionalData(objectMapper.writeValueAsString(additionalData));
-            
-            // 7. 更新订单
-            orderMapper.updateDeliveryInfo(
-                    order.getId(),
-                    order.getDeliveryId(),
-                    order.getAdditionalData()
-            );
+            // 8. 保存 additionalData 到 Delivery 记录
+            delivery.setAdditionalData(objectMapper.writeValueAsString(additionalData));
+            deliveryMapper.update(delivery);
             
             log.info("DoorDash 配送订单创建成功，订单ID: {}, delivery_id: {}", 
                     order.getId(), deliveryResponse.getDeliveryId());
@@ -1490,6 +1523,40 @@ public class PaymentService {
             log.warn("解析用户配送地址失败，订单ID: {}", order.getId(), e);
             return null;
         }
+    }
+    
+    /**
+     * 获取或创建 Delivery 记录
+     * 如果订单已有 deliveryId，则查询对应的 Delivery 记录
+     * 如果不存在，则创建一个新的 Delivery 记录
+     */
+    private Delivery getOrCreateDelivery(Order order) {
+        Delivery delivery = null;
+        
+        // 如果订单已有 deliveryId，尝试查询
+        if (order.getDeliveryId() != null && !order.getDeliveryId().isEmpty()) {
+            delivery = deliveryMapper.selectById(order.getDeliveryId());
+        }
+        
+        // 如果查询不到，尝试通过 orderId 查询
+        if (delivery == null) {
+            delivery = deliveryMapper.selectByOrderId(order.getId());
+        }
+        
+        // 如果还是查询不到，创建一个新的 Delivery 记录
+        if (delivery == null) {
+            delivery = new Delivery();
+            delivery.setOrderId(order.getId());
+            delivery.setMerchantId(order.getMerchantId());
+            delivery.setExternalDeliveryId("order_" + order.getId());
+            delivery.setStatus(com.jiaoyi.order.enums.DeliveryStatusEnum.CREATED);
+            delivery.setVersion(0L);
+            delivery.setCreateTime(LocalDateTime.now());
+            delivery.setUpdateTime(LocalDateTime.now());
+            // 注意：此时还没有 deliveryId，需要在创建 DoorDash 配送后更新
+        }
+        
+        return delivery;
     }
     
     /**
