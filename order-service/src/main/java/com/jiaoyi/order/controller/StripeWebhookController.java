@@ -499,7 +499,7 @@ public class StripeWebhookController {
                     refundPayment.setPaymentNo("REF_" + System.currentTimeMillis() + "_" + order.getId());
                     refundPayment.setAmount(refundAmount);
                     refundPayment.setThirdPartyTradeNo(refund.getId());
-                    refundPayment.setPaymentService("STRIPE");
+                    refundPayment.setPaymentService(com.jiaoyi.order.enums.PaymentServiceEnum.STRIPE);
                     refundPayment.setCategory(com.jiaoyi.order.enums.PaymentCategoryEnum.CREDIT_CARD.getCode());
                     refundPayment.setCreateTime(java.time.LocalDateTime.now());
                     refundPayment.setUpdateTime(java.time.LocalDateTime.now());

@@ -3,6 +3,7 @@ package com.jiaoyi.order.service;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jiaoyi.common.exception.BusinessException;
 import com.jiaoyi.order.entity.MerchantFeeConfig;
+import com.jiaoyi.order.enums.DeliveryFeeTypeEnum;
 import com.jiaoyi.order.mapper.MerchantFeeConfigMapper;
 import com.jiaoyi.order.service.GoogleMapsService;
 import lombok.RequiredArgsConstructor;
@@ -61,15 +62,15 @@ public class DeliveryRuleService {
         checkDeliveryTimeSlot(config, orderTime);
         
         // 3. 检查配送距离或邮编区域
-        String deliveryFeeType = config.getDeliveryFeeType();
+        DeliveryFeeTypeEnum deliveryFeeType = config.getDeliveryFeeType();
         if (deliveryFeeType == null) {
-            deliveryFeeType = "FLAT_RATE";
+            deliveryFeeType = DeliveryFeeTypeEnum.FLAT_RATE;
         }
         
-        if ("ZONE_RATE".equalsIgnoreCase(deliveryFeeType)) {
+        if (DeliveryFeeTypeEnum.ZONE_RATE.equals(deliveryFeeType)) {
             // 按邮编区域检查
             checkZipCodeZone(config, zipCode);
-        } else if ("VARIABLE_RATE".equalsIgnoreCase(deliveryFeeType)) {
+        } else if (DeliveryFeeTypeEnum.VARIABLE_RATE.equals(deliveryFeeType)) {
             // 按距离检查
             checkDeliveryDistance(config, customerLatitude, customerLongitude);
         } else {

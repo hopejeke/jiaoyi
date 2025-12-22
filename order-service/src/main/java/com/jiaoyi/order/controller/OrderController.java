@@ -190,7 +190,12 @@ public class OrderController {
         Order order = new Order();
         order.setMerchantId(request.getMerchantId());
         order.setUserId(request.getUserId());
-        order.setOrderType(request.getOrderType());
+        // 将字符串转换为枚举
+        com.jiaoyi.order.enums.OrderTypeEnum orderTypeEnum = com.jiaoyi.order.enums.OrderTypeEnum.fromCode(request.getOrderType());
+        if (orderTypeEnum == null) {
+            throw new com.jiaoyi.common.exception.BusinessException("无效的订单类型: " + request.getOrderType());
+        }
+        order.setOrderType(orderTypeEnum);
         order.setStatus(1); // 已下单
         order.setLocalStatus(1);
         order.setKitchenStatus(1);
@@ -477,7 +482,7 @@ public class OrderController {
             Order order = orderOpt.get();
             
             // 如果不是配送订单或没有 deliveryId，返回错误
-            if (!"DELIVERY".equalsIgnoreCase(order.getOrderType()) || order.getDeliveryId() == null) {
+            if (order.getOrderType() == null || !com.jiaoyi.order.enums.OrderTypeEnum.DELIVERY.equals(order.getOrderType()) || order.getDeliveryId() == null) {
                 return ResponseEntity.ok(ApiResponse.error(400, "该订单不是 DoorDash 配送订单"));
             }
             

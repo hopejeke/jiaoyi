@@ -9,6 +9,7 @@ import com.jiaoyi.order.dto.CalculatePriceResponse;
 import com.jiaoyi.order.entity.Order;
 import com.jiaoyi.order.entity.OrderItem;
 import com.jiaoyi.order.entity.OrderCoupon;
+import com.jiaoyi.order.enums.OrderTypeEnum;
 import com.jiaoyi.order.mapper.OrderItemMapper;
 import com.jiaoyi.order.mapper.OrderMapper;
 import com.jiaoyi.order.mapper.OrderCouponMapper;
@@ -174,7 +175,7 @@ public class OrderService {
         BigDecimal deliveryFee;
         BigDecimal deliveryFeeQuoted = null; // DoorDash 报价
         
-        OrderTypeEnum orderTypeEnum = OrderTypeEnum.fromCode(request.getOrderType());
+         orderTypeEnum = OrderTypeEnum.fromCode(request.getOrderType());
         if (orderTypeEnum == null) {
             throw new BusinessException("无效的订单类型: " + request.getOrderType());
         }

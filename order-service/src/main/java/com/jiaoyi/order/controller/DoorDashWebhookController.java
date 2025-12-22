@@ -277,7 +277,13 @@ public class DoorDashWebhookController {
                 webhookLog.setOrderId(orderId);
                 webhookLog.setDeliveryId(deliveryId);
                 webhookLog.setExternalDeliveryId(externalDeliveryId);
-                webhookLog.setEventType(eventType);
+                // 将字符串转换为枚举
+                com.jiaoyi.order.enums.DoorDashEventTypeEnum eventTypeEnum = com.jiaoyi.order.enums.DoorDashEventTypeEnum.fromCode(eventType);
+                if (eventTypeEnum != null) {
+                    webhookLog.setEventType(eventTypeEnum);
+                } else {
+                    log.warn("未知的事件类型: {}，订单ID: {}", eventType, orderId);
+                }
                 webhookLog.setStatus(DoorDashWebhookLogStatusEnum.PROCESSING);
                 webhookLog.setRetryCount(0);
                 webhookLog.setCreateTime(java.time.LocalDateTime.now());
@@ -563,6 +569,17 @@ public class DoorDashWebhookController {
             Map<String, Object> deliveryInfo = (Map<String, Object>) additionalData.getOrDefault("deliveryInfo", new HashMap<>());
             deliveryInfo.put("status", data.get("status"));
             deliveryInfo.put("trackingUrl", data.get("tracking_url"));
+            
+            // 更新 Delivery 实体的 status 字段（将字符串状态转换为枚举）
+            String statusStr = (String) data.get("status");
+            if (statusStr != null && !statusStr.isEmpty()) {
+                com.jiaoyi.order.enums.DeliveryStatusEnum statusEnum = com.jiaoyi.order.enums.DeliveryStatusEnum.fromCode(statusStr);
+                if (statusEnum != null) {
+                    delivery.setStatus(statusEnum);
+                } else {
+                    log.warn("未知的配送状态: {}，订单ID: {}", statusStr, order.getId());
+                }
+            }
             
             // 距离信息
             @SuppressWarnings("unchecked")

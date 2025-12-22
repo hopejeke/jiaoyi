@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jiaoyi.common.exception.BusinessException;
 import com.jiaoyi.order.entity.MerchantFeeConfig;
 import com.jiaoyi.order.entity.Order;
+import com.jiaoyi.order.enums.DeliveryFeeTypeEnum;
+import com.jiaoyi.order.enums.OnlineServiceFeeTypeEnum;
 import com.jiaoyi.order.mapper.MerchantFeeConfigMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -39,7 +41,8 @@ public class FeeCalculationService {
      */
     public BigDecimal calculateDeliveryFee(Order order, BigDecimal subtotal, boolean useDoorDashQuote) {
         // 如果是 DoorDash 配送且需要报价，调用 DoorDash API
-        if (useDoorDashQuote && "DELIVERY".equalsIgnoreCase(order.getOrderType())) {
+        if (useDoorDashQuote && order.getOrderType() != null && 
+            com.jiaoyi.order.enums.OrderTypeEnum.DELIVERY.equals(order.getOrderType())) {
             try {
                 // 这里需要注入 DoorDashService，暂时先返回本地计算
                 // 实际实现时会在 OrderService 中调用 DoorDashService.quoteDelivery()
@@ -65,11 +68,12 @@ public class FeeCalculationService {
      */
     private BigDecimal calculateDeliveryFeeInternal(Order order, BigDecimal subtotal) {
         String merchantId = order.getMerchantId();
-        String orderType = order.getOrderType();
+        com.jiaoyi.order.enums.OrderTypeEnum orderType = order.getOrderType();
 
         // 只有配送订单才需要配送费
-        if (!"DELIVERY".equalsIgnoreCase(orderType)) {
-            log.debug("订单类型为 {}，不需要配送费，订单ID: {}", orderType, order.getId());
+        if (orderType == null || !com.jiaoyi.order.enums.OrderTypeEnum.DELIVERY.equals(orderType)) {
+            log.debug("订单类型为 {}，不需要配送费，订单ID: {}", 
+                orderType != null ? orderType.getCode() : "null", order.getId());
             return BigDecimal.ZERO;
         }
 
@@ -81,9 +85,9 @@ public class FeeCalculationService {
             return new BigDecimal("5.00");
         }
 
-        String deliveryFeeType = config.getDeliveryFeeType();
+        DeliveryFeeTypeEnum deliveryFeeType = config.getDeliveryFeeType();
         if (deliveryFeeType == null) {
-            deliveryFeeType = "FLAT_RATE";
+            deliveryFeeType = DeliveryFeeTypeEnum.FLAT_RATE;
         }
 
         // 检查是否达到免配送费门槛
@@ -98,10 +102,10 @@ public class FeeCalculationService {
         BigDecimal deliveryFee = BigDecimal.ZERO;
 
         // 根据类型计算配送费（参照 OO 项目逻辑）
-        if ("ZONE_RATE".equalsIgnoreCase(deliveryFeeType)) {
+        if (DeliveryFeeTypeEnum.ZONE_RATE.equals(deliveryFeeType)) {
             // 按邮编区域计算
             deliveryFee = calculateZoneRateDeliveryFee(order, config);
-        } else if ("VARIABLE_RATE".equalsIgnoreCase(deliveryFeeType)) {
+        } else if (DeliveryFeeTypeEnum.VARIABLE_RATE.equals(deliveryFeeType)) {
             // 按距离的可变费率计算
             deliveryFee = calculateVariableRateDeliveryFee(order, config);
         } else {
@@ -126,7 +130,8 @@ public class FeeCalculationService {
         }
 
         log.debug("计算配送费，商户ID: {}, 订单类型: {}, 配送费类型: {}, 订单金额: {}, 配送费: {}", 
-                merchantId, orderType, deliveryFeeType, subtotal, deliveryFee);
+                merchantId, orderType != null ? orderType.getCode() : "null", 
+                deliveryFeeType != null ? deliveryFeeType.getCode() : "null", subtotal, deliveryFee);
         return deliveryFee.setScale(2, RoundingMode.HALF_UP);
     }
 
@@ -505,8 +510,8 @@ public class FeeCalculationService {
             return BigDecimal.ZERO;
         }
 
-        String feeType = config.getOnlineServiceFeeType();
-        if (feeType == null || "NONE".equalsIgnoreCase(feeType)) {
+        OnlineServiceFeeTypeEnum feeType = config.getOnlineServiceFeeType();
+        if (feeType == null || OnlineServiceFeeTypeEnum.NONE.equals(feeType)) {
             return BigDecimal.ZERO;
         }
 
@@ -573,12 +578,12 @@ public class FeeCalculationService {
 
         // 如果没有策略或策略未匹配，使用固定或百分比费率
         if (serviceFee.compareTo(BigDecimal.ZERO) == 0) {
-            if ("PERCENTAGE".equalsIgnoreCase(feeType)) {
+            if (OnlineServiceFeeTypeEnum.PERCENTAGE.equals(feeType)) {
                 BigDecimal percentage = config.getOnlineServiceFeePercentage();
                 if (percentage != null && percentage.compareTo(BigDecimal.ZERO) > 0) {
                     serviceFee = subtotal.multiply(percentage).divide(new BigDecimal("100"), 2, RoundingMode.HALF_UP);
                 }
-            } else if ("FIXED".equalsIgnoreCase(feeType)) {
+            } else if (OnlineServiceFeeTypeEnum.FIXED.equals(feeType)) {
                 BigDecimal fixed = config.getOnlineServiceFeeFixed();
                 if (fixed != null && fixed.compareTo(BigDecimal.ZERO) > 0) {
                     serviceFee = fixed;

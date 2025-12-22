@@ -6,17 +6,13 @@ import com.jiaoyi.order.dto.PaymentRequest;
 import com.jiaoyi.order.dto.PaymentResponse;
 import com.jiaoyi.order.entity.Order;
 import com.jiaoyi.order.entity.Payment;
-import com.jiaoyi.order.enums.OrderStatusEnum;
-import com.jiaoyi.order.enums.PaymentCategoryEnum;
-import com.jiaoyi.order.enums.PaymentStatusEnum;
-import com.jiaoyi.order.enums.PaymentTypeEnum;
+import com.jiaoyi.order.enums.*;
 import com.jiaoyi.order.mapper.OrderMapper;
 import com.jiaoyi.order.mapper.PaymentMapper;
 import com.jiaoyi.order.mapper.PaymentCallbackLogMapper;
 import com.jiaoyi.order.mapper.DeliveryMapper;
 import com.jiaoyi.order.entity.Delivery;
 import com.jiaoyi.order.entity.PaymentCallbackLog;
-import com.jiaoyi.order.enums.PaymentCallbackLogStatusEnum;
 import com.jiaoyi.order.config.StripeConfig;
 import com.jiaoyi.order.entity.MerchantStripeConfig;
 import com.jiaoyi.order.mapper.MerchantStripeConfigMapper;
@@ -33,8 +29,10 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * 支付服务
@@ -884,7 +882,7 @@ public class PaymentService {
     private PaymentResponse convertPaymentToResponse(Payment payment) {
         PaymentResponse response = new PaymentResponse();
         response.setPaymentNo(payment.getPaymentNo());
-        response.setPaymentMethod(payment.getPaymentService());
+        response.setPaymentMethod(payment.getPaymentService() != null ? payment.getPaymentService().getCode() : null);
         response.setAmount(payment.getAmount());
         
         if (payment.getStatus() != null && payment.getStatus().equals(PaymentStatusEnum.SUCCESS.getCode())) {
@@ -1297,6 +1295,15 @@ public class PaymentService {
             // 6. 更新 Delivery 和 Order 信息
             delivery.setId(deliveryResponse.getDeliveryId());
             delivery.setTrackingUrl(deliveryResponse.getTrackingUrl());
+            // 将 DoorDash 返回的字符串状态转换为枚举
+            if (deliveryResponse.getStatus() != null && !deliveryResponse.getStatus().isEmpty()) {
+                com.jiaoyi.order.enums.DeliveryStatusEnum statusEnum = com.jiaoyi.order.enums.DeliveryStatusEnum.fromCode(deliveryResponse.getStatus());
+                if (statusEnum != null) {
+                    delivery.setStatus(statusEnum);
+                } else {
+                    log.warn("未知的配送状态: {}，订单ID: {}", deliveryResponse.getStatus(), order.getId());
+                }
+            }
             if (deliveryResponse.getDistanceMiles() != null) {
                 delivery.setDistanceMiles(deliveryResponse.getDistanceMiles());
             }

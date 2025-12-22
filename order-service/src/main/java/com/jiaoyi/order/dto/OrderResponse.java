@@ -40,7 +40,7 @@ public class OrderResponse {
         response.setMerchantId(order.getMerchantId());
         response.setUserId(order.getUserId());
         response.setStatus(order.getStatus()); // Integer 类型
-        response.setOrderType(order.getOrderType());
+        response.setOrderType(order.getOrderType() != null ? order.getOrderType().getCode() : null);
         response.setOrderPrice(order.getOrderPrice());
         response.setNotes(order.getNotes());
         response.setCreateTime(order.getCreateTime());
