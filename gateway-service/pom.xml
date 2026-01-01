@@ -17,23 +17,36 @@
     <description>API网关服务（统一入口，路由转发，静态资源）</description>
     
     <dependencies>
-        <!-- Common 模块 -->
+        <!-- Common 模块（排除 Spring MVC，Gateway 使用 WebFlux） -->
         <dependency>
             <groupId>com.jiaoyi</groupId>
             <artifactId>common</artifactId>
             <version>${project.version}</version>
+            <exclusions>
+                <!-- 排除 Spring MVC，Gateway 使用 WebFlux 响应式模型 -->
+                <exclusion>
+                    <groupId>org.springframework.boot</groupId>
+                    <artifactId>spring-boot-starter-web</artifactId>
+                </exclusion>
+            </exclusions>
         </dependency>
         
-        <!-- Web -->
-        <dependency>
-            <groupId>org.springframework.boot</groupId>
-            <artifactId>spring-boot-starter-web</artifactId>
-        </dependency>
-        
-        <!-- Spring Cloud OpenFeign（用于调用其他微服务） -->
+        <!-- Spring Cloud Gateway（基于 WebFlux 的响应式网关） -->
         <dependency>
             <groupId>org.springframework.cloud</groupId>
-            <artifactId>spring-cloud-starter-openfeign</artifactId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+        
+        <!-- Nacos 服务发现 -->
+        <dependency>
+            <groupId>com.alibaba.cloud</groupId>
+            <artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
+        </dependency>
+        
+        <!-- Spring Cloud LoadBalancer（Gateway 自动集成，但显式声明确保版本一致） -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-loadbalancer</artifactId>
         </dependency>
         
         <!-- Lombok -->

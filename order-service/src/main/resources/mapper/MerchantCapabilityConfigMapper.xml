@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.MerchantCapabilityConfigMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.MerchantCapabilityConfig">
+        <id column="id" property="id"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="enable" property="enable"/>
+        <result column="qty_of_orders" property="qtyOfOrders"/>
+        <result column="time_interval" property="timeInterval"/>
+        <result column="closing_duration" property="closingDuration"/>
+        <result column="next_open_at" property="nextOpenAt"/>
+        <result column="re_open_all_at" property="reOpenAllAt"/>
+        <result column="operate_pick_up" property="operatePickUp"/>
+        <result column="operate_delivery" property="operateDelivery"/>
+        <result column="operate_togo" property="operateTogo"/>
+        <result column="operate_self_dine_in" property="operateSelfDineIn"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 根据商户ID查询配置 -->
+    <select id="selectByMerchantId" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM merchant_capability_config 
+        WHERE merchant_id = #{merchantId}
+    </select>
+
+    <!-- 插入配置 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.MerchantCapabilityConfig" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO merchant_capability_config (
+            merchant_id, enable, qty_of_orders, time_interval, closing_duration,
+            next_open_at, re_open_all_at,
+            operate_pick_up, operate_delivery, operate_togo, operate_self_dine_in,
+            version, create_time, update_time
+        ) VALUES (
+            #{merchantId}, #{enable}, #{qtyOfOrders}, #{timeInterval}, #{closingDuration},
+            #{nextOpenAt}, #{reOpenAllAt},
+            #{operatePickUp}, #{operateDelivery}, #{operateTogo}, #{operateSelfDineIn},
+            #{version}, #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 更新配置 -->
+    <update id="update" parameterType="com.jiaoyi.order.entity.MerchantCapabilityConfig">
+        UPDATE merchant_capability_config SET
+            enable = #{enable},
+            qty_of_orders = #{qtyOfOrders},
+            time_interval = #{timeInterval},
+            closing_duration = #{closingDuration},
+            next_open_at = #{nextOpenAt},
+            re_open_all_at = #{reOpenAllAt},
+            operate_pick_up = #{operatePickUp},
+            operate_delivery = #{operateDelivery},
+            operate_togo = #{operateTogo},
+            operate_self_dine_in = #{operateSelfDineIn},
+            version = version + 1,
+            update_time = NOW()
+        WHERE merchant_id = #{merchantId} AND version = #{version}
+    </update>
+
+    <!-- 更新限流状态 -->
+    <update id="updateCapabilityStatus">
+        UPDATE merchant_capability_config SET
+            next_open_at = #{nextOpenAt},
+            re_open_all_at = #{reOpenAllAt},
+            operate_pick_up = #{operatePickUp},
+            operate_delivery = #{operateDelivery},
+            operate_togo = #{operateTogo},
+            version = version + 1,
+            update_time = NOW()
+        WHERE merchant_id = #{merchantId} AND version = #{version}
+    </update>
+
+</mapper>
+

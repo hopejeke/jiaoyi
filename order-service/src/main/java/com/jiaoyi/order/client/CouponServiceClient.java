@@ -13,7 +13,7 @@ import java.math.BigDecimal;
  * 优惠券服务 Feign Client
  * 用于订单服务调用优惠券服务
  */
-@FeignClient(name = "coupon-service", url = "${coupon.service.url:http://localhost:8083}")
+@FeignClient(name = "coupon-service", path = "/api")
 public interface CouponServiceClient {
     
     /**

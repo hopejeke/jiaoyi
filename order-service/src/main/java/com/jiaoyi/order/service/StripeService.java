@@ -139,7 +139,6 @@ public class StripeService {
             
             // 构建响应
             PaymentResponse response = new PaymentResponse();
-            response.setPaymentNo(paymentIntentId);
             response.setStatus("PENDING");
             response.setPaymentMethod("CREDIT_CARD");
             response.setAmount(amount);
@@ -442,8 +441,18 @@ public class StripeService {
             throw new RuntimeException("Stripe 支付未启用");
         }
         
+        // 检查 API Key 是否配置
+        if (stripeConfig.getSecretKey() == null || stripeConfig.getSecretKey().isEmpty()) {
+            throw new RuntimeException("Stripe API Key 未配置。请设置环境变量 STRIPE_SECRET_KEY 或在 application.properties 中配置 stripe.secret-key");
+        }
+        
+        // 确保 Stripe API Key 已设置
+        if (Stripe.apiKey == null || Stripe.apiKey.isEmpty()) {
+            Stripe.apiKey = stripeConfig.getSecretKey();
+        }
+        
         try {
-            // 先获取 Payment Intent 以获取 Charge ID
+            // 先获取 Payment Intent 以获取 Charge ID 和 Application Fee 信息
             PaymentIntent paymentIntent = PaymentIntent.retrieve(paymentIntentId);
             String chargeId = paymentIntent.getLatestCharge();
             
@@ -451,6 +460,11 @@ public class StripeService {
                 log.error("Payment Intent 没有关联的 Charge，无法退款，Payment Intent ID: {}", paymentIntentId);
                 throw new RuntimeException("Payment Intent 没有关联的 Charge，无法退款");
             }
+            
+            // 获取 Charge 信息以查看 Application Fee
+            com.stripe.model.Charge charge = com.stripe.model.Charge.retrieve(chargeId);
+            Long originalApplicationFee = charge.getApplicationFeeAmount(); // 原始平台手续费（分）
+            Long originalAmount = charge.getAmount(); // 原始支付金额（分）
             
             // 构建退款参数
             com.stripe.param.RefundCreateParams.Builder paramsBuilder = 
@@ -462,14 +476,49 @@ public class StripeService {
             if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
                 long amountInCents = amount.multiply(BigDecimal.valueOf(100)).longValue();
                 paramsBuilder.setAmount(amountInCents);
-                log.info("部分退款，金额: {} 分", amountInCents);
+                
+                // 计算应退还的平台手续费（按比例）
+                Long refundApplicationFee = null;
+                if (originalApplicationFee != null && originalApplicationFee > 0 && originalAmount != null && originalAmount > 0) {
+                    // 按退款比例计算应退还的平台手续费
+                    refundApplicationFee = Math.round((double) amountInCents / originalAmount * originalApplicationFee);
+                    paramsBuilder.setReverseTransfer(true); // 退还商户转账
+                    log.info("部分退款，金额: {} 分，原始金额: {} 分，原始平台手续费: {} 分，应退还平台手续费: {} 分", 
+                            amountInCents, originalAmount, originalApplicationFee, refundApplicationFee);
+                } else {
+                    log.info("部分退款，金额: {} 分（无平台手续费）", amountInCents);
+                }
             } else {
-                log.info("全额退款");
+                // 全额退款：自动退还所有平台手续费
+                if (originalApplicationFee != null && originalApplicationFee > 0) {
+                    paramsBuilder.setReverseTransfer(true); // 退还商户转账
+                    log.info("全额退款，原始金额: {} 分，原始平台手续费: {} 分，将全部退还", 
+                            originalAmount, originalApplicationFee);
+                } else {
+                    log.info("全额退款（无平台手续费）");
+                }
             }
             
             com.stripe.model.Refund refund = com.stripe.model.Refund.create(paramsBuilder.build());
             
-            log.info("Stripe 退款创建成功，Refund ID: {}, Charge ID: {}", refund.getId(), chargeId);
+            // 记录退款信息
+            // 注意：Stripe 会自动按比例退还平台手续费，退款对象中不直接包含退还的平台手续费信息
+            // 可以通过查询 ApplicationFee 对象来查看退还情况
+            log.info("Stripe 退款创建成功，Refund ID: {}, Charge ID: {}, 退款金额: {} 分", 
+                    refund.getId(), chargeId, refund.getAmount());
+            
+            if (originalApplicationFee != null && originalApplicationFee > 0) {
+                if (amount != null && amount.compareTo(BigDecimal.ZERO) > 0) {
+                    // 部分退款：按比例计算应退还的平台手续费
+                    Long refundedApplicationFee = Math.round((double) refund.getAmount() / originalAmount * originalApplicationFee);
+                    log.info("部分退款平台手续费处理：原始平台手续费 {} 分，应退还约 {} 分（Stripe 会自动处理）", 
+                            originalApplicationFee, refundedApplicationFee);
+                } else {
+                    // 全额退款：退还所有平台手续费
+                    log.info("全额退款平台手续费处理：原始平台手续费 {} 分，将全部退还（Stripe 会自动处理）", 
+                            originalApplicationFee);
+                }
+            }
             
             return refund;
             

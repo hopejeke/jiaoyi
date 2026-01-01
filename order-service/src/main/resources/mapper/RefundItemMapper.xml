@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.RefundItemMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.RefundItem">
+        <id column="refund_item_id" property="refundItemId"/>
+        <result column="refund_id" property="refundId"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="order_item_id" property="orderItemId"/>
+        <result column="subject" property="subject"/>
+        <result column="refund_qty" property="refundQty"/>
+        <result column="refund_amount" property="refundAmount"/>
+        <result column="tax_refund" property="taxRefund"/>
+        <result column="discount_refund" property="discountRefund"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <!-- 插入退款明细 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.RefundItem" useGeneratedKeys="true" keyProperty="refundItemId">
+        INSERT INTO refund_items (
+            refund_id, merchant_id, order_item_id, subject, refund_qty, refund_amount,
+            tax_refund, discount_refund, created_at
+        ) VALUES (
+            #{refundId}, #{merchantId}, #{orderItemId}, #{subject}, #{refundQty}, #{refundAmount},
+            #{taxRefund}, #{discountRefund}, #{createdAt}
+        )
+    </insert>
+
+    <!-- 批量插入退款明细 -->
+    <insert id="insertBatch" parameterType="list">
+        INSERT INTO refund_items (
+            refund_id, merchant_id, order_item_id, subject, refund_qty, refund_amount,
+            tax_refund, discount_refund, created_at
+        ) VALUES
+        <foreach collection="refundItems" item="item" separator=",">
+            (
+                #{item.refundId}, #{item.merchantId}, #{item.orderItemId}, #{item.subject}, #{item.refundQty}, #{item.refundAmount},
+                #{item.taxRefund}, #{item.discountRefund}, #{item.createdAt}
+            )
+        </foreach>
+    </insert>
+
+    <!-- 根据退款单ID查询退款明细列表 -->
+    <select id="selectByRefundId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM refund_items WHERE refund_id = #{refundId} ORDER BY created_at
+    </select>
+
+    <!-- 根据订单项ID查询退款明细列表 -->
+    <select id="selectByOrderItemId" parameterType="long" resultMap="BaseResultMap">
+        SELECT ri.* FROM refund_items ri
+        INNER JOIN refunds r ON ri.refund_id = r.refund_id
+        WHERE ri.order_item_id = #{orderItemId} 
+        AND r.status = 'SUCCEEDED'
+        ORDER BY ri.created_at
+    </select>
+
+</mapper>
+

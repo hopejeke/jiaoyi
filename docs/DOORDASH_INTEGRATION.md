@@ -252,3 +252,9 @@ ALTER TABLE orders_X ADD COLUMN additional_data TEXT COMMENT '额外数据（JSO
 
 
 
+
+
+
+
+
+

@@ -4,12 +4,16 @@ import com.jiaoyi.common.ApiResponse;
 import com.jiaoyi.order.config.StripeConfig;
 import com.jiaoyi.order.dto.PaymentResponse;
 import com.jiaoyi.order.entity.Order;
+import com.jiaoyi.order.entity.Payment;
+import com.jiaoyi.order.enums.PaymentStatusEnum;
 import com.jiaoyi.order.mapper.OrderMapper;
+import com.jiaoyi.order.mapper.PaymentMapper;
 import com.jiaoyi.order.service.AlipayService;
 import com.jiaoyi.order.service.PaymentService;
 import com.jiaoyi.order.client.ProductServiceClient;
 import com.jiaoyi.order.mapper.OrderItemMapper;
 import com.jiaoyi.order.entity.OrderItem;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
@@ -34,9 +38,11 @@ public class PaymentController {
     private final AlipayService alipayService;
     private final PaymentService paymentService;
     private final OrderMapper orderMapper;
+    private final PaymentMapper paymentMapper;
     private final OrderItemMapper orderItemMapper;
     private final ProductServiceClient productServiceClient;
     private final StripeConfig stripeConfig;
+    private final ObjectMapper objectMapper;
     
     /**
      * 支付宝支付回调
@@ -110,19 +116,29 @@ public class PaymentController {
                     List<OrderItem> orderItems = orderItemMapper.selectByOrderId(order.getId());
                     if (orderItems != null && !orderItems.isEmpty()) {
                         List<Long> productIds = orderItems.stream()
+                                .filter(item -> item.getProductId() != null)
                                 .map(OrderItem::getProductId)
+                                .collect(java.util.stream.Collectors.toList());
+                        List<Long> skuIds = orderItems.stream()
+                                .filter(item -> item.getSkuId() != null)
+                                .map(OrderItem::getSkuId)
                                 .collect(java.util.stream.Collectors.toList());
                         List<Integer> quantities = orderItems.stream()
                                 .map(OrderItem::getQuantity)
                                 .collect(java.util.stream.Collectors.toList());
                         
-                        // 调用批量扣减库存接口
-                        ProductServiceClient.DeductStockBatchRequest deductRequest = new ProductServiceClient.DeductStockBatchRequest();
-                        deductRequest.setProductIds(productIds);
-                        deductRequest.setQuantities(quantities);
-                        deductRequest.setOrderId(order.getId());
-                        productServiceClient.deductStockBatch(deductRequest);
-                        log.info("库存扣减成功，订单号: {}, 商品数量: {}", outTradeNo, productIds.size());
+                        if (!productIds.isEmpty() && !skuIds.isEmpty() && productIds.size() == skuIds.size()) {
+                            // 调用批量扣减库存接口（SKU级别）
+                            ProductServiceClient.DeductStockBatchRequest deductRequest = new ProductServiceClient.DeductStockBatchRequest();
+                            deductRequest.setProductIds(productIds);
+                            deductRequest.setSkuIds(skuIds);
+                            deductRequest.setQuantities(quantities);
+                            deductRequest.setOrderId(order.getId());
+                            productServiceClient.deductStockBatch(deductRequest);
+                            log.info("库存扣减成功（SKU级别），订单号: {}, 商品数量: {}", outTradeNo, productIds.size());
+                        } else {
+                            log.warn("订单项缺少productId或skuId，无法扣减库存，订单号: {}", outTradeNo);
+                        }
                     } else {
                         log.warn("订单项为空，无法扣减库存，订单号: {}", outTradeNo);
                     }
@@ -180,14 +196,43 @@ public class PaymentController {
     }
     
     /**
-     * 查询支付结果
+     * 查询支付结果（通过订单ID查询）
      */
-    @GetMapping("/query/{paymentNo}")
-    public ApiResponse<PaymentResponse> queryPayment(@PathVariable String paymentNo) {
-        log.info("查询支付结果，支付流水号: {}", paymentNo);
+    @GetMapping("/query/order/{orderId}")
+    public ApiResponse<PaymentResponse> queryPaymentByOrderId(@PathVariable Long orderId) {
+        log.info("查询支付结果，订单ID: {}", orderId);
         
         try {
-            PaymentResponse response = alipayService.queryPayment(paymentNo);
+            // 通过订单ID查询支付记录
+            List<Payment> payments = paymentMapper.selectByOrderId(orderId);
+            if (payments == null || payments.isEmpty()) {
+                return ApiResponse.error("未找到支付记录");
+            }
+            
+            // 返回最新的支付记录
+            Payment payment = payments.get(0);
+            PaymentResponse response = convertPaymentToResponse(payment);
+            return ApiResponse.success("查询成功", response);
+        } catch (Exception e) {
+            log.error("查询支付结果失败", e);
+            return ApiResponse.error("查询失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 查询支付结果（通过支付ID查询）
+     */
+    @GetMapping("/query/{paymentId}")
+    public ApiResponse<PaymentResponse> queryPaymentById(@PathVariable Long paymentId) {
+        log.info("查询支付结果，支付ID: {}", paymentId);
+        
+        try {
+            Payment payment = paymentMapper.selectById(paymentId);
+            if (payment == null) {
+                return ApiResponse.error("未找到支付记录");
+            }
+            
+            PaymentResponse response = convertPaymentToResponse(payment);
             return ApiResponse.success("查询成功", response);
         } catch (Exception e) {
             log.error("查询支付结果失败", e);
@@ -304,6 +349,43 @@ public class PaymentController {
             log.error("解析订单价格失败，订单ID: {}", order.getId(), e);
         }
         return java.math.BigDecimal.ZERO;
+    }
+    
+    /**
+     * 将 Payment 实体转换为 PaymentResponse
+     */
+    private PaymentResponse convertPaymentToResponse(Payment payment) {
+        PaymentResponse response = new PaymentResponse();
+        response.setPaymentId(payment.getId());
+        response.setPaymentMethod(payment.getPaymentService() != null ? payment.getPaymentService().getCode() : null);
+        response.setAmount(payment.getAmount());
+        
+        if (payment.getStatus() != null && payment.getStatus().equals(PaymentStatusEnum.SUCCESS.getCode())) {
+            response.setStatus("SUCCESS");
+        } else if (payment.getStatus() != null && payment.getStatus().equals(PaymentStatusEnum.FAILED.getCode())) {
+            response.setStatus("FAILED");
+        } else {
+            response.setStatus("PENDING");
+        }
+        
+        response.setThirdPartyTradeNo(payment.getThirdPartyTradeNo());
+        response.setPayTime(payment.getUpdateTime());
+        
+        // 解析二维码
+        if (payment.getExtra() != null) {
+            try {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> extra = objectMapper.readValue(payment.getExtra(), Map.class);
+                if (extra.containsKey("qrCode")) {
+                    response.setQrCode(extra.get("qrCode").toString());
+                    response.setPayUrl(extra.get("qrCode").toString());
+                }
+            } catch (Exception e) {
+                log.warn("解析支付额外信息失败", e);
+            }
+        }
+        
+        return response;
     }
 }
 

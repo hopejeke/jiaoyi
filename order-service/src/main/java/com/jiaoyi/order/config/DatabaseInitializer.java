@@ -170,6 +170,9 @@ public class DatabaseInitializer {
             // 创建支付记录表分片
             createPaymentsTables(stmt, dbIndex);
             
+            // 创建退款单表分片
+            createRefundsTables(stmt, dbIndex);
+            
             // 创建商户 Stripe 配置表分片
             createMerchantStripeConfigTables(stmt, dbIndex);
             
@@ -178,6 +181,9 @@ public class DatabaseInitializer {
             
             // 创建配送表分片
             createDeliveriesTables(stmt, dbIndex);
+            
+            // 创建 DoorDash 重试任务表分片
+            createDoorDashRetryTaskTables(stmt, dbIndex);
             
             // 注意：coupon_usage 表属于 coupon-service，不在 order-service 中创建
             // 如果需要，可以在 coupon-service 的 DatabaseInitializer 中创建
@@ -286,9 +292,12 @@ public class DatabaseInitializer {
                     "order_id BIGINT NOT NULL COMMENT '订单ID', " +
                     "merchant_id VARCHAR(50) NOT NULL COMMENT '餐馆ID（分片键）', " +
                     "product_id BIGINT COMMENT '商品ID（用于库存锁定）', " +
+                    "sku_id BIGINT COMMENT 'SKU ID（关联 product_sku.id，如果商品有SKU则必须提供）', " +
                     "sale_item_id BIGINT COMMENT '销售项ID（POS系统ID）', " +
                     "order_item_id BIGINT COMMENT '订单项ID', " +
                     "item_name VARCHAR(200) NOT NULL COMMENT '商品名称', " +
+                    "sku_name VARCHAR(200) COMMENT 'SKU名称（冗余字段，用于显示）', " +
+                    "sku_attributes TEXT COMMENT 'SKU属性（JSON格式，冗余字段，用于显示）', " +
                     "product_image VARCHAR(500) COMMENT '商品图片', " +
                     "item_price DECIMAL(10,2) NOT NULL COMMENT '商品单价', " +
                     "quantity INT NOT NULL COMMENT '购买数量', " +
@@ -312,6 +321,7 @@ public class DatabaseInitializer {
                     "INDEX idx_order_id (order_id), " +
                     "INDEX idx_merchant_id (merchant_id), " +
                     "INDEX idx_product_id (product_id), " +
+                    "INDEX idx_sku_id (sku_id), " +
                     "INDEX idx_sale_item_id (sale_item_id)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='订单项表_库" + dbIndex + "_分片" + tableIndex + "'";
             stmt.executeUpdate(createTableSql);
@@ -342,6 +352,9 @@ public class DatabaseInitializer {
                     "ALTER TABLE " + tableName + " MODIFY COLUMN id BIGINT NOT NULL COMMENT '订单项ID（雪花算法生成）'",
                     "ALTER TABLE " + tableName + " ADD COLUMN merchant_id VARCHAR(50) NOT NULL DEFAULT '' COMMENT '餐馆ID（分片键）'",
                     "ALTER TABLE " + tableName + " ADD COLUMN product_id BIGINT COMMENT '商品ID（用于库存锁定）'",
+                    "ALTER TABLE " + tableName + " ADD COLUMN sku_id BIGINT COMMENT 'SKU ID（关联 product_sku.id，如果商品有SKU则必须提供）'",
+                    "ALTER TABLE " + tableName + " ADD COLUMN sku_name VARCHAR(200) COMMENT 'SKU名称（冗余字段，用于显示）'",
+                    "ALTER TABLE " + tableName + " ADD COLUMN sku_attributes TEXT COMMENT 'SKU属性（JSON格式，冗余字段，用于显示）'",
                     "ALTER TABLE " + tableName + " ADD COLUMN sale_item_id BIGINT COMMENT '销售项ID（POS系统ID）'",
                     "ALTER TABLE " + tableName + " ADD COLUMN order_item_id BIGINT COMMENT '订单项ID'",
                     "ALTER TABLE " + tableName + " ADD COLUMN item_name VARCHAR(200) COMMENT '商品名称'",
@@ -399,6 +412,14 @@ public class DatabaseInitializer {
                     // 索引已存在，忽略
                     if (!e.getMessage().contains("Duplicate key name") && !e.getMessage().contains("already exists")) {
                         log.debug("创建索引 idx_product_id 时出错（可忽略）: {}", e.getMessage());
+                    }
+                }
+                try {
+                    stmt.executeUpdate("CREATE INDEX idx_sku_id ON " + tableName + "(sku_id)");
+                } catch (java.sql.SQLException e) {
+                    // 索引已存在，忽略
+                    if (!e.getMessage().contains("Duplicate key name") && !e.getMessage().contains("already exists")) {
+                        log.debug("创建索引 idx_sku_id 时出错（可忽略）: {}", e.getMessage());
                     }
                 }
                 
@@ -464,6 +485,84 @@ public class DatabaseInitializer {
             stmt.executeUpdate(createTableSql);
         }
         log.info("  ✓ 支付记录表分片创建完成（3个分片表）");
+    }
+    
+    private void createRefundsTables(Statement stmt, int dbIndex) throws Exception {
+        // 创建退款单表分片
+        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+            String tableName = "refunds_" + tableIndex;
+            String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
+                    "refund_id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '退款ID', " +
+                    "order_id BIGINT NOT NULL COMMENT '订单ID', " +
+                    "payment_id BIGINT COMMENT '关联的支付记录ID', " +
+                    "merchant_id VARCHAR(50) NOT NULL COMMENT '商户ID（分片键）', " +
+                    "request_no VARCHAR(100) NOT NULL COMMENT '退款请求号（幂等键）', " +
+                    "refund_amount DECIMAL(10,2) NOT NULL COMMENT '退款总金额', " +
+                    "reason VARCHAR(500) COMMENT '退款原因', " +
+                    "status VARCHAR(20) NOT NULL DEFAULT 'CREATED' COMMENT '退款状态：CREATED, PROCESSING, SUCCEEDED, FAILED, CANCELED', " +
+                    "third_party_refund_id VARCHAR(100) COMMENT '第三方退款ID（Stripe refund_id 或支付宝退款单号）', " +
+                    "error_message TEXT COMMENT '失败原因', " +
+                    "commission_reversal DECIMAL(10,2) DEFAULT 0 COMMENT '抽成回补金额（平台手续费回补）', " +
+                    "version BIGINT NOT NULL DEFAULT 1 COMMENT '版本号（乐观锁）', " +
+                    "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
+                    "processed_at DATETIME COMMENT '处理完成时间', " +
+                    "UNIQUE KEY uk_request_no (merchant_id, request_no), " +
+                    "INDEX idx_order_id (order_id), " +
+                    "INDEX idx_payment_id (payment_id), " +
+                    "INDEX idx_status (status), " +
+                    "INDEX idx_created_at (created_at)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='退款单表_库" + dbIndex + "_分片" + tableIndex + "'";
+            stmt.executeUpdate(createTableSql);
+        }
+        log.info("  ✓ 退款单表分片创建完成（3个分片表）");
+        
+        // 创建退款明细表分片
+        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+            String tableName = "refund_items_" + tableIndex;
+            String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
+                    "refund_item_id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                    "refund_id BIGINT NOT NULL COMMENT '退款单ID', " +
+                    "merchant_id VARCHAR(50) NOT NULL COMMENT '商户ID（分片键）', " +
+                    "order_item_id BIGINT COMMENT '订单项ID（如果按商品退款）', " +
+                    "subject VARCHAR(50) NOT NULL COMMENT '退款科目：ITEM, TAX, DELIVERY_FEE, TIPS, CHARGE, DISCOUNT', " +
+                    "refund_qty INT COMMENT '退款数量（仅商品退款时有效）', " +
+                    "refund_amount DECIMAL(10,2) NOT NULL COMMENT '退款金额', " +
+                    "tax_refund DECIMAL(10,2) DEFAULT 0 COMMENT '税费退款（仅商品退款时有效）', " +
+                    "discount_refund DECIMAL(10,2) DEFAULT 0 COMMENT '折扣退款（仅商品退款时有效）', " +
+                    "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                    "INDEX idx_refund_id (refund_id), " +
+                    "INDEX idx_merchant_id (merchant_id), " +
+                    "INDEX idx_order_item_id (order_item_id)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='退款明细表_库" + dbIndex + "_分片" + tableIndex + "'";
+            stmt.executeUpdate(createTableSql);
+        }
+        log.info("  ✓ 退款明细表分片创建完成（3个分片表）");
+        
+        // 创建退款幂等性日志表分片
+        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+            String tableName = "refund_idempotency_logs_" + tableIndex;
+            String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
+                    "id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID', " +
+                    "order_id BIGINT NOT NULL COMMENT '订单ID', " +
+                    "request_no VARCHAR(100) NOT NULL COMMENT '退款请求号（幂等键）', " +
+                    "refund_id BIGINT COMMENT '退款ID（关联到 refunds 表）', " +
+                    "merchant_id VARCHAR(50) NOT NULL COMMENT '商户ID（分片键）', " +
+                    "fingerprint VARCHAR(64) COMMENT '请求指纹（MD5）', " +
+                    "request_params TEXT COMMENT '请求参数（JSON格式）', " +
+                    "result VARCHAR(20) COMMENT '处理结果（SUCCESS/FAILED）', " +
+                    "error_message TEXT COMMENT '错误信息', " +
+                    "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
+                    "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
+                    "UNIQUE KEY uk_request_no (merchant_id, order_id, request_no), " +
+                    "INDEX idx_fingerprint (fingerprint), " +
+                    "INDEX idx_refund_id (refund_id), " +
+                    "INDEX idx_order_id (order_id), " +
+                    "INDEX idx_created_at (created_at)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='退款幂等性日志表_库" + dbIndex + "_分片" + tableIndex + "'";
+            stmt.executeUpdate(createTableSql);
+        }
+        log.info("  ✓ 退款幂等性日志表分片创建完成（3个分片表）");
     }
     
     private void createMerchantStripeConfigTables(Statement stmt, int dbIndex) throws Exception {
@@ -755,6 +854,40 @@ public class DatabaseInitializer {
             stmt.executeUpdate(createTableSql);
         }
         log.info("✓ 配送表分片创建完成（3个分片表）");
+    }
+    
+    /**
+     * 创建 DoorDash 重试任务表分片（doordash_retry_task）
+     */
+    private void createDoorDashRetryTaskTables(Statement stmt, int dbIndex) throws Exception {
+        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+            String tableName = "doordash_retry_task_" + tableIndex;
+            String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
+                    "id BIGINT NOT NULL PRIMARY KEY COMMENT '任务ID（雪花算法生成）', " +
+                    "order_id BIGINT NOT NULL COMMENT '订单ID（关联orders.id）', " +
+                    "merchant_id VARCHAR(50) NOT NULL COMMENT '商户ID（分片键）', " +
+                    "payment_id BIGINT COMMENT '支付ID（关联payments.id）', " +
+                    "status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '任务状态：PENDING-待重试，RETRYING-重试中，SUCCESS-成功，FAILED-失败，MANUAL-需要人工介入', " +
+                    "retry_count INT NOT NULL DEFAULT 0 COMMENT '重试次数', " +
+                    "max_retry_count INT NOT NULL DEFAULT 3 COMMENT '最大重试次数', " +
+                    "error_message TEXT COMMENT '错误信息（最后一次失败的错误信息）', " +
+                    "error_stack TEXT COMMENT '错误堆栈（最后一次失败的错误堆栈）', " +
+                    "next_retry_time DATETIME COMMENT '下次重试时间（用于延迟重试）', " +
+                    "last_retry_time DATETIME COMMENT '最后重试时间', " +
+                    "success_time DATETIME COMMENT '成功时间（创建成功时记录）', " +
+                    "manual_intervention_time DATETIME COMMENT '人工介入时间（标记为需要人工介入时记录）', " +
+                    "manual_intervention_note TEXT COMMENT '人工介入备注', " +
+                    "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
+                    "update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
+                    "INDEX idx_order_id (order_id), " +
+                    "INDEX idx_merchant_id (merchant_id), " +
+                    "INDEX idx_status (status), " +
+                    "INDEX idx_next_retry_time (next_retry_time), " +
+                    "INDEX idx_create_time (create_time)" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='DoorDash重试任务表_库" + dbIndex + "_分片" + tableIndex + "'";
+            stmt.executeUpdate(createTableSql);
+        }
+        log.info("✓ DoorDash重试任务表分片创建完成（3个分片表）");
     }
     
     private void createDoorDashWebhookLogTable(Connection conn, DatabaseMetaData metaData) {

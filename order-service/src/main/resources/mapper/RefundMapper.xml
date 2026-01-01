@@ -1,0 +1,112 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.RefundMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.Refund">
+        <id column="refund_id" property="refundId"/>
+        <result column="order_id" property="orderId"/>
+        <result column="payment_id" property="paymentId"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="request_no" property="requestNo"/>
+        <result column="refund_amount" property="refundAmount"/>
+        <result column="reason" property="reason"/>
+        <result column="status" property="status"/>
+        <result column="third_party_refund_id" property="thirdPartyRefundId"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="commission_reversal" property="commissionReversal"/>
+        <result column="version" property="version"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+        <result column="processed_at" property="processedAt"/>
+    </resultMap>
+
+    <!-- 插入退款单 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.Refund" useGeneratedKeys="true" keyProperty="refundId">
+        INSERT INTO refunds (
+            order_id, payment_id, merchant_id, request_no, refund_amount, reason,
+            status, third_party_refund_id, error_message, commission_reversal, version,
+            created_at, updated_at, processed_at
+        ) VALUES (
+            #{orderId}, #{paymentId}, #{merchantId}, #{requestNo}, #{refundAmount}, #{reason},
+            #{status}, #{thirdPartyRefundId}, #{errorMessage}, #{commissionReversal}, #{version},
+            #{createdAt}, #{updatedAt}, #{processedAt}
+        )
+    </insert>
+
+    <!-- 根据ID查询退款单 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM refunds WHERE refund_id = #{refundId}
+    </select>
+
+    <!-- 根据订单ID查询退款单列表 -->
+    <select id="selectByOrderId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM refunds WHERE order_id = #{orderId} ORDER BY created_at DESC
+    </select>
+
+    <!-- 根据请求号查询退款单（幂等性检查） -->
+    <select id="selectByRequestNo" resultMap="BaseResultMap">
+        SELECT * FROM refunds 
+        WHERE order_id = #{orderId} AND request_no = #{requestNo}
+        LIMIT 1
+    </select>
+
+    <!-- 根据第三方退款ID查询退款单 -->
+    <select id="selectByThirdPartyRefundId" parameterType="string" resultMap="BaseResultMap">
+        SELECT * FROM refunds WHERE third_party_refund_id = #{thirdPartyRefundId}
+    </select>
+
+    <!-- 更新退款状态 -->
+    <update id="updateStatus">
+        UPDATE refunds
+        SET status = #{status},
+            <if test="thirdPartyRefundId != null">
+            third_party_refund_id = #{thirdPartyRefundId},
+            </if>
+            updated_at = NOW(),
+            <if test="status == 'SUCCEEDED' or status == 'FAILED'">
+            processed_at = NOW(),
+            </if>
+            version = version + 1
+        WHERE refund_id = #{refundId}
+    </update>
+
+    <!-- 更新退款状态（带错误信息） -->
+    <update id="updateStatusWithError">
+        UPDATE refunds
+        SET status = #{status},
+            error_message = #{errorMessage},
+            updated_at = NOW(),
+            processed_at = NOW(),
+            version = version + 1
+        WHERE refund_id = #{refundId}
+    </update>
+    
+    <!-- 更新退款状态（带版本号，乐观锁） -->
+    <update id="updateStatusWithVersion">
+        UPDATE refunds
+        SET status = #{status},
+            <if test="thirdPartyRefundId != null">
+            third_party_refund_id = #{thirdPartyRefundId},
+            </if>
+            updated_at = NOW(),
+            <if test="status == 'SUCCEEDED' or status == 'FAILED'">
+            processed_at = NOW(),
+            </if>
+            version = version + 1
+        WHERE refund_id = #{refundId} AND version = #{version}
+    </update>
+    
+    <!-- 更新退款状态（带错误信息和版本号，乐观锁） -->
+    <update id="updateStatusWithErrorAndVersion">
+        UPDATE refunds
+        SET status = #{status},
+            error_message = #{errorMessage},
+            updated_at = NOW(),
+            processed_at = NOW(),
+            version = version + 1
+        WHERE refund_id = #{refundId} AND version = #{version}
+    </update>
+
+</mapper>
+

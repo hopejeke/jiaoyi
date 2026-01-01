@@ -111,7 +111,7 @@ public class OrderTimeoutMessageService implements RocketMQListener<OrderTimeout
      * RocketMQ消息监听器（需要RocketMQ服务启动时才能使用）
      * 注意：这个方法只有在RocketMQ服务启动时才会被调用
      */
-    @Override
+    // @Override - 暂时注释掉，因为不再实现 RocketMQListener 接口
     @Transactional
     public void onMessage(OrderTimeoutMessage message) {
         handleOrderTimeout(message);
@@ -187,21 +187,31 @@ public class OrderTimeoutMessageService implements RocketMQListener<OrderTimeout
             
             log.info("订单超时取消成功，订单ID: {}", order.getId());
             
-            // 2. 解锁库存
+            // 2. 解锁库存（SKU级别）
             if (order.getOrderItems() != null && !order.getOrderItems().isEmpty()) {
                 List<Long> productIds = order.getOrderItems().stream()
+                        .filter(item -> item.getProductId() != null)
                         .map(item -> item.getProductId())
+                        .collect(Collectors.toList());
+                List<Long> skuIds = order.getOrderItems().stream()
+                        .filter(item -> item.getSkuId() != null)
+                        .map(item -> item.getSkuId())
                         .collect(Collectors.toList());
                 List<Integer> quantities = order.getOrderItems().stream()
                         .map(item -> item.getQuantity())
                         .collect(Collectors.toList());
                 
-                ProductServiceClient.UnlockStockBatchRequest unlockRequest = new ProductServiceClient.UnlockStockBatchRequest();
-                unlockRequest.setProductIds(productIds);
-                unlockRequest.setQuantities(quantities);
-                unlockRequest.setOrderId(order.getId());
-                productServiceClient.unlockStockBatch(unlockRequest);
-                log.info("超时订单库存解锁成功，订单ID: {}", order.getId());
+                if (!productIds.isEmpty() && !skuIds.isEmpty() && productIds.size() == skuIds.size()) {
+                    ProductServiceClient.UnlockStockBatchRequest unlockRequest = new ProductServiceClient.UnlockStockBatchRequest();
+                    unlockRequest.setProductIds(productIds);
+                    unlockRequest.setSkuIds(skuIds);
+                    unlockRequest.setQuantities(quantities);
+                    unlockRequest.setOrderId(order.getId());
+                    productServiceClient.unlockStockBatch(unlockRequest);
+                    log.info("超时订单库存解锁成功（SKU级别），订单ID: {}", order.getId());
+                } else {
+                    log.warn("订单项缺少productId或skuId，无法解锁库存，订单ID: {}", order.getId());
+                }
             }
             
             // 3. 退还优惠券

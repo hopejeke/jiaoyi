@@ -85,6 +85,14 @@ public class CalculatePriceRequest {
         @NotNull(message = "商品ID不能为空")
         @JsonDeserialize(using = LongStringDeserializer.class)
         private Long productId;
+        
+        /**
+         * SKU ID（如果商品有SKU，必须提供）
+         * 支持从字符串类型反序列化，避免 JavaScript 大整数精度丢失问题
+         */
+        @JsonDeserialize(using = LongStringDeserializer.class)
+        private Long skuId;
+        
         @NotNull(message = "购买数量不能为空")
         private Integer quantity;
     }

@@ -72,18 +72,21 @@ public class ShardingSphereConfig {
             // 忽略
         }
         
-        // 配置分片表：orders, order_items, order_coupons, payments, merchant_stripe_config, merchant_fee_config
+        // 配置分片表：orders, order_items, order_coupons, payments, refunds, refund_items, merchant_stripe_config, merchant_fee_config
         // 使用 merchant_id 作为分片键（在线点餐业务）
         shardingRuleConfig.getTables().add(createOrdersTableRule());
         shardingRuleConfig.getTables().add(createOrderItemsTableRule());
         shardingRuleConfig.getTables().add(createOrderCouponsTableRule());
         shardingRuleConfig.getTables().add(createPaymentsTableRule());
+        shardingRuleConfig.getTables().add(createRefundsTableRule());
+        shardingRuleConfig.getTables().add(createRefundItemsTableRule());
         shardingRuleConfig.getTables().add(createMerchantStripeConfigTableRule());
         shardingRuleConfig.getTables().add(createMerchantFeeConfigTableRule());
+        shardingRuleConfig.getTables().add(createDoorDashRetryTaskTableRule());
         
-        // 配置绑定表（orders, order_items, order_coupons, payments 绑定，确保同一订单的数据在同一分片）
+        // 配置绑定表（orders, order_items, order_coupons, payments, refunds, refund_items 绑定，确保同一订单的数据在同一分片）
         ShardingTableReferenceRuleConfiguration bindingTableRule = new ShardingTableReferenceRuleConfiguration("order_binding", 
-            "orders,order_items,order_coupons,payments");
+            "orders,order_items,order_coupons,payments,refunds,refund_items");
         shardingRuleConfig.getBindingTableGroups().add(bindingTableRule);
         
         // 配置分片算法（使用 merchant_id 作为分片键，字符串类型）
@@ -158,6 +161,38 @@ public class ShardingSphereConfig {
     }
     
     /**
+     * 创建退款单表分片规则（与 orders 绑定）
+     * 使用 merchant_id 作为分片键，确保与 orders 表在同一分片
+     */
+    private ShardingTableRuleConfiguration createRefundsTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("refunds", 
+            "ds${0..2}.refunds_${0..2}");
+        // refunds 表使用 merchant_id 作为分片键，与 orders 表保持一致
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_database"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_table"));
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("refund_id", "snowflake"));
+        return tableRule;
+    }
+    
+    /**
+     * 创建退款明细表分片规则（与 refunds 绑定）
+     * 使用 merchant_id 作为分片键，通过 refund_id 关联到 refunds 表
+     */
+    private ShardingTableRuleConfiguration createRefundItemsTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("refund_items", 
+            "ds${0..2}.refund_items_${0..2}");
+        // refund_items 表通过 refund_id 关联到 refunds，间接使用 merchant_id 分片
+        // 注意：refund_items 表没有 merchant_id 字段，需要通过 refund_id JOIN refunds 来路由
+        // 但 ShardingSphere 不支持这种间接路由，所以需要在 refund_items 插入时传入 merchant_id
+        // 或者使用广播表策略（不推荐）
+        // 这里暂时使用默认路由，实际查询时需要通过 refund_id 关联 refunds 表来路由
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_database"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_table"));
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("refund_item_id", "snowflake"));
+        return tableRule;
+    }
+    
+    /**
      * 创建商户 Stripe 配置表分片规则
      * 使用 merchant_id 作为分片键
      */
@@ -177,6 +212,19 @@ public class ShardingSphereConfig {
     private ShardingTableRuleConfiguration createMerchantFeeConfigTableRule() {
         ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("merchant_fee_config", 
             "ds${0..2}.merchant_fee_config_${0..2}");
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_database"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_table"));
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
+        return tableRule;
+    }
+    
+    /**
+     * 创建 DoorDash 重试任务表分片规则
+     * 使用 merchant_id 作为分片键
+     */
+    private ShardingTableRuleConfiguration createDoorDashRetryTaskTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("doordash_retry_task", 
+            "ds${0..2}.doordash_retry_task_${0..2}");
         tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_database"));
         tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_table"));
         tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));

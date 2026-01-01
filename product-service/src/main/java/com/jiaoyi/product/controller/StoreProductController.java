@@ -25,6 +25,7 @@ public class StoreProductController {
     
     private final StoreProductService storeProductService;
     private final InventoryService inventoryService;
+    private final com.jiaoyi.product.service.ProductSkuService productSkuService;
     
     /**
      * 获取所有店铺商品（可跨店铺）
@@ -56,6 +57,74 @@ public class StoreProductController {
         Optional<StoreProduct> storeProduct = storeProductService.getStoreProductById(id);
         return storeProduct.map(value -> ResponseEntity.ok(ApiResponse.success("查询成功", value)))
                 .orElseGet(() -> ResponseEntity.ok(ApiResponse.error(404, "商品不存在")));
+    }
+    
+    /**
+     * 通过商户ID和商品ID获取商品信息（包含SKU列表）
+     * 用于订单服务查询商品信息
+     */
+    @GetMapping("/merchant/{merchantId}/{productId}")
+    public ResponseEntity<ApiResponse<java.util.Map<String, Object>>> getProductByMerchantIdAndId(
+            @PathVariable String merchantId,
+            @PathVariable Long productId) {
+        log.info("通过商户ID和商品ID获取商品信息，商户ID: {}, 商品ID: {}", merchantId, productId);
+        
+        // 1. 获取商户信息以获取storeId
+        Long storeId = storeProductService.getStoreIdByMerchantId(merchantId);
+        if (storeId == null) {
+            return ResponseEntity.ok(ApiResponse.error(404, "商户不存在"));
+        }
+        
+        // 2. 查询商品信息
+        Optional<StoreProduct> productOpt = storeProductService.getStoreProductByIdFromDb(storeId, productId);
+        if (!productOpt.isPresent()) {
+            return ResponseEntity.ok(ApiResponse.error(404, "商品不存在"));
+        }
+        
+        StoreProduct product = productOpt.get();
+        
+        // 3. 查询SKU列表
+        List<com.jiaoyi.product.entity.ProductSku> skus = productSkuService.getSkusByProductId(productId);
+        
+        // 4. 查询每个SKU的库存信息
+        List<java.util.Map<String, Object>> skuList = new java.util.ArrayList<>();
+        for (com.jiaoyi.product.entity.ProductSku sku : skus) {
+            java.util.Map<String, Object> skuMap = new java.util.HashMap<>();
+            skuMap.put("id", sku.getId());
+            skuMap.put("skuCode", sku.getSkuCode());
+            skuMap.put("skuName", sku.getSkuName());
+            skuMap.put("skuPrice", sku.getSkuPrice());
+            skuMap.put("skuAttributes", sku.getSkuAttributes());
+            skuMap.put("skuImage", sku.getSkuImage());
+            skuMap.put("status", sku.getStatus());
+            
+            // 查询SKU库存
+            Optional<Inventory> inventoryOpt = inventoryService.getInventoryBySkuId(storeId, productId, sku.getId());
+            if (inventoryOpt.isPresent()) {
+                Inventory inventory = inventoryOpt.get();
+                skuMap.put("currentStock", inventory.getCurrentStock());
+                skuMap.put("lockedStock", inventory.getLockedStock());
+            } else {
+                skuMap.put("currentStock", 0);
+                skuMap.put("lockedStock", 0);
+            }
+            
+            skuList.add(skuMap);
+        }
+        
+        // 5. 构建响应
+        java.util.Map<String, Object> response = new java.util.HashMap<>();
+        response.put("id", product.getId());
+        response.put("storeId", product.getStoreId());
+        response.put("productName", product.getProductName());
+        response.put("description", product.getDescription());
+        response.put("unitPrice", product.getUnitPrice());
+        response.put("productImage", product.getProductImage());
+        response.put("category", product.getCategory());
+        response.put("status", product.getStatus());
+        response.put("skus", skuList);
+        
+        return ResponseEntity.ok(ApiResponse.success("查询成功", response));
     }
     
     /**
@@ -201,6 +270,71 @@ public class StoreProductController {
     // 这些接口用于商家后台页面，确保修改后立即看到最新数据，不受缓存延迟影响
 
     /**
+     * 通过商户ID获取该商户的所有商品（包含SKU列表）
+     * 用于前端页面展示商户商品列表
+     */
+    @GetMapping("/merchant/{merchantId}")
+    public ResponseEntity<ApiResponse<List<java.util.Map<String, Object>>>> getProductsByMerchantId(
+            @PathVariable String merchantId) {
+        log.info("通过商户ID获取商品列表，商户ID: {}", merchantId);
+        
+        // 1. 获取商户信息以获取storeId
+        Long storeId = storeProductService.getStoreIdByMerchantId(merchantId);
+        if (storeId == null) {
+            return ResponseEntity.ok(ApiResponse.error(404, "商户不存在"));
+        }
+        
+        // 2. 查询商品列表
+        List<StoreProduct> products = storeProductService.getStoreProductsFromDb(storeId);
+        
+        // 3. 为每个商品查询SKU列表
+        List<java.util.Map<String, Object>> productList = new java.util.ArrayList<>();
+        for (StoreProduct product : products) {
+            java.util.Map<String, Object> productMap = new java.util.HashMap<>();
+            productMap.put("id", product.getId());
+            productMap.put("storeId", product.getStoreId());
+            productMap.put("productName", product.getProductName());
+            productMap.put("description", product.getDescription());
+            productMap.put("unitPrice", product.getUnitPrice());
+            productMap.put("productImage", product.getProductImage());
+            productMap.put("category", product.getCategory());
+            productMap.put("status", product.getStatus());
+            
+            // 查询SKU列表
+            List<com.jiaoyi.product.entity.ProductSku> skus = productSkuService.getSkusByProductId(product.getId());
+            List<java.util.Map<String, Object>> skuList = new java.util.ArrayList<>();
+            for (com.jiaoyi.product.entity.ProductSku sku : skus) {
+                java.util.Map<String, Object> skuMap = new java.util.HashMap<>();
+                skuMap.put("id", sku.getId());
+                skuMap.put("skuCode", sku.getSkuCode());
+                skuMap.put("skuName", sku.getSkuName());
+                skuMap.put("skuPrice", sku.getSkuPrice());
+                skuMap.put("skuAttributes", sku.getSkuAttributes());
+                skuMap.put("skuImage", sku.getSkuImage());
+                skuMap.put("status", sku.getStatus());
+                
+                // 查询SKU库存
+                Optional<Inventory> inventoryOpt = inventoryService.getInventoryBySkuId(storeId, product.getId(), sku.getId());
+                if (inventoryOpt.isPresent()) {
+                    Inventory inventory = inventoryOpt.get();
+                    skuMap.put("currentStock", inventory.getCurrentStock());
+                    skuMap.put("lockedStock", inventory.getLockedStock());
+                } else {
+                    skuMap.put("currentStock", 0);
+                    skuMap.put("lockedStock", 0);
+                }
+                
+                skuList.add(skuMap);
+            }
+            productMap.put("skus", skuList);
+            
+            productList.add(productMap);
+        }
+        
+        return ResponseEntity.ok(ApiResponse.success("查询成功", productList));
+    }
+    
+    /**
      * B端商家：根据店铺ID获取该店铺的所有商品（直接读DB）
      * 用于商家后台页面，确保修改后立即看到最新数据
      */
@@ -216,7 +350,7 @@ public class StoreProductController {
      * 用于商家后台页面，确保修改后立即看到最新数据
      * 如果提供了storeId，使用包含分片键的查询（推荐）
      */
-    @GetMapping("/merchant/{id}")
+    @GetMapping("/merchant/product/{id}")
     public ResponseEntity<ApiResponse<StoreProduct>> getStoreProductByIdForMerchant(
             @PathVariable Long id,
             @RequestParam(required = false) Long storeId) {

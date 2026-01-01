@@ -14,7 +14,7 @@ import java.util.List;
  * 商品服务 Feign Client
  * 用于订单服务调用商品服务
  */
-@FeignClient(name = "product-service", url = "${product.service.url:http://localhost:8081}")
+@FeignClient(name = "product-service", path = "/api")
 public interface ProductServiceClient {
     
     /**
@@ -53,23 +53,25 @@ public interface ProductServiceClient {
     ApiResponse<Void> lockStockBatch(@RequestBody LockStockBatchRequest request);
     
     /**
-     * 解锁库存
+     * 解锁库存（基于SKU）
      */
     @PostMapping("/api/inventory/{productId}/unlock")
-    ApiResponse<Void> unlockStock(@PathVariable("productId") Long productId, 
+    ApiResponse<Void> unlockStock(@PathVariable("productId") Long productId,
+                      @RequestParam("skuId") Long skuId,
                       @RequestParam("quantity") Integer quantity);
     
     /**
-     * 批量解锁库存
+     * 批量解锁库存（基于SKU）
      */
     @PostMapping("/api/inventory/unlock/batch")
     ApiResponse<Void> unlockStockBatch(@RequestBody UnlockStockBatchRequest request);
     
     /**
-     * 扣减库存
+     * 扣减库存（基于SKU）
      */
     @PostMapping("/api/inventory/{productId}/deduct")
-    ApiResponse<Void> deductStock(@PathVariable("productId") Long productId, 
+    ApiResponse<Void> deductStock(@PathVariable("productId") Long productId,
+                      @RequestParam("skuId") Long skuId,
                       @RequestParam("quantity") Integer quantity);
     
     /**
@@ -98,28 +100,34 @@ public interface ProductServiceClient {
     }
     
     /**
-     * 批量锁定库存请求
+     * 批量锁定库存请求（基于SKU）
      */
     class LockStockBatchRequest {
         private List<Long> productIds;
+        private List<Long> skuIds;
         private List<Integer> quantities;
         
         public List<Long> getProductIds() { return productIds; }
         public void setProductIds(List<Long> productIds) { this.productIds = productIds; }
+        public List<Long> getSkuIds() { return skuIds; }
+        public void setSkuIds(List<Long> skuIds) { this.skuIds = skuIds; }
         public List<Integer> getQuantities() { return quantities; }
         public void setQuantities(List<Integer> quantities) { this.quantities = quantities; }
     }
     
     /**
-     * 批量解锁库存请求
+     * 批量解锁库存请求（基于SKU）
      */
     class UnlockStockBatchRequest {
         private List<Long> productIds;
+        private List<Long> skuIds;
         private List<Integer> quantities;
         private Long orderId;
         
         public List<Long> getProductIds() { return productIds; }
         public void setProductIds(List<Long> productIds) { this.productIds = productIds; }
+        public List<Long> getSkuIds() { return skuIds; }
+        public void setSkuIds(List<Long> skuIds) { this.skuIds = skuIds; }
         public List<Integer> getQuantities() { return quantities; }
         public void setQuantities(List<Integer> quantities) { this.quantities = quantities; }
         public Long getOrderId() { return orderId; }
@@ -127,15 +135,18 @@ public interface ProductServiceClient {
     }
     
     /**
-     * 批量扣减库存请求
+     * 批量扣减库存请求（基于SKU）
      */
     class DeductStockBatchRequest {
         private List<Long> productIds;
+        private List<Long> skuIds;
         private List<Integer> quantities;
         private Long orderId;
         
         public List<Long> getProductIds() { return productIds; }
         public void setProductIds(List<Long> productIds) { this.productIds = productIds; }
+        public List<Long> getSkuIds() { return skuIds; }
+        public void setSkuIds(List<Long> skuIds) { this.skuIds = skuIds; }
         public List<Integer> getQuantities() { return quantities; }
         public void setQuantities(List<Integer> quantities) { this.quantities = quantities; }
         public Long getOrderId() { return orderId; }

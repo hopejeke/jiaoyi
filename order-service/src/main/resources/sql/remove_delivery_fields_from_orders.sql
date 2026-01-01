@@ -59,3 +59,8 @@ ALTER TABLE orders_2 DROP COLUMN IF EXISTS delivery_driver_phone;
 
 -- 注意：delivery_id 字段保留，作为外键关联 deliveries 表
 
+
+
+
+
+

@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.OutboxNodeMapper">
+    
+    <resultMap id="OutboxNodeResultMap" type="com.jiaoyi.order.entity.OutboxNode">
+        <id property="id" column="id"/>
+        <result property="ip" column="ip"/>
+        <result property="port" column="port"/>
+        <result property="nodeId" column="node_id"/>
+        <result property="enabled" column="enabled"/>
+        <result property="expiredTime" column="expired_time"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+    
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.OutboxNode" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO outbox_node (
+            ip, port, node_id, enabled, expired_time, created_at, updated_at
+        ) VALUES (
+            #{ip}, #{port}, #{nodeId}, #{enabled}, #{expiredTime}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+    
+    <select id="selectById" resultMap="OutboxNodeResultMap">
+        SELECT * FROM outbox_node WHERE id = #{id}
+    </select>
+    
+    <select id="selectByNodeId" resultMap="OutboxNodeResultMap">
+        SELECT * FROM outbox_node WHERE node_id = #{nodeId}
+    </select>
+    
+    <update id="updateExpiredTime">
+        UPDATE outbox_node
+        SET expired_time = #{expiredTime},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+    
+    <update id="updateByNodeId">
+        UPDATE outbox_node
+        SET ip = #{ip},
+            port = #{port},
+            expired_time = #{expiredTime},
+            updated_at = NOW()
+        WHERE node_id = #{nodeId}
+    </update>
+    
+    <!-- 查询所有启用的节点（按ID降序排序，用于计算节点索引） -->
+    <!-- 只查询enabled=1且expired_time大于阈值的节点（即存活的节点） -->
+    <select id="selectAvailableNodes" resultMap="OutboxNodeResultMap">
+        SELECT * FROM outbox_node
+        WHERE enabled = 1
+          AND expired_time > #{expiredTime}
+        ORDER BY id DESC
+    </select>
+    
+    <!-- 查询过期节点（用于清理） -->
+    <select id="selectExpiredNodes" resultMap="OutboxNodeResultMap">
+        SELECT * FROM outbox_node
+        WHERE expired_time &lt;= #{expiredTime}
+        ORDER BY id DESC
+        LIMIT #{limit}
+    </select>
+    
+    <delete id="deleteByIds">
+        DELETE FROM outbox_node
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </delete>
+    
+    <update id="disableNode">
+        UPDATE outbox_node
+        SET enabled = 0,
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+    
+    <update id="enableNode">
+        UPDATE outbox_node
+        SET enabled = 1,
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+    
+</mapper>
+

@@ -26,12 +26,15 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@RocketMQMessageListener(
-    topic = RocketMQConfig.INVENTORY_CACHE_UPDATE_TOPIC,
-    consumerGroup = RocketMQConfig.INVENTORY_CACHE_UPDATE_CONSUMER_GROUP,
-    selectorExpression = RocketMQConfig.INVENTORY_CACHE_UPDATE_TAG
-)
-public class InventoryCacheUpdateMessageService implements RocketMQListener<InventoryCacheUpdateMessage> {
+// 暂时注释掉 RocketMQ 监听器，避免启动错误
+// TODO: 升级到兼容 Spring Boot 3.x 的 RocketMQ 版本后重新启用
+// @RocketMQMessageListener(
+//     topic = RocketMQConfig.INVENTORY_CACHE_UPDATE_TOPIC,
+//     consumerGroup = RocketMQConfig.INVENTORY_CACHE_UPDATE_CONSUMER_GROUP,
+//     selectorExpression = RocketMQConfig.INVENTORY_CACHE_UPDATE_TAG
+// )
+// public class InventoryCacheUpdateMessageService implements RocketMQListener<InventoryCacheUpdateMessage> {
+public class InventoryCacheUpdateMessageService {
     
     private final InventoryMapper inventoryMapper;
     private final InventoryCacheService inventoryCacheService;
@@ -133,7 +136,7 @@ public class InventoryCacheUpdateMessageService implements RocketMQListener<Inve
      * 
      * 【关键点】：此时数据库操作已经完成，只需更新缓存即可
      */
-    @Override
+    // @Override - 暂时注释掉，因为不再实现 RocketMQListener 接口
     @Transactional
     public void onMessage(InventoryCacheUpdateMessage message) {
         log.info("步骤4: 接收到库存缓存更新正式消息（半消息已提交），商品ID: {}, 操作类型: {}, 数量: {}", 

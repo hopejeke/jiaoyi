@@ -2,6 +2,7 @@ package com.jiaoyi.order.controller;
 
 import com.jiaoyi.common.annotation.PreventDuplicateSubmission;
 import com.jiaoyi.common.ApiResponse;
+import com.jiaoyi.common.exception.BusinessException;
 import com.jiaoyi.order.dto.*;
 import com.jiaoyi.order.entity.Order;
 import com.jiaoyi.order.entity.Delivery;
@@ -59,44 +60,23 @@ public class OrderController {
     
     /**
      * 创建订单（在线点餐，保留库存锁定、优惠券等功能）
-     * 参照 OO 项目的 checkoutOrder，支持在创建订单时一起处理支付
+     * 支持在创建订单时一起处理支付（在同一事务中）
+     * 
+     * 防重复提交：基于订单内容（merchantId + userId + orderItems哈希）生成锁 key
+     * 相同订单内容的重复提交会被拦截，不同订单内容可以并发创建
      */
     @PostMapping
-    public ResponseEntity<ApiResponse<CreateOrderResponse>> createOrder(@RequestBody Object requestBody) {
-        log.info("创建订单请求，请求体类型: {}", requestBody.getClass().getSimpleName());
+    @PreventDuplicateSubmission(
+        key = "T(com.jiaoyi.order.controller.OrderController).generateOrderLockKey(#request)", 
+        expireTime = 5,
+        message = "请勿重复提交相同订单"
+    )
+    @com.jiaoyi.order.annotation.RateLimit
+    public ResponseEntity<ApiResponse<CreateOrderResponse>> createOrder(@RequestBody CreateOrderRequest request) {
+        log.info("创建在线点餐订单请求，userId: {}, paymentMethod: {}, payOnline: {}", 
+                request.getUserId(), request.getPaymentMethod(), request.getPayOnline());
         
         try {
-            CreateOrderRequest request;
-            
-            // 兼容旧格式：{order: {...}, orderItems: [...]}
-            if (requestBody instanceof java.util.Map) {
-                @SuppressWarnings("unchecked")
-                java.util.Map<String, Object> map = (java.util.Map<String, Object>) requestBody;
-                
-                if (map.containsKey("order") && map.containsKey("orderItems")) {
-                    // 旧格式，转换为新格式
-                    log.info("检测到旧格式订单请求，进行转换");
-                    @SuppressWarnings("unchecked")
-                    java.util.Map<String, Object> orderMap = (java.util.Map<String, Object>) map.get("order");
-                    @SuppressWarnings("unchecked")
-                    java.util.List<java.util.Map<String, Object>> orderItemsList = 
-                        (java.util.List<java.util.Map<String, Object>>) map.get("orderItems");
-                    
-                    request = convertOldFormatToNewFormat(orderMap, orderItemsList);
-                } else {
-                    // 尝试直接转换为 CreateOrderRequest
-                    request = objectMapper.convertValue(requestBody, CreateOrderRequest.class);
-                }
-            } else if (requestBody instanceof CreateOrderRequest) {
-                request = (CreateOrderRequest) requestBody;
-            } else {
-                // 尝试通过 ObjectMapper 转换
-                request = objectMapper.convertValue(requestBody, CreateOrderRequest.class);
-            }
-            
-            log.info("创建在线点餐订单请求，userId: {}, paymentMethod: {}, payOnline: {}", 
-                    request.getUserId(), request.getPaymentMethod(), request.getPayOnline());
-            
             if (request.getOrderItems() == null || request.getOrderItems().isEmpty()) {
                 return ResponseEntity.ok(ApiResponse.error(400, "订单项不能为空"));
             }
@@ -121,56 +101,23 @@ public class OrderController {
                 return ResponseEntity.ok(ApiResponse.error(400, "没有有效的订单项"));
             }
             
-            // 3. 创建订单
-            Order createdOrder = orderService.createOrder(
+            // 3. 构建支付请求（如果需要支付）
+            PaymentRequest paymentRequest = null;
+            if (request.getPayOnline() != null && request.getPayOnline() && 
+                request.getPaymentMethod() != null && !request.getPaymentMethod().isEmpty()) {
+                paymentRequest = new PaymentRequest();
+                paymentRequest.setPaymentMethod(request.getPaymentMethod().toUpperCase());
+                // 金额会在 Service 层从订单中获取
+            }
+            
+            // 4. 创建订单并处理支付（在同一事务中）
+            CreateOrderResponse response = orderService.createOrderWithPayment(
                     order, 
                     orderItems,
                     request.getCouponIds(),
-                    request.getCouponCodes()
+                    request.getCouponCodes(),
+                    paymentRequest
             );
-            
-            // 4. 如果是在线支付，处理支付（参照 OO 项目的 checkoutOnlineOrder）
-            CreateOrderResponse response = new CreateOrderResponse();
-            response.setOrder(createdOrder);
-            
-            // 注意：对于信用卡支付，不在创建订单时创建 Payment Intent
-            // 因为此时用户还没有填写卡片信息，无法创建 Payment Method
-            // Payment Intent 应该在用户填写卡片后，在支付页面创建
-            if (request.getPayOnline() != null && request.getPayOnline() && 
-                request.getPaymentMethod() != null && !request.getPaymentMethod().isEmpty()) {
-                
-                String paymentMethod = request.getPaymentMethod().toUpperCase();
-                
-                // 只有非信用卡支付（支付宝、微信）在创建订单时处理
-                // 信用卡支付需要等用户填写卡片后再创建 Payment Intent
-                if ("ALIPAY".equalsIgnoreCase(paymentMethod)) {
-                    log.info("处理支付宝支付，订单ID: {}", createdOrder.getId());
-                    
-                    PaymentRequest paymentRequest = new PaymentRequest();
-                    paymentRequest.setPaymentMethod("ALIPAY");
-                    java.math.BigDecimal amount = parseOrderPrice(createdOrder);
-                    paymentRequest.setAmount(amount);
-                    
-                    PaymentResponse paymentResponse = paymentService.processPayment(createdOrder.getId(), paymentRequest);
-                    response.setPayment(paymentResponse);
-                    response.setPaymentUrl(paymentResponse.getPayUrl());
-                    
-                } else if ("WECHAT_PAY".equalsIgnoreCase(paymentMethod) || 
-                           "WECHAT".equalsIgnoreCase(paymentMethod)) {
-                    log.info("处理微信支付，订单ID: {}", createdOrder.getId());
-                    
-                    PaymentRequest paymentRequest = new PaymentRequest();
-                    paymentRequest.setPaymentMethod("WECHAT_PAY");
-                    java.math.BigDecimal amount = parseOrderPrice(createdOrder);
-                    paymentRequest.setAmount(amount);
-                    
-                    PaymentResponse paymentResponse = paymentService.processPayment(createdOrder.getId(), paymentRequest);
-                    response.setPayment(paymentResponse);
-                    response.setPaymentUrl(paymentResponse.getPayUrl());
-                }
-                // 信用卡支付（CREDIT_CARD/CARD/STRIPE）不在创建订单时处理
-                // 等用户填写卡片后，在支付页面调用 /api/orders/{orderId}/pay 创建 Payment Intent
-            }
             
             return ResponseEntity.ok(ApiResponse.success("创建成功", response));
         } catch (Exception e) {
@@ -257,6 +204,11 @@ public class OrderController {
                 continue;
             }
             
+            if (itemRequest.getSkuId() == null) {
+                log.error("订单项缺少skuId，商品ID: {}", itemRequest.getProductId());
+                throw new com.jiaoyi.common.exception.BusinessException("订单项必须包含skuId，商品ID: " + itemRequest.getProductId());
+            }
+            
             // 从数据库查询商品信息（获取真实价格，使用 merchantId 和 productId，避免查询所有分片）
             com.jiaoyi.common.ApiResponse<?> productResponse = productServiceClient.getProductByMerchantIdAndId(
                     request.getMerchantId(), itemRequest.getProductId());
@@ -271,25 +223,46 @@ public class OrderController {
                 java.util.Map<String, Object> productMap = (java.util.Map<String, Object>) 
                         objectMapper.convertValue(productResponse.getData(), java.util.Map.class);
                 
-                // 获取商品价格（从数据库查询，不使用前端传来的价格）
+                // 优先使用SKU价格
                 java.math.BigDecimal unitPrice = null;
-                if (productMap.get("unitPrice") != null) {
-                    unitPrice = new java.math.BigDecimal(productMap.get("unitPrice").toString());
+                String skuName = null;
+                String skuAttributes = null;
+                
+                // 1. 尝试从SKU列表中获取SKU价格
+                Object skusObj = productMap.get("skus");
+                if (skusObj != null && skusObj instanceof java.util.List) {
+                    @SuppressWarnings("unchecked")
+                    java.util.List<java.util.Map<String, Object>> skus = (java.util.List<java.util.Map<String, Object>>) skusObj;
+                    for (java.util.Map<String, Object> sku : skus) {
+                        Object skuIdObj = sku.get("id");
+                        if (skuIdObj != null && skuIdObj.toString().equals(itemRequest.getSkuId().toString())) {
+                            Object skuPriceObj = sku.get("skuPrice");
+                            if (skuPriceObj != null) {
+                                unitPrice = new java.math.BigDecimal(skuPriceObj.toString());
+                            }
+                            if (sku.get("skuName") != null) {
+                                skuName = sku.get("skuName").toString();
+                            }
+                            if (sku.get("skuAttributes") != null) {
+                                skuAttributes = sku.get("skuAttributes").toString();
+                            }
+                            log.debug("找到SKU，SKU ID: {}, 价格: {}, 名称: {}", itemRequest.getSkuId(), unitPrice, skuName);
+                            break;
+                        }
+                    }
+                }
+                
+                // 2. 如果SKU没有价格，使用商品价格
+                if (unitPrice == null) {
+                    if (productMap.get("unitPrice") != null) {
+                        unitPrice = new java.math.BigDecimal(productMap.get("unitPrice").toString());
+                        log.debug("使用商品价格，商品ID: {}, 价格: {}", itemRequest.getProductId(), unitPrice);
+                    }
                 }
                 
                 if (unitPrice == null || unitPrice.compareTo(java.math.BigDecimal.ZERO) <= 0) {
-                    log.error("商品价格无效，商品ID: {}, 价格: {}", itemRequest.getProductId(), unitPrice);
+                    log.error("商品价格无效，商品ID: {}, SKU ID: {}, 价格: {}", itemRequest.getProductId(), itemRequest.getSkuId(), unitPrice);
                     throw new com.jiaoyi.common.exception.BusinessException("商品价格无效: " + itemRequest.getProductId());
-                }
-                
-                // 验证前端传来的价格（如果传了）是否与数据库价格一致（用于检测前端篡改）
-                if (itemRequest.getUnitPrice() != null) {
-                    java.math.BigDecimal frontendPrice = itemRequest.getUnitPrice();
-                    if (frontendPrice.compareTo(unitPrice) != 0) {
-                        log.warn("前端传来的商品价格与数据库不一致，商品ID: {}, 前端价格: {}, 数据库价格: {}", 
-                                itemRequest.getProductId(), frontendPrice, unitPrice);
-                        // 不抛出异常，但记录警告，使用数据库价格
-                    }
                 }
                 
                 // 获取商品名称和图片（优先使用数据库中的，如果数据库没有则使用前端传来的）
@@ -301,9 +274,12 @@ public class OrderController {
                 // 创建订单项
                 OrderItem item = new OrderItem();
                 item.setProductId(itemRequest.getProductId());
+                item.setSkuId(itemRequest.getSkuId());
+                item.setSkuName(skuName);
+                item.setSkuAttributes(skuAttributes);
                 item.setItemName(productName != null ? productName : "商品");
                 item.setProductImage(productImage);
-                item.setItemPrice(unitPrice); // 使用数据库查询的价格
+                item.setItemPrice(unitPrice); // 使用SKU价格或商品价格
                 item.setQuantity(itemRequest.getQuantity());
                 
                 // 设置 saleItemId：如果没有，使用 productId 作为默认值
@@ -312,156 +288,24 @@ public class OrderController {
                 // 设置 orderItemId：使用索引+1
                 item.setOrderItemId((long) (index + 1));
                 
-                // 计算小计（使用数据库价格）
+                // 计算小计（使用SKU价格或商品价格）
                 item.setItemPriceTotal(unitPrice.multiply(
                         java.math.BigDecimal.valueOf(itemRequest.getQuantity())));
                 
                 items.add(item);
                 index++;
                 
-                log.debug("订单项构建成功，商品ID: {}, 商品名称: {}, 单价: {}, 数量: {}, 小计: {}", 
-                        itemRequest.getProductId(), productName, unitPrice, itemRequest.getQuantity(), 
+                log.debug("订单项构建成功，商品ID: {}, SKU ID: {}, 商品名称: {}, 单价: {}, 数量: {}, 小计: {}", 
+                        itemRequest.getProductId(), itemRequest.getSkuId(), productName, unitPrice, itemRequest.getQuantity(), 
                         item.getItemPriceTotal());
                 
             } catch (Exception e) {
-                log.error("查询商品信息失败，商品ID: {}", itemRequest.getProductId(), e);
+                log.error("查询商品信息失败，商品ID: {}, SKU ID: {}", itemRequest.getProductId(), itemRequest.getSkuId(), e);
                 throw new com.jiaoyi.common.exception.BusinessException("查询商品信息失败: " + e.getMessage());
             }
         }
         
         return items;
-    }
-    
-    /**
-     * 将旧格式转换为新格式
-     * 旧格式：{order: {merchantId, userId, ...}, orderItems: [{saleItemId, itemName, itemPrice, ...}]}
-     * 新格式：CreateOrderRequest
-     */
-    private CreateOrderRequest convertOldFormatToNewFormat(
-            java.util.Map<String, Object> orderMap, 
-            java.util.List<java.util.Map<String, Object>> orderItemsList) {
-        
-        CreateOrderRequest request = new CreateOrderRequest();
-        
-        // 转换订单基本信息
-        request.setMerchantId((String) orderMap.get("merchantId"));
-        Object userIdObj = orderMap.get("userId");
-        if (userIdObj instanceof Number) {
-            request.setUserId(((Number) userIdObj).longValue());
-        }
-        request.setOrderType((String) orderMap.get("orderType"));
-        
-        // 从 customerInfo 中提取收货信息（如果有）
-        Object customerInfoObj = orderMap.get("customerInfo");
-        if (customerInfoObj instanceof String) {
-            try {
-                @SuppressWarnings("unchecked")
-                java.util.Map<String, Object> customerInfo = objectMapper.readValue(
-                    (String) customerInfoObj, java.util.Map.class);
-                request.setReceiverName((String) customerInfo.get("name"));
-                request.setReceiverPhone((String) customerInfo.get("phone"));
-                request.setReceiverAddress((String) customerInfo.get("address"));
-            } catch (Exception e) {
-                log.warn("解析 customerInfo 失败", e);
-            }
-        }
-        
-        // 如果没有 customerInfo，尝试从 orderMap 中直接获取
-        if (request.getReceiverName() == null) {
-            request.setReceiverName((String) orderMap.get("receiverName"));
-            request.setReceiverPhone((String) orderMap.get("receiverPhone"));
-            request.setReceiverAddress((String) orderMap.get("receiverAddress"));
-        }
-        
-        // 如果还是没有，设置默认值
-        if (request.getReceiverName() == null) {
-            request.setReceiverName("未填写");
-            request.setReceiverPhone("未填写");
-            request.setReceiverAddress("未填写");
-        }
-        
-        request.setRemark((String) orderMap.get("notes"));
-        
-        // 转换订单项
-        java.util.List<CreateOrderRequest.OrderItemRequest> orderItems = new java.util.ArrayList<>();
-        for (java.util.Map<String, Object> itemMap : orderItemsList) {
-            CreateOrderRequest.OrderItemRequest itemRequest = new CreateOrderRequest.OrderItemRequest();
-            
-            // 旧格式使用 saleItemId，新格式使用 productId
-            Object productIdObj = itemMap.get("productId");
-            if (productIdObj == null) {
-                productIdObj = itemMap.get("saleItemId");
-            }
-            if (productIdObj != null) {
-                if (productIdObj instanceof Number) {
-                    itemRequest.setProductId(((Number) productIdObj).longValue());
-                } else if (productIdObj instanceof String) {
-                    // 支持字符串类型的 productId，避免 JavaScript 大整数精度丢失
-                    try {
-                        itemRequest.setProductId(Long.parseLong((String) productIdObj));
-                    } catch (NumberFormatException e) {
-                        log.warn("productId 格式错误，无法解析为 Long: {}", productIdObj);
-                    }
-                }
-            }
-            
-            // 旧格式使用 itemName，新格式使用 productName
-            String productName = (String) itemMap.get("productName");
-            if (productName == null) {
-                productName = (String) itemMap.get("itemName");
-            }
-            itemRequest.setProductName(productName);
-            
-            itemRequest.setProductImage((String) itemMap.get("productImage"));
-            
-            // 旧格式使用 itemPrice，新格式使用 unitPrice
-            Object priceObj = itemMap.get("unitPrice");
-            if (priceObj == null) {
-                priceObj = itemMap.get("itemPrice");
-            }
-            if (priceObj != null) {
-                if (priceObj instanceof Number) {
-                    itemRequest.setUnitPrice(java.math.BigDecimal.valueOf(
-                        ((Number) priceObj).doubleValue()));
-                } else if (priceObj instanceof String) {
-                    itemRequest.setUnitPrice(new java.math.BigDecimal((String) priceObj));
-                }
-            }
-            
-            // quantity
-            Object quantityObj = itemMap.get("quantity");
-            if (quantityObj instanceof Number) {
-                itemRequest.setQuantity(((Number) quantityObj).intValue());
-            }
-            
-            orderItems.add(itemRequest);
-        }
-        request.setOrderItems(orderItems);
-        
-        return request;
-    }
-    
-    /**
-     * 从订单价格JSON中解析总金额
-     */
-    private java.math.BigDecimal parseOrderPrice(Order order) {
-        if (order.getOrderPrice() == null) {
-            return java.math.BigDecimal.ZERO;
-        }
-        try {
-            String orderPriceStr = order.getOrderPrice();
-            if (orderPriceStr.startsWith("{")) {
-                @SuppressWarnings("unchecked")
-                java.util.Map<String, Object> orderPrice = objectMapper.readValue(orderPriceStr, java.util.Map.class);
-                Object totalObj = orderPrice.get("total");
-                if (totalObj != null) {
-                    return new java.math.BigDecimal(totalObj.toString());
-                }
-            }
-        } catch (Exception e) {
-            log.error("解析订单价格失败，订单ID: {}", order.getId(), e);
-        }
-        return java.math.BigDecimal.ZERO;
     }
     
     /**
@@ -700,6 +544,48 @@ public class OrderController {
             log.error("商家接单失败，订单ID: {}", orderId, e);
             return ResponseEntity.ok(ApiResponse.error("接单失败: " + e.getMessage()));
         }
+    }
+    
+    /**
+     * 生成订单锁的 key（用于防重复提交）
+     * 基于订单内容生成哈希值：merchantId + userId + orderItems(商品ID+SKU ID+数量)的哈希
+     * 
+     * @param request 订单请求体
+     * @return 锁的 key
+     */
+    public static String generateOrderLockKey(CreateOrderRequest request) {
+        if (request == null || request.getMerchantId() == null || request.getUserId() == null) {
+            // 如果无法解析，使用默认 key（基于对象哈希）
+            return "order:create:default:" + System.identityHashCode(request);
+        }
+        
+        // 构建订单内容的字符串表示（用于哈希）
+        StringBuilder content = new StringBuilder();
+        content.append(request.getMerchantId()).append("|");
+        content.append(request.getUserId()).append("|");
+        content.append(request.getOrderType() != null ? request.getOrderType() : "").append("|");
+        
+        // 添加订单项的哈希（商品ID + SKU ID + 数量）
+        if (request.getOrderItems() != null && !request.getOrderItems().isEmpty()) {
+            java.util.List<String> itemKeys = new java.util.ArrayList<>();
+            for (CreateOrderRequest.OrderItemRequest item : request.getOrderItems()) {
+                if (item.getProductId() != null && item.getSkuId() != null && item.getQuantity() != null) {
+                    itemKeys.add(item.getProductId() + ":" + item.getSkuId() + ":" + item.getQuantity());
+                }
+            }
+            // 排序以确保相同订单内容生成相同的哈希
+            java.util.Collections.sort(itemKeys);
+            content.append(String.join(",", itemKeys));
+        }
+        
+        // 计算哈希值
+        int hashCode = content.toString().hashCode();
+        
+        // 生成锁 key
+        return String.format("order:create:%s:%d:%d", 
+            request.getMerchantId(), 
+            request.getUserId(), 
+            hashCode);
     }
 }
 

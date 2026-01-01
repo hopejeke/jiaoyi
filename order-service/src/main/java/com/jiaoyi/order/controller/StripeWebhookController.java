@@ -496,7 +496,6 @@ public class StripeWebhookController {
                     refundPayment.setMerchantId(order.getMerchantId());
                     refundPayment.setStatus(com.jiaoyi.order.enums.PaymentStatusEnum.SUCCESS.getCode());
                     refundPayment.setType(com.jiaoyi.order.enums.PaymentTypeEnum.REFUND.getCode());
-                    refundPayment.setPaymentNo("REF_" + System.currentTimeMillis() + "_" + order.getId());
                     refundPayment.setAmount(refundAmount);
                     refundPayment.setThirdPartyTradeNo(refund.getId());
                     refundPayment.setPaymentService(com.jiaoyi.order.enums.PaymentServiceEnum.STRIPE);

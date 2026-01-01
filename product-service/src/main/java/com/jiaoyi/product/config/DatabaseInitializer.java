@@ -39,6 +39,9 @@ public class DatabaseInitializer {
             // 1. 创建分库分表的数据库和表（只创建 store_products 相关表）
             createShardingDatabases(actualJdbcUrl, actualUsername, actualPassword);
             
+            // 1.5. 强制更新所有 product_sku 表结构（确保 is_delete 字段存在）
+            updateAllProductSkuTables(actualJdbcUrl, actualUsername, actualPassword);
+            
             // 2. 创建stores表、users表、outbox_node表和outbox表（在 jiaoyi 基础数据库中）
             // 构建连接 jiaoyi 的URL：将数据库名插入到端口号和参数之间
             String dbUrl = buildDatabaseUrl(actualJdbcUrl, "jiaoyi");
@@ -183,6 +186,9 @@ public class DatabaseInitializer {
             // 创建商品SKU表分片
             createProductSkuTables(stmt, dbIndex);
             
+            // 更新商品SKU表结构（添加缺失的字段）
+            updateProductSkuTables(stmt, dbIndex);
+            
             // 创建库存表分片
             createInventoryTables(stmt, dbIndex);
             
@@ -254,6 +260,234 @@ public class DatabaseInitializer {
             stmt.executeUpdate(createTableSql);
         }
         log.info("  ✓ 商品SKU表分片创建完成（3个分片表）");
+    }
+    
+    /**
+     * 强制更新所有 product_sku 表结构（确保 is_delete 字段存在）
+     * 在所有数据库初始化完成后调用，确保所有分片表都有 is_delete 字段
+     */
+    private void updateAllProductSkuTables(String jdbcUrl, String username, String password) {
+        String baseUrl = extractBaseUrl(jdbcUrl);
+        log.info("开始强制更新所有 product_sku 表结构（确保 is_delete 字段存在）...");
+        
+        try (Connection conn = DriverManager.getConnection(baseUrl, username, password)) {
+            for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
+                String dbName = "jiaoyi_" + dbIndex;
+                try (Statement stmt = conn.createStatement()) {
+                    stmt.executeUpdate("USE " + dbName);
+                    updateProductSkuTables(stmt, dbIndex);
+                } catch (Exception e) {
+                    log.error("更新数据库 {} 的 product_sku 表结构失败: {}", dbName, e.getMessage(), e);
+                }
+            }
+            log.info("✓ 所有 product_sku 表结构更新完成");
+        } catch (Exception e) {
+            log.error("强制更新 product_sku 表结构失败: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 更新商品SKU表结构（添加缺失的字段）
+     */
+    private void updateProductSkuTables(Statement stmt, int dbIndex) throws Exception {
+        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+            String tableName = "product_sku_" + tableIndex;
+            try {
+                // 检查表是否存在
+                java.sql.ResultSet rs = stmt.executeQuery("SHOW TABLES LIKE '" + tableName + "'");
+                if (!rs.next()) {
+                    rs.close();
+                    continue; // 表不存在，跳过
+                }
+                rs.close();
+                
+                // 获取所有现有字段
+                java.util.Set<String> existingColumns = new java.util.HashSet<>();
+                rs = stmt.executeQuery("SHOW COLUMNS FROM " + tableName);
+                while (rs.next()) {
+                    existingColumns.add(rs.getString("Field").toLowerCase());
+                }
+                rs.close();
+                
+                // 检查并添加 sku_attributes 字段
+                if (!existingColumns.contains("sku_attributes")) {
+                    try {
+                        String alterSql = "ALTER TABLE " + tableName + 
+                                " ADD COLUMN sku_attributes TEXT COMMENT 'SKU属性（JSON格式，如：{\"color\":\"红色\",\"size\":\"L\"}）' AFTER sku_code";
+                        stmt.executeUpdate(alterSql);
+                        log.info("  ✓ 表 {} 已添加 sku_attributes 字段", tableName);
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && errorMsg.contains("Duplicate column name")) {
+                            log.debug("表 {} 的 sku_attributes 字段已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 sku_attributes 字段失败: {}", tableName, errorMsg);
+                        }
+                    }
+                }
+                
+                // 检查并添加 sku_name 字段
+                if (!existingColumns.contains("sku_name")) {
+                    try {
+                        String alterSql = "ALTER TABLE " + tableName + 
+                                " ADD COLUMN sku_name VARCHAR(200) COMMENT 'SKU名称（如：红色 L码）' AFTER sku_attributes";
+                        stmt.executeUpdate(alterSql);
+                        log.info("  ✓ 表 {} 已添加 sku_name 字段", tableName);
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && errorMsg.contains("Duplicate column name")) {
+                            log.debug("表 {} 的 sku_name 字段已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 sku_name 字段失败: {}", tableName, errorMsg);
+                        }
+                    }
+                }
+                
+                // 检查并添加 sku_price 字段（如果有默认值）
+                if (!existingColumns.contains("sku_price")) {
+                    try {
+                        String alterSql = "ALTER TABLE " + tableName + 
+                                " ADD COLUMN sku_price DECIMAL(10,2) DEFAULT NULL COMMENT 'SKU价格（如果与商品价格不同）' AFTER sku_name";
+                        stmt.executeUpdate(alterSql);
+                        log.info("  ✓ 表 {} 已添加 sku_price 字段", tableName);
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && errorMsg.contains("Duplicate column name")) {
+                            log.debug("表 {} 的 sku_price 字段已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 sku_price 字段失败: {}", tableName, errorMsg);
+                        }
+                    }
+                }
+                
+                // 检查是否有旧的 price 字段，如果有则删除或重命名
+                if (existingColumns.contains("price") && !existingColumns.contains("sku_price")) {
+                    try {
+                        // 先检查 price 字段的数据，如果有数据则迁移到 sku_price
+                        java.sql.ResultSet priceCheck = stmt.executeQuery("SELECT COUNT(*) as cnt FROM " + tableName + " WHERE price IS NOT NULL");
+                        if (priceCheck.next() && priceCheck.getInt("cnt") > 0) {
+                            // 有数据，先添加 sku_price，然后迁移数据
+                            try {
+                                stmt.executeUpdate("ALTER TABLE " + tableName + 
+                                        " ADD COLUMN sku_price DECIMAL(10,2) DEFAULT NULL COMMENT 'SKU价格' AFTER sku_name");
+                                stmt.executeUpdate("UPDATE " + tableName + " SET sku_price = price WHERE price IS NOT NULL");
+                                log.info("  ✓ 表 {} 已迁移 price 字段数据到 sku_price", tableName);
+                            } catch (Exception e) {
+                                log.warn("迁移 price 字段数据失败: {}", e.getMessage());
+                            }
+                        }
+                        priceCheck.close();
+                        
+                        // 删除旧的 price 字段
+                        try {
+                            stmt.executeUpdate("ALTER TABLE " + tableName + " DROP COLUMN price");
+                            log.info("  ✓ 表 {} 已删除旧的 price 字段", tableName);
+                        } catch (Exception e) {
+                            log.warn("删除旧的 price 字段失败: {}", e.getMessage());
+                        }
+                    } catch (Exception e) {
+                        log.warn("检查 price 字段时出错: {}", e.getMessage());
+                    }
+                }
+                
+                // 检查并添加 sku_image 字段
+                if (!existingColumns.contains("sku_image")) {
+                    try {
+                        String alterSql = "ALTER TABLE " + tableName + 
+                                " ADD COLUMN sku_image VARCHAR(500) COMMENT 'SKU图片（如果与商品图片不同）' AFTER sku_price";
+                        stmt.executeUpdate(alterSql);
+                        log.info("  ✓ 表 {} 已添加 sku_image 字段", tableName);
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && errorMsg.contains("Duplicate column name")) {
+                            log.debug("表 {} 的 sku_image 字段已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 sku_image 字段失败: {}", tableName, errorMsg);
+                        }
+                    }
+                }
+                
+                // 检查并添加 status 字段
+                if (!existingColumns.contains("status")) {
+                    try {
+                        String alterSql = "ALTER TABLE " + tableName + 
+                                " ADD COLUMN status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' COMMENT 'SKU状态：ACTIVE-启用，INACTIVE-禁用' AFTER sku_image";
+                        stmt.executeUpdate(alterSql);
+                        log.info("  ✓ 表 {} 已添加 status 字段", tableName);
+                        
+                        // 添加索引
+                        try {
+                            stmt.executeUpdate("ALTER TABLE " + tableName + " ADD INDEX idx_status (status)");
+                            log.info("  ✓ 表 {} 已添加 idx_status 索引", tableName);
+                        } catch (Exception e) {
+                            String errorMsg = e.getMessage();
+                            if (errorMsg != null && (errorMsg.contains("Duplicate key name") || errorMsg.contains("already exists"))) {
+                                log.debug("表 {} 的 idx_status 索引已存在", tableName);
+                            } else {
+                                log.warn("为表 {} 添加 idx_status 索引失败: {}", tableName, errorMsg);
+                            }
+                        }
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && errorMsg.contains("Duplicate column name")) {
+                            log.debug("表 {} 的 status 字段已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 status 字段失败: {}", tableName, errorMsg);
+                        }
+                    }
+                }
+                
+                // 检查并添加 is_delete 字段
+                if (!existingColumns.contains("is_delete")) {
+                    try {
+                        String alterSql = "ALTER TABLE " + tableName + 
+                                " ADD COLUMN is_delete TINYINT(1) NOT NULL DEFAULT 0 COMMENT '是否删除：0-未删除，1-已删除（逻辑删除）'";
+                        stmt.executeUpdate(alterSql);
+                        log.info("  ✓ 表 {} 已添加 is_delete 字段", tableName);
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && errorMsg.contains("Duplicate column name")) {
+                            log.debug("表 {} 的 is_delete 字段已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 is_delete 字段失败: {}", tableName, errorMsg);
+                        }
+                    }
+                    
+                    // 添加索引
+                    try {
+                        stmt.executeUpdate("ALTER TABLE " + tableName + " ADD INDEX idx_is_delete (is_delete)");
+                        log.info("  ✓ 表 {} 已添加 idx_is_delete 索引", tableName);
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && (errorMsg.contains("Duplicate key name") || errorMsg.contains("already exists"))) {
+                            log.debug("表 {} 的 idx_is_delete 索引已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 idx_is_delete 索引失败: {}", tableName, errorMsg);
+                        }
+                    }
+                }
+                
+                // 检查并添加 version 字段
+                if (!existingColumns.contains("version")) {
+                    try {
+                        String alterSql = "ALTER TABLE " + tableName + 
+                                " ADD COLUMN version BIGINT NOT NULL DEFAULT 0 COMMENT '版本号（用于缓存一致性控制）'";
+                        stmt.executeUpdate(alterSql);
+                        log.info("  ✓ 表 {} 已添加 version 字段", tableName);
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && errorMsg.contains("Duplicate column name")) {
+                            log.debug("表 {} 的 version 字段已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 version 字段失败: {}", tableName, errorMsg);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("更新表 {} 结构时出错: {}", tableName, e.getMessage(), e);
+            }
+        }
+        log.info("  ✓ 商品SKU表结构更新完成（3个分片表）");
     }
     
     /**

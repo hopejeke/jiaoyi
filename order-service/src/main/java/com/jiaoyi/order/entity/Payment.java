@@ -58,11 +58,6 @@ public class Payment {
     private PaymentServiceEnum paymentService;
     
     /**
-     * 支付流水号
-     */
-    private String paymentNo;
-    
-    /**
      * 第三方支付平台交易号
      */
     private String thirdPartyTradeNo;

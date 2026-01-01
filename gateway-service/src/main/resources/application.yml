@@ -1,0 +1,85 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: gateway-service
+  # 强制使用响应式 Web 应用类型（WebFlux），避免与 Spring MVC 冲突
+  main:
+    web-application-type: reactive
+  
+  # Spring Cloud Gateway 配置
+  cloud:
+    gateway:
+      # 启用服务发现路由定位器（自动根据服务名路由）
+      discovery:
+        locator:
+          enabled: true
+          lower-case-service-id: true  # 服务名转小写
+      
+      # 路由配置
+      routes:
+        # 商品服务路由
+        - id: product-service-route
+          uri: lb://product-service  # lb 代表 LoadBalance，从 Nacos 获取实例
+          predicates:
+            - Path=/api/products/**,/api/stores/**,/api/store-products/**,/api/product-skus/**,/api/inventory/**,/api/inventory-cache/**,/api/product-cache/**,/api/cache-consistency/**,/api/merchants/**,/api/store-services/**,/api/menu-items/**,/api/users/**
+          filters:
+            - StripPrefix=0  # 不剥离前缀，保持完整路径
+        
+        # 订单服务路由
+        - id: order-service-route
+          uri: lb://order-service
+          predicates:
+            - Path=/api/orders/**,/api/payment/**,/api/order-timeout/**,/api/merchant/**,/api/doordash/**,/api/refunds/**
+          filters:
+            - StripPrefix=0
+        
+        # 优惠券服务路由
+        - id: coupon-service-route
+          uri: lb://coupon-service
+          predicates:
+            - Path=/api/coupons/**
+          filters:
+            - StripPrefix=0
+      
+      # 全局过滤器配置
+      default-filters:
+        - DedupeResponseHeader=Access-Control-Allow-Credentials Access-Control-Allow-Origin
+      
+      # 跨域配置
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            # 使用 allowedOriginPatterns 支持通配符和凭证
+            allowedOriginPatterns: "*"
+            allowedMethods:
+              - GET
+              - POST
+              - PUT
+              - DELETE
+              - OPTIONS
+            allowedHeaders: "*"
+            allowCredentials: true
+            maxAge: 3600
+    
+    # Nacos 服务发现配置
+    nacos:
+      discovery:
+        server-addr: ${NACOS_SERVER_ADDR:127.0.0.1:8848}
+        namespace: ${NACOS_NAMESPACE:}
+        group: ${NACOS_GROUP:DEFAULT_GROUP}
+        enabled: true
+
+# 日志配置
+logging:
+  level:
+    com.jiaoyi.gateway: DEBUG
+    org.springframework.cloud.gateway: DEBUG
+    org.springframework.web: INFO
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/gateway-service.log
+

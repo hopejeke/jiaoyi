@@ -3,20 +3,21 @@
 <mapper namespace="com.jiaoyi.product.mapper.sharding.ProductSkuMapper">
 
     <!-- 结果映射 -->
+    <!-- 注意：字段顺序必须与表结构一致（id, store_id, product_id, sku_code, sku_attributes, sku_price, sku_image, status, sku_name, version, create_time, update_time, is_delete） -->
     <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.ProductSku">
         <id column="id" property="id"/>
-        <result column="product_id" property="productId"/>
         <result column="store_id" property="storeId"/>
+        <result column="product_id" property="productId"/>
         <result column="sku_code" property="skuCode"/>
         <result column="sku_attributes" property="skuAttributes"/>
-        <result column="sku_name" property="skuName"/>
         <result column="sku_price" property="skuPrice"/>
         <result column="sku_image" property="skuImage"/>
-        <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
-        <result column="is_delete" property="isDelete"/>
+        <result column="status" property="status" typeHandler="com.jiaoyi.product.handler.SkuStatusTypeHandler"/>
+        <result column="sku_name" property="skuName"/>
         <result column="version" property="version"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
+        <result column="is_delete" property="isDelete"/>
     </resultMap>
 
     <!-- 插入SKU -->
@@ -28,28 +29,36 @@
             #{status}, #{isDelete}, #{version}
         )
         <!-- ShardingSphere 会自动生成 ID，通过 selectKey 返回 -->
+        <!-- 临时移除 is_delete 条件，避免 ShardingSphere 元数据校验问题 -->
         <selectKey keyProperty="id" resultType="long" order="AFTER">
-            SELECT id FROM product_sku WHERE product_id = #{productId} AND store_id = #{storeId} AND sku_code = #{skuCode} AND is_delete = 0 ORDER BY id DESC LIMIT 1
+            SELECT id FROM product_sku WHERE product_id = #{productId} AND store_id = #{storeId} AND sku_code = #{skuCode} ORDER BY id DESC LIMIT 1
         </selectKey>
     </insert>
 
     <!-- 根据ID查询SKU -->
+    <!-- 临时移除 is_delete 条件 -->
+    <!-- 明确指定列顺序，避免 SELECT * 导致的列顺序问题 -->
     <select id="selectById" resultMap="BaseResultMap">
-        SELECT * FROM product_sku 
-        WHERE id = #{id} AND is_delete = 0
+        SELECT id, store_id, product_id, sku_code, sku_attributes, sku_price, sku_image, status, sku_name, version, create_time, update_time, is_delete
+        FROM product_sku 
+        WHERE id = #{id}
     </select>
 
     <!-- 根据商品ID查询所有SKU -->
+    <!-- 临时移除 is_delete 条件，避免 ShardingSphere 元数据校验问题 -->
     <select id="selectByProductId" resultMap="BaseResultMap">
-        SELECT * FROM product_sku 
-        WHERE product_id = #{productId} AND is_delete = 0
+        SELECT id, store_id, product_id, sku_code, sku_attributes, sku_price, sku_image, status, sku_name, version, create_time, update_time, is_delete
+        FROM product_sku 
+        WHERE product_id = #{productId}
         ORDER BY id
     </select>
 
     <!-- 根据商品ID和SKU编码查询SKU -->
+    <!-- 临时移除 is_delete 条件 -->
     <select id="selectByProductIdAndSkuCode" resultMap="BaseResultMap">
-        SELECT * FROM product_sku 
-        WHERE product_id = #{productId} AND sku_code = #{skuCode} AND is_delete = 0
+        SELECT id, store_id, product_id, sku_code, sku_attributes, sku_price, sku_image, status, sku_name, version, create_time, update_time, is_delete
+        FROM product_sku 
+        WHERE product_id = #{productId} AND sku_code = #{skuCode}
         LIMIT 1
     </select>
 
@@ -64,19 +73,20 @@
             status = #{status},
             version = version + 1,
             update_time = NOW()
-        WHERE id = #{id} AND is_delete = 0 AND version = #{version}
+        WHERE id = #{id} AND version = #{version}
         <selectKey keyProperty="version" resultType="long" order="AFTER">
             SELECT version FROM product_sku WHERE id = #{id}
         </selectKey>
     </update>
 
     <!-- 逻辑删除SKU（根据ID，支持乐观锁） -->
+    <!-- 临时移除 WHERE 中的 is_delete 条件 -->
     <update id="deleteById" parameterType="com.jiaoyi.product.entity.ProductSku">
         UPDATE product_sku SET
             is_delete = 1,
             version = version + 1,
             update_time = NOW()
-        WHERE id = #{id} AND is_delete = 0 AND version = #{version}
+        WHERE id = #{id} AND version = #{version}
         <selectKey keyProperty="version" resultType="long" order="AFTER">
             SELECT version FROM product_sku WHERE id = #{id}
         </selectKey>

@@ -83,6 +83,7 @@ public class PaymentService {
     private final DoorDashService doorDashService;
     private final StripeConfig stripeConfig;
     private final ProductServiceClient productServiceClient;
+    private final DoorDashRetryService doorDashRetryService;
     
     @Value("${order.timeout.minutes:40}")
     private int orderTimeoutMinutes;
@@ -124,18 +125,15 @@ public class PaymentService {
                 .orElse(null);
         
         if (existingPayment != null) {
-            log.info("订单已有待支付记录，返回已有支付信息，订单ID: {}, 支付流水号: {}", orderId, existingPayment.getPaymentNo());
+            log.info("订单已有待支付记录，返回已有支付信息，订单ID: {}, 支付ID: {}", orderId, existingPayment.getId());
             return convertPaymentToResponse(existingPayment);
         }
         
-        // 5. 生成支付流水号
-        String paymentNo = generatePaymentNo();
+        // 5. 创建支付记录
+        Payment payment = createPaymentRecord(order, request, expectedAmount);
         
-        // 6. 创建支付记录
-        Payment payment = createPaymentRecord(order, request, paymentNo, expectedAmount);
-        
-        // 7. 调用第三方支付平台
-        PaymentResponse paymentResponse = callThirdPartyPayment(order, request, paymentNo, payment);
+        // 6. 调用第三方支付平台
+        PaymentResponse paymentResponse = callThirdPartyPayment(order, request, payment);
         
         // 8. 更新支付记录
         if (paymentResponse.getThirdPartyTradeNo() != null) {
@@ -190,15 +188,15 @@ public class PaymentService {
     /**
      * 调用第三方支付平台
      */
-    private PaymentResponse callThirdPartyPayment(Order order, PaymentRequest request, String paymentNo, Payment payment) {
+    private PaymentResponse callThirdPartyPayment(Order order, PaymentRequest request, Payment payment) {
         log.info("调用第三方支付平台，订单ID: {}, 支付方式: {}", order.getId(), request.getPaymentMethod());
         
         // 根据支付方式调用不同的支付服务
         return switch (request.getPaymentMethod().toUpperCase()) {
-            case "ALIPAY" -> callAlipayPayment(order, request, paymentNo, payment);
-            case "WECHAT", "WECHAT_PAY" -> callWechatPayment(order, request, paymentNo, payment);
-            case "CREDIT_CARD", "CARD", "STRIPE" -> callCreditCardPayment(order, request, paymentNo, payment);
-            case "CASH" -> callCashPayment(order, request, paymentNo, payment);
+            case "ALIPAY" -> callAlipayPayment(order, request, payment);
+            case "WECHAT", "WECHAT_PAY" -> callWechatPayment(order, request, payment);
+            case "CREDIT_CARD", "CARD", "STRIPE" -> callCreditCardPayment(order, request, payment);
+            case "CASH" -> callCashPayment(order, request, payment);
             default -> throw new RuntimeException("不支持的支付方式: " + request.getPaymentMethod());
         };
     }
@@ -206,7 +204,7 @@ public class PaymentService {
     /**
      * 调用支付宝支付
      */
-    private PaymentResponse callAlipayPayment(Order order, PaymentRequest request, String paymentNo, Payment payment) {
+    private PaymentResponse callAlipayPayment(Order order, PaymentRequest request, Payment payment) {
         log.info("调用支付宝支付，订单ID: {}", order.getId());
         
         try {
@@ -218,8 +216,11 @@ public class PaymentService {
                 String.valueOf(order.getId()),
                 "订单支付：" + order.getId(),
                 amount,
-                paymentNo
+                String.valueOf(payment.getId())
             );
+            
+            // 设置支付ID
+            response.setPaymentId(payment.getId());
             
             // 更新支付记录状态
             payment.setStatus(PaymentStatusEnum.PENDING.getCode());
@@ -241,12 +242,12 @@ public class PaymentService {
     /**
      * 调用微信支付
      */
-    private PaymentResponse callWechatPayment(Order order, PaymentRequest request, String paymentNo, Payment payment) {
+    private PaymentResponse callWechatPayment(Order order, PaymentRequest request, Payment payment) {
         log.info("调用微信支付，订单ID: {}", order.getId());
         
         // TODO: 集成微信支付
         PaymentResponse response = new PaymentResponse();
-        response.setPaymentNo(paymentNo);
+        response.setPaymentId(payment.getId());
         response.setStatus("PENDING");
         response.setPaymentMethod("WECHAT_PAY");
         response.setAmount(request.getAmount());
@@ -264,7 +265,7 @@ public class PaymentService {
      * 调用信用卡支付（Stripe）
      * 参照 OO 项目的 stripePayWithPaymentService
      */
-    private PaymentResponse callCreditCardPayment(Order order, PaymentRequest request, String paymentNo, Payment payment) {
+    private PaymentResponse callCreditCardPayment(Order order, PaymentRequest request, Payment payment) {
         log.info("调用信用卡支付（Stripe），订单ID: {}", order.getId());
         
         try {
@@ -353,19 +354,25 @@ public class PaymentService {
             );
             
             // 从 response 中提取 Payment Intent 信息
-            // 注意：StripeService.createPaymentIntent 返回的 response 中 paymentNo 是 paymentIntentId
-            String paymentIntentId = response.getPaymentNo();
+            String paymentIntentId = response.getPaymentIntentId();
+            
+            // 设置支付ID
+            response.setPaymentId(payment.getId());
             
             // 更新支付记录
             payment.setStatus(PaymentStatusEnum.PENDING.getCode());
             payment.setPaymentService(PaymentServiceEnum.STRIPE);
             payment.setCategory(PaymentCategoryEnum.CREDIT_CARD.getCode());
-            payment.setStripePaymentIntentId(paymentIntentId);
+            if (paymentIntentId != null) {
+                payment.setStripePaymentIntentId(paymentIntentId);
+            }
             
             // 保存 Payment Intent 信息到 extra
             try {
                 Map<String, Object> extra = new HashMap<>();
-                extra.put("paymentIntentId", paymentIntentId);
+                if (paymentIntentId != null) {
+                    extra.put("paymentIntentId", paymentIntentId);
+                }
                 if (response.getClientSecret() != null) {
                     extra.put("clientSecret", response.getClientSecret());
                 }
@@ -387,11 +394,11 @@ public class PaymentService {
     /**
      * 调用现金支付
      */
-    private PaymentResponse callCashPayment(Order order, PaymentRequest request, String paymentNo, Payment payment) {
+    private PaymentResponse callCashPayment(Order order, PaymentRequest request, Payment payment) {
         log.info("调用现金支付，订单ID: {}", order.getId());
         
         PaymentResponse response = new PaymentResponse();
-        response.setPaymentNo(paymentNo);
+        response.setPaymentId(payment.getId());
         response.setStatus("SUCCESS");
         response.setPaymentMethod("CASH");
         response.setAmount(request.getAmount());
@@ -408,13 +415,12 @@ public class PaymentService {
     /**
      * 创建支付记录
      */
-    private Payment createPaymentRecord(Order order, PaymentRequest request, String paymentNo, BigDecimal amount) {
+    private Payment createPaymentRecord(Order order, PaymentRequest request, BigDecimal amount) {
         Payment payment = new Payment();
         payment.setOrderId(order.getId());
         payment.setMerchantId(order.getMerchantId());
         payment.setStatus(PaymentStatusEnum.PENDING.getCode());
         payment.setType(PaymentTypeEnum.CHARGE.getCode());
-        payment.setPaymentNo(paymentNo);
         payment.setAmount(amount);
         payment.setOrderPrice(order.getOrderPrice());
         payment.setCreateTime(LocalDateTime.now());
@@ -443,7 +449,7 @@ public class PaymentService {
         }
         
         paymentMapper.insert(payment);
-        log.info("创建支付记录成功，支付ID: {}, 支付流水号: {}", payment.getId(), paymentNo);
+        log.info("创建支付记录成功，支付ID: {}", payment.getId());
         return payment;
     }
     
@@ -682,7 +688,12 @@ public class PaymentService {
                 } catch (Exception e) {
                     log.error("创建 DoorDash 配送订单失败，订单ID: {}", orderId, e);
                     // 不抛出异常，支付已成功，配送订单创建失败可以后续重试
-                    // 可以记录到重试队列，后续手动重试
+                    // 记录到重试任务表，由定时任务自动重试
+                    try {
+                        doorDashRetryService.createRetryTask(orderId, order.getMerchantId(), payment.getId(), e);
+                    } catch (Exception retryTaskException) {
+                        log.error("创建 DoorDash 重试任务失败，订单ID: {}", orderId, retryTaskException);
+                    }
                 }
             }
             
@@ -881,7 +892,7 @@ public class PaymentService {
      */
     private PaymentResponse convertPaymentToResponse(Payment payment) {
         PaymentResponse response = new PaymentResponse();
-        response.setPaymentNo(payment.getPaymentNo());
+        response.setPaymentId(payment.getId());
         response.setPaymentMethod(payment.getPaymentService() != null ? payment.getPaymentService().getCode() : null);
         response.setAmount(payment.getAmount());
         
@@ -911,13 +922,6 @@ public class PaymentService {
         }
         
         return response;
-    }
-    
-    /**
-     * 生成支付流水号
-     */
-    private String generatePaymentNo() {
-        return "PAY" + System.currentTimeMillis() + UUID.randomUUID().toString().substring(0, 8).toUpperCase();
     }
     
     /**
@@ -1069,7 +1073,6 @@ public class PaymentService {
                 refundPayment.setMerchantId(order.getMerchantId());
                 refundPayment.setStatus(PaymentStatusEnum.SUCCESS.getCode());
                 refundPayment.setType(PaymentTypeEnum.REFUND.getCode());
-                refundPayment.setPaymentNo("REF_" + System.currentTimeMillis() + "_" + order.getId());
                 refundPayment.setAmount(refundAmount);
                 refundPayment.setThirdPartyTradeNo(thirdPartyTradeNo);
                 refundPayment.setPaymentService(paymentService);
@@ -1092,8 +1095,9 @@ public class PaymentService {
     /**
      * 创建 DoorDash 配送订单（支付成功后调用）
      * 如果报价过期，会重新获取报价
+     * 注意：改为 public，供 DoorDashRetryService 调用
      */
-    private void createDoorDashDelivery(Order order) {
+    public void createDoorDashDelivery(Order order) {
         log.info("创建 DoorDash 配送订单，订单ID: {}, 商户ID: {}", order.getId(), order.getMerchantId());
         
         try {

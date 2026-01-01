@@ -53,7 +53,7 @@ public class AlipayService {
     /**
      * 创建支付宝支付订单 (真实支付)
      */
-    public PaymentResponse createPayment(String orderNo, String subject, BigDecimal amount, String paymentNo) {
+    public PaymentResponse createPayment(String orderNo, String subject, BigDecimal amount, String paymentId) {
         log.info("创建真实支付宝支付订单，订单号: {}, 金额: {}", orderNo, amount);
         
         try {
@@ -101,7 +101,13 @@ public class AlipayService {
                 log.info("支付宝预下单成功，订单号: {}, 二维码: {}", orderNo, qrCode);
                 
                 PaymentResponse paymentResponse = new PaymentResponse();
-                paymentResponse.setPaymentNo(paymentNo);
+                if (paymentId != null) {
+                    try {
+                        paymentResponse.setPaymentId(Long.parseLong(paymentId));
+                    } catch (NumberFormatException e) {
+                        log.warn("支付ID格式错误: {}", paymentId);
+                    }
+                }
                 paymentResponse.setPaymentMethod("ALIPAY");
                 paymentResponse.setAmount(amount);
                 paymentResponse.setStatus("PENDING");
@@ -158,7 +164,6 @@ public class AlipayService {
                         orderNo, response.getTradeStatus(), response.getTradeNo());
                 
                 PaymentResponse paymentResponse = new PaymentResponse();
-                paymentResponse.setPaymentNo(orderNo);
                 paymentResponse.setPaymentMethod("ALIPAY");
                 paymentResponse.setStatus(mapTradeStatus(response.getTradeStatus()));
                 paymentResponse.setThirdPartyTradeNo(response.getTradeNo());

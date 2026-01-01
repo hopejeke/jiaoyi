@@ -16,9 +16,9 @@ import java.time.LocalDateTime;
 public class PaymentResponse {
     
     /**
-     * 支付流水号
+     * 支付ID
      */
-    private String paymentNo;
+    private Long paymentId;
     
     /**
      * 支付状态：PENDING-待支付，SUCCESS-支付成功，FAILED-支付失败

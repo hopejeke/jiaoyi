@@ -9,10 +9,14 @@ import com.jiaoyi.order.dto.CalculatePriceResponse;
 import com.jiaoyi.order.entity.Order;
 import com.jiaoyi.order.entity.OrderItem;
 import com.jiaoyi.order.entity.OrderCoupon;
+import com.jiaoyi.order.entity.CapabilityOfOrderConfig;
+import com.jiaoyi.order.entity.CapabilityOfOrder;
+import com.jiaoyi.order.entity.MerchantCapabilityConfig;
 import com.jiaoyi.order.enums.OrderTypeEnum;
 import com.jiaoyi.order.mapper.OrderItemMapper;
 import com.jiaoyi.order.mapper.OrderMapper;
 import com.jiaoyi.order.mapper.OrderCouponMapper;
+import com.jiaoyi.order.mapper.MerchantCapabilityConfigMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -45,6 +49,9 @@ public class OrderService {
     private final FeeCalculationService feeCalculationService;
     private final DoorDashService doorDashService;
     private final DeliveryRuleService deliveryRuleService;
+    private final PaymentService paymentService;
+    private final PeakHourRejectionService peakHourRejectionService;
+    private final MerchantCapabilityConfigMapper merchantCapabilityConfigMapper;
 
     /**
      * 计算订单价格（预览价格，不创建订单）
@@ -80,15 +87,20 @@ public class OrderService {
             log.warn("构建客户信息失败", e);
         }
 
-        // 2. 计算订单小计（从数据库查询商品价格）
+        // 2. 计算订单小计（从数据库查询商品价格，优先使用SKU价格）
         BigDecimal subtotal = BigDecimal.ZERO;
         for (com.jiaoyi.order.dto.CalculatePriceRequest.OrderItemRequest itemRequest : request.getOrderItems()) {
             if (itemRequest.getProductId() == null || itemRequest.getQuantity() == null || itemRequest.getQuantity() <= 0) {
                 continue;
             }
+            
+            if (itemRequest.getSkuId() == null) {
+                log.warn("订单项缺少skuId，商户ID: {}, 商品ID: {}", request.getMerchantId(), itemRequest.getProductId());
+                throw new BusinessException("订单项必须包含skuId，商品ID: " + itemRequest.getProductId());
+            }
 
-            // 从商品服务获取商品价格（使用 merchantId 和 productId，避免查询所有分片）
-            log.debug("查询商品信息，商户ID: {}, 商品ID: {}", request.getMerchantId(), itemRequest.getProductId());
+            // 从商品服务获取商品信息（使用 merchantId 和 productId，避免查询所有分片）
+            log.debug("查询商品信息，商户ID: {}, 商品ID: {}, SKU ID: {}", request.getMerchantId(), itemRequest.getProductId(), itemRequest.getSkuId());
             com.jiaoyi.common.ApiResponse<?> productResponse = productServiceClient.getProductByMerchantIdAndId(
                     request.getMerchantId(), itemRequest.getProductId());
             
@@ -107,25 +119,46 @@ public class OrderService {
             @SuppressWarnings("unchecked")
             java.util.Map<String, Object> productMap = (java.util.Map<String, Object>) productResponse.getData();
             
-            // 检查 unitPrice 字段
-            Object unitPriceObj = productMap.get("unitPrice");
-            if (unitPriceObj == null) {
-                log.warn("商品数据中缺少 unitPrice 字段，商户ID: {}, 商品ID: {}, 商品数据: {}", 
-                        request.getMerchantId(), itemRequest.getProductId(), productMap);
-                continue;
+            // 优先使用SKU价格
+            BigDecimal unitPrice = null;
+            
+            // 1. 尝试从SKU列表中获取SKU价格
+            Object skusObj = productMap.get("skus");
+            if (skusObj != null && skusObj instanceof java.util.List) {
+                @SuppressWarnings("unchecked")
+                java.util.List<java.util.Map<String, Object>> skus = (java.util.List<java.util.Map<String, Object>>) skusObj;
+                for (java.util.Map<String, Object> sku : skus) {
+                    Object skuIdObj = sku.get("id");
+                    if (skuIdObj != null && skuIdObj.toString().equals(itemRequest.getSkuId().toString())) {
+                        Object skuPriceObj = sku.get("skuPrice");
+                        if (skuPriceObj != null) {
+                            unitPrice = new BigDecimal(skuPriceObj.toString());
+                            log.debug("使用SKU价格，SKU ID: {}, 价格: {}", itemRequest.getSkuId(), unitPrice);
+                            break;
+                        }
+                    }
+                }
             }
             
-            BigDecimal unitPrice = new BigDecimal(unitPriceObj.toString());
-            if (unitPrice.compareTo(BigDecimal.ZERO) <= 0) {
-                log.warn("商品价格无效（<=0），商户ID: {}, 商品ID: {}, 价格: {}", 
-                        request.getMerchantId(), itemRequest.getProductId(), unitPrice);
+            // 2. 如果SKU没有价格，使用商品价格
+            if (unitPrice == null) {
+                Object unitPriceObj = productMap.get("unitPrice");
+                if (unitPriceObj != null) {
+                    unitPrice = new BigDecimal(unitPriceObj.toString());
+                    log.debug("使用商品价格，商品ID: {}, 价格: {}", itemRequest.getProductId(), unitPrice);
+                }
+            }
+            
+            if (unitPrice == null || unitPrice.compareTo(BigDecimal.ZERO) <= 0) {
+                log.warn("商品价格无效（<=0），商户ID: {}, 商品ID: {}, SKU ID: {}, 价格: {}", 
+                        request.getMerchantId(), itemRequest.getProductId(), itemRequest.getSkuId(), unitPrice);
                 continue;
             }
             
             BigDecimal itemTotal = unitPrice.multiply(BigDecimal.valueOf(itemRequest.getQuantity()));
             subtotal = subtotal.add(itemTotal);
-            log.debug("商品价格计算成功，商户ID: {}, 商品ID: {}, 单价: {}, 数量: {}, 小计: {}", 
-                    request.getMerchantId(), itemRequest.getProductId(), unitPrice, itemRequest.getQuantity(), itemTotal);
+            log.debug("商品价格计算成功，商户ID: {}, 商品ID: {}, SKU ID: {}, 单价: {}, 数量: {}, 小计: {}", 
+                    request.getMerchantId(), itemRequest.getProductId(), itemRequest.getSkuId(), unitPrice, itemRequest.getQuantity(), itemTotal);
         }
 
         // 3. 处理优惠券（计算优惠金额）
@@ -333,207 +366,401 @@ public class OrderService {
             throw new BusinessException("orderType 不能为空");
         }
         
-        // 同一个用户同一时间只能下一个单
-        String lockKey = "order:create:" + order.getUserId();
-        RLock lock = redissonClient.getLock(lockKey);
+        // 高峰拒单检查（排除堂食订单）
+        if (!OrderTypeEnum.SELF_DINE_IN.equals(order.getOrderType())) {
+            MerchantCapabilityConfig config = merchantCapabilityConfigMapper.selectByMerchantId(order.getMerchantId());
+            if (config != null && Boolean.TRUE.equals(config.getEnable())) {
+                CapabilityOfOrderConfig capabilityConfig = new CapabilityOfOrderConfig();
+                capabilityConfig.setEnable(config.getEnable());
+                capabilityConfig.setQtyOfOrders(config.getQtyOfOrders());
+                capabilityConfig.setTimeInterval(config.getTimeInterval());
+                capabilityConfig.setClosingDuration(config.getClosingDuration());
+                
+                CapabilityOfOrder currentCapability = new CapabilityOfOrder();
+                currentCapability.setNextOpenAt(config.getNextOpenAt());
+                currentCapability.setReOpenAllAt(config.getReOpenAllAt());
+                CapabilityOfOrder.OperateType operate = new CapabilityOfOrder.OperateType();
+                operate.setPickUp(config.getOperatePickUp());
+                operate.setDelivery(config.getOperateDelivery());
+                operate.setTogo(config.getOperateTogo());
+                operate.setSelfDineIn(config.getOperateSelfDineIn());
+                currentCapability.setOperate(operate);
+                
+                PeakHourRejectionService.PeakHourRejectionResult result = 
+                    peakHourRejectionService.judgeCapabilityOfOrder(
+                        order.getMerchantId(), 
+                        capabilityConfig, 
+                        currentCapability
+                    );
+                
+                if (!result.isEnableOrder()) {
+                    String message = "商家当前繁忙，请稍后再试";
+                    if (result.getNextOpenAt() != null) {
+                        java.time.LocalDateTime nextOpenTime = java.time.LocalDateTime.ofInstant(
+                            java.time.Instant.ofEpochMilli(result.getNextOpenAt()),
+                            java.time.ZoneId.systemDefault()
+                        );
+                        message = String.format("商家当前繁忙，预计 %s 后恢复接单", 
+                            nextOpenTime.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")));
+                    }
+                    log.warn("商户 {} 触发高峰拒单，拒绝订单创建", order.getMerchantId());
+                    throw new BusinessException(message);
+                }
+                
+                // 如果触发限流，更新商户状态
+                if (result.isTriggered() && result.getNextOpenAt() != null) {
+                    merchantCapabilityConfigMapper.updateCapabilityStatus(
+                        order.getMerchantId(),
+                        result.getNextOpenAt(),
+                        System.currentTimeMillis(),
+                        "system",
+                        "system",
+                        "system",
+                        config.getVersion()
+                    );
+                }
+            }
+        }
+        
+        // 用户级别的锁：确保同一用户同一时间只能处理一个下单请求
+        String userLockKey = "order:create:user:" + order.getUserId();
+        RLock userLock = redissonClient.getLock(userLockKey);
         
         try {
-            // 尝试获取分布式锁，最多等待3秒，锁持有时间不超过30秒
-            boolean lockAcquired = lock.tryLock(3, 30, TimeUnit.SECONDS);
+            // 尝试获取用户级别的锁，最多等待5秒，锁持有时间不超过60秒
+            boolean userLockAcquired = userLock.tryLock(5, 60, TimeUnit.SECONDS);
             
-            if (!lockAcquired) {
-                log.warn("获取分布式锁失败，可能存在重复提交，用户ID: {}", order.getUserId());
-                throw new BusinessException("请勿重复提交相同订单");
+            if (!userLockAcquired) {
+                log.warn("获取用户级别锁失败，用户正在处理其他下单请求，用户ID: {}", order.getUserId());
+                throw new BusinessException("您有订单正在处理中，请稍后再试");
             }
             
-            log.info("成功获取分布式锁，开始处理在线点餐订单创建");
+            log.info("成功获取用户级别锁，用户ID: {}, 开始处理订单创建", order.getUserId());
             
-            // 1. 检查并锁定库存（如果有 productId 或 saleItemId）
-            List<Long> productIds = null;
-            List<Integer> quantities = null;
+            // 基于订单内容生成锁 key（防重复提交相同订单）
+            // 注意：Controller 层已经有 @PreventDuplicateSubmission 注解，这里作为双重保护
+            // 使用更细粒度的锁：merchantId + userId + orderItems 的哈希
+            StringBuilder lockContent = new StringBuilder();
+            lockContent.append(order.getMerchantId()).append("|");
+            lockContent.append(order.getUserId()).append("|");
             if (orderItems != null && !orderItems.isEmpty()) {
-                productIds = orderItems.stream()
-                        .filter(item -> item.getProductId() != null || item.getSaleItemId() != null)
-                        .map(item -> item.getProductId() != null ? item.getProductId() : item.getSaleItemId())
-                        .collect(Collectors.toList());
-                quantities = orderItems.stream()
-                        .map(OrderItem::getQuantity)
-                        .collect(Collectors.toList());
-                
-                if (!productIds.isEmpty()) {
-                    log.info("检查并锁定库存，商品数量: {}", productIds.size());
-                    ProductServiceClient.LockStockBatchRequest lockRequest = new ProductServiceClient.LockStockBatchRequest();
-                    lockRequest.setProductIds(productIds);
-                    lockRequest.setQuantities(quantities);
-                    try {
-                        productServiceClient.lockStockBatch(lockRequest);
-                    } catch (Exception e) {
-                        log.error("锁定库存失败", e);
-                        throw new BusinessException("库存不足或锁定失败: " + e.getMessage());
+                java.util.List<String> itemKeys = new java.util.ArrayList<>();
+                for (OrderItem item : orderItems) {
+                    if (item.getProductId() != null && item.getSkuId() != null && item.getQuantity() != null) {
+                        itemKeys.add(item.getProductId() + ":" + item.getSkuId() + ":" + item.getQuantity());
                     }
                 }
+                java.util.Collections.sort(itemKeys);
+                lockContent.append(String.join(",", itemKeys));
             }
+            int hashCode = lockContent.toString().hashCode();
+            String contentLockKey = String.format("order:create:content:%s:%d:%d", 
+                order.getMerchantId(), order.getUserId(), hashCode);
+            RLock contentLock = redissonClient.getLock(contentLockKey);
             
             try {
-                // 2. 设置订单默认值
-                if (order.getStatus() == null) {
-                    order.setStatus(1); // 默认已下单
-                }
-                if (order.getLocalStatus() == null) {
-                    order.setLocalStatus(1); // 默认已下单
-                }
-                if (order.getKitchenStatus() == null) {
-                    order.setKitchenStatus(1); // 默认待送厨
-                }
-                order.setVersion(1L);
-                order.setCreateTime(LocalDateTime.now());
-                order.setUpdateTime(LocalDateTime.now());
-                
-                // 3. 计算订单总金额（用于优惠券验证和计算）
-                BigDecimal orderSubtotal = calculateOrderSubtotal(orderItems);
-                log.info("订单小计: {}", orderSubtotal);
-                
-                // 4. 处理优惠券（完整实现）
-                List<OrderCoupon> orderCoupons = new ArrayList<>();
-                BigDecimal totalDiscountAmount = BigDecimal.ZERO;
-                
-                if (couponIds != null && !couponIds.isEmpty()) {
-                    // 处理优惠券ID列表
-                    for (Long couponId : couponIds) {
-                        OrderCoupon orderCoupon = processCouponById(couponId, order.getUserId(), orderSubtotal, orderItems);
-                        if (orderCoupon != null) {
-                            orderCoupons.add(orderCoupon);
-                            totalDiscountAmount = totalDiscountAmount.add(orderCoupon.getAppliedAmount());
-                        }
-                    }
-                } else if (couponCodes != null && !couponCodes.isEmpty()) {
-                    // 处理优惠券代码列表
-                    for (String couponCode : couponCodes) {
-                        OrderCoupon orderCoupon = processCouponByCode(couponCode, order.getUserId(), orderSubtotal, orderItems);
-                        if (orderCoupon != null) {
-                            orderCoupons.add(orderCoupon);
-                            totalDiscountAmount = totalDiscountAmount.add(orderCoupon.getAppliedAmount());
-                        }
-                    }
-                }
-                
-                // 5. 更新订单价格（包含优惠金额）
-                updateOrderPriceWithDiscount(order, orderSubtotal, totalDiscountAmount);
-                log.info("订单总金额: {}, 优惠金额: {}, 实际支付: {}", 
-                        orderSubtotal, totalDiscountAmount, orderSubtotal.subtract(totalDiscountAmount));
-                
-                // 6. 保存订单
-                orderMapper.insert(order);
-                log.info("订单插入成功，ID: {}", order.getId());
-                
-                // 7. 创建并保存订单项
-                if (orderItems != null && !orderItems.isEmpty()) {
-                    int itemIndex = 0;
-                    for (OrderItem item : orderItems) {
-                        item.setOrderId(order.getId());
-                        item.setMerchantId(order.getMerchantId());
-                        
-                        // 确保 saleItemId 不为 null（数据库要求）
-                        if (item.getSaleItemId() == null) {
-                            if (item.getProductId() != null) {
-                                item.setSaleItemId(item.getProductId());
-                            } else {
-                                item.setSaleItemId(0L); // 默认值
-                            }
-                        }
-                        
-                        // 确保 orderItemId 不为 null（数据库要求）
-                        if (item.getOrderItemId() == null) {
-                            item.setOrderItemId((long) (itemIndex + 1));
-                        }
-                        
-                        if (item.getVersion() == null) {
-                            item.setVersion(1L);
-                        }
-                        if (item.getCreateTime() == null) {
-                            item.setCreateTime(LocalDateTime.now());
-                        }
-                        if (item.getUpdateTime() == null) {
-                            item.setUpdateTime(LocalDateTime.now());
-                        }
-                        itemIndex++;
-                    }
-                    orderItemMapper.insertBatch(orderItems);
-                    log.info("订单项插入成功，数量: {}", orderItems.size());
-                }
-                
-                // 8. 保存订单优惠券关联记录（如果有）
-                if (!orderCoupons.isEmpty()) {
-                    orderCoupons.forEach(oc -> oc.setOrderId(order.getId()));
-                    orderCouponMapper.batchInsert(orderCoupons);
+                    // 尝试获取订单内容级别的锁，最多等待3秒，锁持有时间不超过30秒
+                    boolean contentLockAcquired = contentLock.tryLock(3, 30, TimeUnit.SECONDS);
                     
-                    // 使用优惠券（调用优惠券服务）
-                    for (OrderCoupon orderCoupon : orderCoupons) {
-                        try {
-                            if (orderCoupon.getCouponCode() != null && !orderCoupon.getCouponCode().isEmpty()) {
-                                couponServiceClient.useCoupon(
-                                        orderCoupon.getCouponCode(),
-                                        order.getUserId(),
-                                        order.getId(),
-                                        orderCoupon.getAppliedAmount()
-                                );
-                                log.info("优惠券使用成功，优惠券代码: {}, 优惠金额: {}", 
-                                        orderCoupon.getCouponCode(), orderCoupon.getAppliedAmount());
-                            }
-                        } catch (Exception e) {
-                            log.error("使用优惠券失败，优惠券代码: {}, 订单ID: {}", 
-                                    orderCoupon.getCouponCode(), order.getId(), e);
-                            // 不抛出异常，记录日志即可（优惠券已保存到订单，后续可以手动处理）
-                        }
+                    if (!contentLockAcquired) {
+                        log.warn("获取订单内容锁失败，可能存在重复提交，商户ID: {}, 用户ID: {}", 
+                            order.getMerchantId(), order.getUserId());
+                        throw new BusinessException("请勿重复提交相同订单");
                     }
-                }
-                
-                // 9. 查询插入后的订单（获取version）
-                Order insertedOrder = orderMapper.selectByMerchantIdAndId(order.getMerchantId(), order.getId());
-                if (insertedOrder == null) {
-                    throw new BusinessException("订单创建失败：插入后无法查询到订单记录");
-                }
-                
-                // 10. 设置订单项到订单中
-                insertedOrder.setOrderItems(orderItems);
-                
-                log.info("在线点餐订单创建完成，ID: {}, merchantId: {}, userId: {}, 总金额: {}, 优惠: {}", 
-                        insertedOrder.getId(), insertedOrder.getMerchantId(), insertedOrder.getUserId(),
-                        orderSubtotal, totalDiscountAmount);
-                
-                // 11. 发送订单超时延迟消息（30分钟后自动取消）
-                orderTimeoutMessageService.sendOrderTimeoutMessage(insertedOrder.getId(), order.getUserId(), 30);
-                log.info("订单超时延迟消息已发送，订单将在30分钟后自动取消（如果未支付）");
-                
-                return insertedOrder;
-                
-            } catch (Exception e) {
-                // 如果订单创建失败，解锁已锁定的库存
-                log.error("在线点餐订单创建失败，解锁库存", e);
-                if (productIds != null && quantities != null && !productIds.isEmpty()) {
+                    
+                    log.info("成功获取订单内容锁，开始处理在线点餐订单创建，内容锁key: {}", contentLockKey);
+                    
+                    // 1. 检查并锁定库存（基于SKU）
+                    List<Long> productIds = null;
+                    List<Long> skuIds = null;
+                    List<Integer> quantities = null;
+                    
                     try {
-                        ProductServiceClient.UnlockStockBatchRequest unlockRequest = new ProductServiceClient.UnlockStockBatchRequest();
-                        unlockRequest.setProductIds(productIds);
-                        unlockRequest.setQuantities(quantities);
-                        unlockRequest.setOrderId(null);
-                        productServiceClient.unlockStockBatch(unlockRequest);
-                    } catch (Exception unlockException) {
-                        log.error("解锁库存失败", unlockException);
+                        if (orderItems != null && !orderItems.isEmpty()) {
+                            productIds = orderItems.stream()
+                                    .map(OrderItem::getProductId)
+                                    .filter(Objects::nonNull)
+                                    .collect(Collectors.toList());
+                            skuIds = orderItems.stream()
+                                    .map(OrderItem::getSkuId)
+                                    .filter(Objects::nonNull)
+                                    .collect(Collectors.toList());
+                            quantities = orderItems.stream()
+                                    .map(OrderItem::getQuantity)
+                                    .collect(Collectors.toList());
+                            
+                            if (!productIds.isEmpty() && !skuIds.isEmpty() && productIds.size() == skuIds.size()) {
+                                log.info("检查并锁定库存（SKU级别），商品数量: {}", productIds.size());
+                                ProductServiceClient.LockStockBatchRequest lockRequest = new ProductServiceClient.LockStockBatchRequest();
+                                lockRequest.setProductIds(productIds);
+                                lockRequest.setSkuIds(skuIds);
+                                lockRequest.setQuantities(quantities);
+                                try {
+                                    productServiceClient.lockStockBatch(lockRequest);
+                                } catch (Exception e) {
+                                    log.error("锁定库存失败", e);
+                                    throw new BusinessException("库存不足或锁定失败: " + e.getMessage());
+                                }
+                            } else {
+                                throw new BusinessException("订单项必须包含productId和skuId");
+                            }
+                        }
+                        
+                        // 2. 设置订单默认值
+                        if (order.getStatus() == null) {
+                            order.setStatus(1); // 默认已下单
+                        }
+                        if (order.getLocalStatus() == null) {
+                            order.setLocalStatus(1); // 默认已下单
+                        }
+                        if (order.getKitchenStatus() == null) {
+                            order.setKitchenStatus(1); // 默认待送厨
+                        }
+                        order.setVersion(1L);
+                        order.setCreateTime(LocalDateTime.now());
+                        order.setUpdateTime(LocalDateTime.now());
+                        
+                        // 3. 计算订单总金额（用于优惠券验证和计算）
+                        BigDecimal orderSubtotal = calculateOrderSubtotal(orderItems);
+                        log.info("订单小计: {}", orderSubtotal);
+                        
+                        // 4. 处理优惠券（完整实现）
+                        List<OrderCoupon> orderCoupons = new ArrayList<>();
+                        BigDecimal totalDiscountAmount = BigDecimal.ZERO;
+                        
+                        if (couponIds != null && !couponIds.isEmpty()) {
+                            // 处理优惠券ID列表
+                            for (Long couponId : couponIds) {
+                                OrderCoupon orderCoupon = processCouponById(couponId, order.getUserId(), orderSubtotal, orderItems);
+                                if (orderCoupon != null) {
+                                    orderCoupons.add(orderCoupon);
+                                    totalDiscountAmount = totalDiscountAmount.add(orderCoupon.getAppliedAmount());
+                                }
+                            }
+                        } else if (couponCodes != null && !couponCodes.isEmpty()) {
+                            // 处理优惠券代码列表
+                            for (String couponCode : couponCodes) {
+                                OrderCoupon orderCoupon = processCouponByCode(couponCode, order.getUserId(), orderSubtotal, orderItems);
+                                if (orderCoupon != null) {
+                                    orderCoupons.add(orderCoupon);
+                                    totalDiscountAmount = totalDiscountAmount.add(orderCoupon.getAppliedAmount());
+                                }
+                            }
+                        }
+                        
+                        // 5. 更新订单价格（包含优惠金额）
+                        updateOrderPriceWithDiscount(order, orderSubtotal, totalDiscountAmount);
+                        log.info("订单总金额: {}, 优惠金额: {}, 实际支付: {}", 
+                                orderSubtotal, totalDiscountAmount, orderSubtotal.subtract(totalDiscountAmount));
+                        
+                        // 6. 保存订单
+                        orderMapper.insert(order);
+                        log.info("订单插入成功，ID: {}", order.getId());
+                        
+                        // 7. 创建并保存订单项
+                        if (orderItems != null && !orderItems.isEmpty()) {
+                            int itemIndex = 0;
+                            for (OrderItem item : orderItems) {
+                                item.setOrderId(order.getId());
+                                item.setMerchantId(order.getMerchantId());
+                                
+                                // 确保 saleItemId 不为 null（数据库要求）
+                                if (item.getSaleItemId() == null) {
+                                    if (item.getProductId() != null) {
+                                        item.setSaleItemId(item.getProductId());
+                                    } else {
+                                        item.setSaleItemId(0L); // 默认值
+                                    }
+                                }
+                                
+                                // 确保 orderItemId 不为 null（数据库要求）
+                                if (item.getOrderItemId() == null) {
+                                    item.setOrderItemId((long) (itemIndex + 1));
+                                }
+                                
+                                if (item.getVersion() == null) {
+                                    item.setVersion(1L);
+                                }
+                                if (item.getCreateTime() == null) {
+                                    item.setCreateTime(LocalDateTime.now());
+                                }
+                                if (item.getUpdateTime() == null) {
+                                    item.setUpdateTime(LocalDateTime.now());
+                                }
+                                itemIndex++;
+                            }
+                            orderItemMapper.insertBatch(orderItems);
+                            log.info("订单项插入成功，数量: {}", orderItems.size());
+                        }
+                        
+                        // 8. 保存订单优惠券关联记录（如果有）
+                        if (!orderCoupons.isEmpty()) {
+                            orderCoupons.forEach(oc -> oc.setOrderId(order.getId()));
+                            orderCouponMapper.batchInsert(orderCoupons);
+                            
+                            // 使用优惠券（调用优惠券服务）
+                            for (OrderCoupon orderCoupon : orderCoupons) {
+                                try {
+                                    if (orderCoupon.getCouponCode() != null && !orderCoupon.getCouponCode().isEmpty()) {
+                                        couponServiceClient.useCoupon(
+                                                orderCoupon.getCouponCode(),
+                                                order.getUserId(),
+                                                order.getId(),
+                                                orderCoupon.getAppliedAmount()
+                                        );
+                                        log.info("优惠券使用成功，优惠券代码: {}, 优惠金额: {}", 
+                                                orderCoupon.getCouponCode(), orderCoupon.getAppliedAmount());
+                                    }
+                                } catch (Exception e) {
+                                    log.error("使用优惠券失败，优惠券代码: {}, 订单ID: {}", 
+                                            orderCoupon.getCouponCode(), order.getId(), e);
+                                    // 不抛出异常，记录日志即可（优惠券已保存到订单，后续可以手动处理）
+                                }
+                            }
+                        }
+                        
+                        // 9. 查询插入后的订单（获取version）
+                        Order insertedOrder = orderMapper.selectByMerchantIdAndId(order.getMerchantId(), order.getId());
+                        if (insertedOrder == null) {
+                            throw new BusinessException("订单创建失败：插入后无法查询到订单记录");
+                        }
+                        
+                        // 10. 设置订单项到订单中
+                        insertedOrder.setOrderItems(orderItems);
+                        
+                        log.info("在线点餐订单创建完成，ID: {}, merchantId: {}, userId: {}, 总金额: {}, 优惠: {}", 
+                                insertedOrder.getId(), insertedOrder.getMerchantId(), insertedOrder.getUserId(),
+                                orderSubtotal, totalDiscountAmount);
+                        
+                        // 11. 发送订单超时延迟消息（30分钟后自动取消）
+                        orderTimeoutMessageService.sendOrderTimeoutMessage(insertedOrder.getId(), order.getUserId(), 30);
+                        log.info("订单超时延迟消息已发送，订单将在30分钟后自动取消（如果未支付）");
+                        
+                        return insertedOrder;
+                        
+                    } catch (Exception e) {
+                        // 如果订单创建失败，解锁已锁定的库存
+                        log.error("在线点餐订单创建失败，解锁库存", e);
+                        if (productIds != null && skuIds != null && quantities != null && !productIds.isEmpty()) {
+                            try {
+                                ProductServiceClient.UnlockStockBatchRequest unlockRequest = new ProductServiceClient.UnlockStockBatchRequest();
+                                unlockRequest.setProductIds(productIds);
+                                unlockRequest.setSkuIds(skuIds);
+                                unlockRequest.setQuantities(quantities);
+                                unlockRequest.setOrderId(null);
+                                productServiceClient.unlockStockBatch(unlockRequest);
+                            } catch (Exception unlockException) {
+                                log.error("解锁库存失败", unlockException);
+                            }
+                        }
+                        throw e;
+                    }
+                } catch (InterruptedException e) {
+                    // 获取订单内容锁被中断
+                    log.error("获取订单内容锁被中断，用户ID: {}", order.getUserId(), e);
+                    Thread.currentThread().interrupt();
+                    throw new BusinessException("系统繁忙，请稍后重试");
+                } finally {
+                    // 释放订单内容级别的锁（无论成功还是失败都要释放）
+                    if (contentLock.isHeldByCurrentThread()) {
+                        contentLock.unlock();
+                        log.debug("释放订单内容锁，内容锁key: {}", contentLockKey);
                     }
                 }
-                throw e;
-            }
-            
         } catch (InterruptedException e) {
-            log.error("获取分布式锁被中断，用户ID: {}", order.getUserId(), e);
+            log.error("获取用户级别锁被中断，用户ID: {}", order.getUserId(), e);
             Thread.currentThread().interrupt();
             throw new BusinessException("系统繁忙，请稍后重试");
         } finally {
-            // 释放分布式锁
-            if (lock.isHeldByCurrentThread()) {
-                lock.unlock();
+                // 释放用户级别的锁
+                if (userLock.isHeldByCurrentThread()) {
+                    userLock.unlock();
+                    log.debug("释放用户级别锁，用户ID: {}", order.getUserId());
+                }
             }
+    }
+
+    /**
+     * 创建订单并处理支付（在同一事务中）
+     * 
+     * @param order 订单实体
+     * @param orderItems 订单项列表
+     * @param couponIds 优惠券ID列表（可选）
+     * @param couponCodes 优惠券代码列表（可选）
+     * @param paymentRequest 支付请求（可选，如果为 null 则不处理支付）
+     * @return 创建订单响应（包含订单和支付信息）
+     */
+    @Transactional
+    public com.jiaoyi.order.dto.CreateOrderResponse createOrderWithPayment(
+            Order order, 
+            List<OrderItem> orderItems, 
+            List<Long> couponIds, 
+            List<String> couponCodes,
+            com.jiaoyi.order.dto.PaymentRequest paymentRequest) {
+        
+        log.info("创建订单并处理支付，merchantId: {}, userId: {}, paymentMethod: {}", 
+                order.getMerchantId(), order.getUserId(), 
+                paymentRequest != null ? paymentRequest.getPaymentMethod() : "无");
+        
+        // 1. 创建订单
+        Order createdOrder = createOrder(order, orderItems, couponIds, couponCodes);
+        
+        // 2. 构建响应
+        com.jiaoyi.order.dto.CreateOrderResponse response = new com.jiaoyi.order.dto.CreateOrderResponse();
+        response.setOrder(createdOrder);
+        
+        // 3. 如果提供了支付请求，处理支付（在同一事务中）
+        if (paymentRequest != null && paymentRequest.getPaymentMethod() != null && 
+            !paymentRequest.getPaymentMethod().isEmpty()) {
+            
+            String paymentMethod = paymentRequest.getPaymentMethod().toUpperCase();
+            
+            // 从订单中获取支付金额
+            java.math.BigDecimal amount = parseOrderPrice(createdOrder);
+            paymentRequest.setAmount(amount);
+            
+            // 处理支付（注意：对于信用卡支付，不在创建订单时创建 Payment Intent）
+            // 因为此时用户还没有填写卡片信息，无法创建 Payment Method
+            // Payment Intent 应该在用户填写卡片后，在支付页面创建
+            if ("ALIPAY".equalsIgnoreCase(paymentMethod) || 
+                "WECHAT_PAY".equalsIgnoreCase(paymentMethod) || 
+                "WECHAT".equalsIgnoreCase(paymentMethod)) {
+                
+                log.info("处理支付，订单ID: {}, 支付方式: {}", createdOrder.getId(), paymentMethod);
+                
+                com.jiaoyi.order.dto.PaymentResponse paymentResponse = paymentService.processPayment(
+                        createdOrder.getId(), paymentRequest);
+                response.setPayment(paymentResponse);
+                response.setPaymentUrl(paymentResponse.getPayUrl());
+            }
+            // 信用卡支付（CREDIT_CARD/CARD/STRIPE）不在创建订单时处理
+            // 等用户填写卡片后，在支付页面调用 /api/orders/{orderId}/pay 创建 Payment Intent
         }
+        
+        return response;
+    }
+    
+    /**
+     * 从订单价格JSON中解析总金额
+     */
+    private java.math.BigDecimal parseOrderPrice(Order order) {
+        if (order.getOrderPrice() == null) {
+            return java.math.BigDecimal.ZERO;
+        }
+        try {
+            String orderPriceStr = order.getOrderPrice();
+            if (orderPriceStr.startsWith("{")) {
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> orderPrice = objectMapper.readValue(orderPriceStr, java.util.Map.class);
+                Object totalObj = orderPrice.get("total");
+                if (totalObj != null) {
+                    return new java.math.BigDecimal(totalObj.toString());
+                }
+            }
+        } catch (Exception e) {
+            log.error("解析订单价格失败，订单ID: {}", order.getId(), e);
+        }
+        return java.math.BigDecimal.ZERO;
     }
 
     /**
@@ -613,10 +840,9 @@ public class OrderService {
         log.info("查询用户订单列表，用户ID: {}", userId);
         List<Order> orders = orderMapper.selectByUserId(userId);
         return orders.stream()
-                .map(order -> {
+                .peek(order -> {
                     List<OrderItem> orderItems = orderItemMapper.selectByOrderId(order.getId());
                     order.setOrderItems(orderItems);
-                    return order;
                 })
                 .collect(Collectors.toList());
     }
@@ -808,27 +1034,38 @@ public class OrderService {
         }
 
         List<Long> productIds = order.getOrderItems().stream()
-                .filter(item -> item.getProductId() != null || item.getSaleItemId() != null)
-                .map(item -> item.getProductId() != null ? item.getProductId() : item.getSaleItemId())
+                .filter(item -> item.getProductId() != null)
+                .map(OrderItem::getProductId)
+                .collect(Collectors.toList());
+        List<Long> skuIds = order.getOrderItems().stream()
+                .filter(item -> item.getSkuId() != null)
+                .map(OrderItem::getSkuId)
                 .collect(Collectors.toList());
         List<Integer> quantities = order.getOrderItems().stream()
                 .map(OrderItem::getQuantity)
                 .collect(Collectors.toList());
 
+        if (productIds.isEmpty() || skuIds.isEmpty() || productIds.size() != skuIds.size()) {
+            log.warn("订单项缺少productId或skuId，无法处理库存，订单ID: {}", order.getId());
+            return;
+        }
+
         // 支付成功（status = 100）：扣减库存
         if (oldStatus != null && oldStatus == 1 && newStatus != null && newStatus == 100) {
-            log.info("订单支付成功，扣减库存，订单ID: {}", order.getId());
+            log.info("订单支付成功，扣减库存（SKU级别），订单ID: {}", order.getId());
             ProductServiceClient.DeductStockBatchRequest deductRequest = new ProductServiceClient.DeductStockBatchRequest();
             deductRequest.setProductIds(productIds);
+            deductRequest.setSkuIds(skuIds);
             deductRequest.setQuantities(quantities);
             deductRequest.setOrderId(order.getId());
             productServiceClient.deductStockBatch(deductRequest);
         }
             // 订单取消（status = -1）：解锁库存
         else if (newStatus != null && newStatus == -1) {
-            log.info("订单取消，解锁库存，订单ID: {}", order.getId());
+            log.info("订单取消，解锁库存（SKU级别），订单ID: {}", order.getId());
             ProductServiceClient.UnlockStockBatchRequest unlockRequest = new ProductServiceClient.UnlockStockBatchRequest();
             unlockRequest.setProductIds(productIds);
+            unlockRequest.setSkuIds(skuIds);
             unlockRequest.setQuantities(quantities);
             unlockRequest.setOrderId(order.getId());
             productServiceClient.unlockStockBatch(unlockRequest);

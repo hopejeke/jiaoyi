@@ -31,9 +31,9 @@ public class ProductSkuService {
     public ProductSku createSku(ProductSku sku) {
         log.info("创建SKU，商品ID: {}, SKU编码: {}", sku.getProductId(), sku.getSkuCode());
         
-        // 检查SKU编码是否已存在
+        // 检查SKU编码是否已存在（排除已删除的）
         Optional<ProductSku> existing = productSkuMapper.selectByProductIdAndSkuCode(sku.getProductId(), sku.getSkuCode());
-        if (existing.isPresent()) {
+        if (existing.isPresent() && (existing.get().getIsDelete() == null || !existing.get().getIsDelete())) {
             throw new RuntimeException("SKU编码已存在，商品ID: " + sku.getProductId() + ", SKU编码: " + sku.getSkuCode());
         }
         
@@ -51,14 +51,25 @@ public class ProductSkuService {
         if (sku.getIsDelete() == null) {
             sku.setIsDelete(false);
         }
-        sku.setVersion(1L);
+        if (sku.getVersion() == null) {
+            sku.setVersion(1L);
+        }
+        // 确保 sku_price 不为 null（如果未设置，使用商品价格）
+        if (sku.getSkuPrice() == null) {
+            if (storeProduct.getUnitPrice() != null) {
+                sku.setSkuPrice(storeProduct.getUnitPrice());
+            } else {
+                sku.setSkuPrice(java.math.BigDecimal.ZERO);
+            }
+        }
         
-        // 插入SKU
+        // 插入SKU（insert 方法会通过 selectKey 自动设置 id）
         productSkuMapper.insert(sku);
         
-        // 查询插入后的SKU（获取version）
-        ProductSku insertedSku = productSkuMapper.selectByProductIdAndSkuCode(sku.getProductId(), sku.getSkuCode())
-                .orElseThrow(() -> new RuntimeException("SKU创建失败：插入后无法查询到SKU记录"));
+        // 使用插入后返回的 ID 查询SKU（获取version）
+        // 注意：insert 方法通过 selectKey 已经设置了 sku.getId()，所以可以直接使用
+        ProductSku insertedSku = productSkuMapper.selectById(sku.getId())
+                .orElseThrow(() -> new RuntimeException("SKU创建失败：插入后无法查询到SKU记录，ID: " + sku.getId()));
         
         log.info("SKU创建成功，SKU ID: {}, 版本号: {}", insertedSku.getId(), insertedSku.getVersion());
         
@@ -79,14 +90,26 @@ public class ProductSkuService {
      * 根据ID查询SKU
      */
     public Optional<ProductSku> getSkuById(Long skuId) {
-        return productSkuMapper.selectById(skuId);
+        Optional<ProductSku> sku = productSkuMapper.selectById(skuId);
+        // 过滤已删除的SKU（因为 ShardingSphere 元数据问题，暂时不在 SQL 中过滤）
+        if (sku.isPresent() && sku.get().getIsDelete() != null && sku.get().getIsDelete()) {
+            return Optional.empty();
+        }
+        return sku;
     }
     
     /**
      * 根据商品ID查询所有SKU
      */
     public List<ProductSku> getSkusByProductId(Long productId) {
-        return productSkuMapper.selectByProductId(productId);
+        List<ProductSku> skus = productSkuMapper.selectByProductId(productId);
+        // 在应用层过滤已删除的SKU（因为 ShardingSphere 元数据问题，暂时不在 SQL 中过滤）
+        if (skus != null) {
+            return skus.stream()
+                    .filter(sku -> sku.getIsDelete() == null || !sku.getIsDelete())
+                    .collect(java.util.stream.Collectors.toList());
+        }
+        return skus;
     }
     
     /**

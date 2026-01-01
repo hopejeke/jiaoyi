@@ -34,6 +34,21 @@ public class OrderItem {
     private Long productId;
     
     /**
+     * SKU ID（关联 product_sku.id，如果商品有SKU则必须提供）
+     */
+    private Long skuId;
+    
+    /**
+     * SKU名称（冗余字段，用于显示）
+     */
+    private String skuName;
+    
+    /**
+     * SKU属性（JSON格式，冗余字段，用于显示）
+     */
+    private String skuAttributes;
+    
+    /**
      * 销售项ID（POS系统ID）
      */
     private Long saleItemId;

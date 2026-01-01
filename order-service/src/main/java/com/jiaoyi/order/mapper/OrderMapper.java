@@ -24,6 +24,11 @@ public interface OrderMapper {
     Order selectById(Long id);
     
     /**
+     * 根据ID查询订单（带行锁，用于并发控制）
+     */
+    Order selectByIdForUpdate(@Param("id") Long id);
+    
+    /**
      * 根据merchantId和id查询订单（在线点餐，包含分片键）
      */
     Order selectByMerchantIdAndId(@Param("merchantId") String merchantId, @Param("id") Long id);
@@ -103,6 +108,20 @@ public interface OrderMapper {
     int updateDeliveryId(
             @Param("id") Long id,
             @Param("deliveryId") String deliveryId
+    );
+    
+    /**
+     * 更新订单退款金额（累加）
+     */
+    int updateRefundAmount(@Param("id") Long id, @Param("refundAmount") java.math.BigDecimal refundAmount);
+    
+    /**
+     * 根据商户ID和时间范围查询订单（用于高峰拒单统计）
+     */
+    List<Order> selectByMerchantIdAndTimeRange(
+        @Param("merchantId") String merchantId,
+        @Param("startTime") LocalDateTime startTime,
+        @Param("endTime") LocalDateTime endTime
     );
 }
 

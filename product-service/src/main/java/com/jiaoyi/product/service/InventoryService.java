@@ -149,15 +149,26 @@ public class InventoryService {
     }
     
     /**
-     * 检查并锁定库存（下单时调用）
+     * 检查并锁定库存（下单时调用，基于SKU）
      */
     @Transactional
-    public void checkAndLockStock(Long productId, Integer quantity) {
-        log.info("检查并锁定库存，商品ID: {}, 数量: {}", productId, quantity);
+    public void checkAndLockStock(Long productId, Long skuId, Integer quantity) {
+        log.info("检查并锁定库存，商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
         
-        Inventory inventory = inventoryMapper.selectByProductId(productId);
-        if (inventory == null) {
+        if (skuId == null) {
+            throw new IllegalArgumentException("SKU ID不能为空");
+        }
+        
+        // 查询SKU库存（需要storeId，但这里只有productId，先查询商品获取storeId）
+        Inventory productInventory = inventoryMapper.selectByProductId(productId);
+        if (productInventory == null) {
             throw new InsufficientStockException(productId, "未知商品", quantity, 0);
+        }
+        
+        Inventory inventory = inventoryMapper.selectByStoreIdAndProductIdAndSkuId(
+            productInventory.getStoreId(), productId, skuId);
+        if (inventory == null) {
+            throw new InsufficientStockException(productId, "SKU库存不存在", quantity, 0);
         }
         
         // 检查可用库存
@@ -165,19 +176,19 @@ public class InventoryService {
         if (availableStock < quantity) {
             throw new InsufficientStockException(
                 productId, 
-                inventory.getProductName(), 
+                inventory.getSkuName() != null ? inventory.getSkuName() : inventory.getProductName(), 
                 quantity, 
                 availableStock
             );
         }
         
-        // 锁定库存
-        int updatedRows = inventoryMapper.lockStock(productId, quantity);
+        // 锁定库存（SKU级别）
+        int updatedRows = inventoryMapper.lockStockBySku(productId, skuId, quantity);
         if (updatedRows == 0) {
              availableStock = inventory.getCurrentStock() - inventory.getLockedStock();
             throw new InsufficientStockException(
                 productId, 
-                inventory.getProductName(), 
+                inventory.getSkuName() != null ? inventory.getSkuName() : inventory.getProductName(), 
                 quantity, 
                 availableStock
             );
@@ -186,40 +197,52 @@ public class InventoryService {
         // 记录库存变动
         recordInventoryTransaction(
             productId, 
-            null, 
+            null, // orderId，下单时还没有订单ID
             InventoryTransaction.TransactionType.LOCK, 
             quantity, 
             inventory.getCurrentStock(), 
             inventory.getCurrentStock(),
             inventory.getLockedStock(),
             inventory.getLockedStock() + quantity,
-            "下单锁定库存"
+            "下单锁定库存（SKU级别，SKU ID: " + skuId + "）"
         );
         
         // 更新缓存
         inventory.setLockedStock(inventory.getLockedStock() + quantity);
         inventoryCacheService.updateInventoryCache(inventory);
         
-        log.info("库存锁定成功，商品ID: {}, 锁定数量: {}", productId, quantity);
+        log.info("库存锁定成功，商品ID: {}, SKU ID: {}, 锁定数量: {}", productId, skuId, quantity);
     }
     
     /**
-     * 扣减库存（支付成功后调用）
+     * 扣减库存（支付成功后调用，基于SKU）
      */
     @Transactional
-    public void deductStock(Long productId, Integer quantity, Long orderId) {
-        log.info("扣减库存，商品ID: {}, 数量: {}, 订单ID: {}", productId, quantity, orderId);
+    public void deductStock(Long productId, Long skuId, Integer quantity, Long orderId) {
+        log.info("扣减库存，商品ID: {}, SKU ID: {}, 数量: {}, 订单ID: {}", productId, skuId, quantity, orderId);
         
-        Inventory inventory = inventoryMapper.selectByProductId(productId);
-        if (inventory == null) {
-            log.error("商品不存在，商品ID: {}", productId);
-            return;
+        if (skuId == null) {
+            throw new IllegalArgumentException("SKU ID不能为空");
         }
         
-        // 扣减库存
-        int updatedRows = inventoryMapper.deductStock(productId, quantity);
+        // 查询SKU库存
+        Inventory productInventory = inventoryMapper.selectByProductId(productId);
+        if (productInventory == null) {
+            log.error("商品不存在，商品ID: {}", productId);
+            throw new RuntimeException("商品不存在");
+        }
+        
+        Inventory inventory = inventoryMapper.selectByStoreIdAndProductIdAndSkuId(
+            productInventory.getStoreId(), productId, skuId);
+        if (inventory == null) {
+            log.error("SKU库存不存在，商品ID: {}, SKU ID: {}", productId, skuId);
+            throw new RuntimeException("SKU库存不存在");
+        }
+        
+        // 扣减库存（SKU级别）
+        int updatedRows = inventoryMapper.deductStockBySku(productId, skuId, quantity);
         if (updatedRows == 0) {
-            log.error("库存扣减失败，商品ID: {}, 数量: {}", productId, quantity);
+            log.error("库存扣减失败，商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
             throw new RuntimeException("库存扣减失败");
         }
         
@@ -233,7 +256,7 @@ public class InventoryService {
             inventory.getCurrentStock(),
             inventory.getLockedStock(),
             inventory.getLockedStock() - quantity,
-            "支付成功扣减库存"
+            "支付成功扣减库存（SKU级别，SKU ID: " + skuId + "）"
         );
         
         // 更新缓存
@@ -241,26 +264,38 @@ public class InventoryService {
         inventory.setLockedStock(inventory.getLockedStock() - quantity);
         inventoryCacheService.updateInventoryCache(inventory);
         
-        log.info("库存扣减成功，商品ID: {}, 扣减数量: {}", productId, quantity);
+        log.info("库存扣减成功，商品ID: {}, SKU ID: {}, 扣减数量: {}", productId, skuId, quantity);
     }
     
     /**
-     * 解锁库存（订单取消时调用）
+     * 解锁库存（订单取消时调用，基于SKU）
      */
     @Transactional
-    public void unlockStock(Long productId, Integer quantity, Long orderId) {
-        log.info("解锁库存，商品ID: {}, 数量: {}, 订单ID: {}", productId, quantity, orderId);
+    public void unlockStock(Long productId, Long skuId, Integer quantity, Long orderId) {
+        log.info("解锁库存，商品ID: {}, SKU ID: {}, 数量: {}, 订单ID: {}", productId, skuId, quantity, orderId);
         
-        Inventory inventory = inventoryMapper.selectByProductId(productId);
-        if (inventory == null) {
-            log.error("商品不存在，商品ID: {}", productId);
-            return;
+        if (skuId == null) {
+            throw new IllegalArgumentException("SKU ID不能为空");
         }
         
-        // 解锁库存
-        int updatedRows = inventoryMapper.unlockStock(productId, quantity);
+        // 查询SKU库存
+        Inventory productInventory = inventoryMapper.selectByProductId(productId);
+        if (productInventory == null) {
+            log.error("商品不存在，商品ID: {}", productId);
+            throw new RuntimeException("商品不存在");
+        }
+        
+        Inventory inventory = inventoryMapper.selectByStoreIdAndProductIdAndSkuId(
+            productInventory.getStoreId(), productId, skuId);
+        if (inventory == null) {
+            log.error("SKU库存不存在，商品ID: {}, SKU ID: {}", productId, skuId);
+            throw new RuntimeException("SKU库存不存在");
+        }
+        
+        // 解锁库存（SKU级别）
+        int updatedRows = inventoryMapper.unlockStockBySku(productId, skuId, quantity);
         if (updatedRows == 0) {
-            log.error("库存解锁失败，商品ID: {}, 数量: {}", productId, quantity);
+            log.error("库存解锁失败，商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
             throw new RuntimeException("库存解锁失败");
         }
         
@@ -274,53 +309,65 @@ public class InventoryService {
             inventory.getCurrentStock(),
             inventory.getLockedStock(),
             inventory.getLockedStock() - quantity,
-            "订单取消解锁库存"
+            "订单取消解锁库存（SKU级别，SKU ID: " + skuId + "）"
         );
         
         // 更新缓存
         inventory.setLockedStock(inventory.getLockedStock() - quantity);
         inventoryCacheService.updateInventoryCache(inventory);
         
-        log.info("库存解锁成功，商品ID: {}, 解锁数量: {}", productId, quantity);
+        log.info("库存解锁成功，商品ID: {}, SKU ID: {}, 解锁数量: {}", productId, skuId, quantity);
     }
     
     /**
-     * 批量检查并锁定库存
+     * 批量检查并锁定库存（基于SKU）
      */
     @Transactional
-    public void checkAndLockStockBatch(List<Long> productIds, List<Integer> quantities) {
+    public void checkAndLockStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities) {
         log.info("批量检查并锁定库存，商品数量: {}", productIds.size());
         
+        if (productIds.size() != skuIds.size() || productIds.size() != quantities.size()) {
+            throw new IllegalArgumentException("商品ID、SKU ID和数量列表长度必须一致");
+        }
+        
         for (int i = 0; i < productIds.size(); i++) {
-            checkAndLockStock(productIds.get(i), quantities.get(i));
+            checkAndLockStock(productIds.get(i), skuIds.get(i), quantities.get(i));
         }
         
         log.info("批量库存锁定完成");
     }
     
     /**
-     * 批量扣减库存
+     * 批量扣减库存（基于SKU）
      */
     @Transactional
-    public void deductStockBatch(List<Long> productIds, List<Integer> quantities, Long orderId) {
+    public void deductStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities, Long orderId) {
         log.info("批量扣减库存，订单ID: {}, 商品数量: {}", orderId, productIds.size());
         
+        if (productIds.size() != skuIds.size() || productIds.size() != quantities.size()) {
+            throw new IllegalArgumentException("商品ID、SKU ID和数量列表长度必须一致");
+        }
+        
         for (int i = 0; i < productIds.size(); i++) {
-            deductStock(productIds.get(i), quantities.get(i), orderId);
+            deductStock(productIds.get(i), skuIds.get(i), quantities.get(i), orderId);
         }
         
         log.info("批量库存扣减完成");
     }
     
     /**
-     * 批量解锁库存
+     * 批量解锁库存（基于SKU）
      */
     @Transactional
-    public void unlockStockBatch(List<Long> productIds, List<Integer> quantities, Long orderId) {
+    public void unlockStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities, Long orderId) {
         log.info("批量解锁库存，订单ID: {}, 商品数量: {}", orderId, productIds.size());
         
+        if (productIds.size() != skuIds.size() || productIds.size() != quantities.size()) {
+            throw new IllegalArgumentException("商品ID、SKU ID和数量列表长度必须一致");
+        }
+        
         for (int i = 0; i < productIds.size(); i++) {
-            unlockStock(productIds.get(i), quantities.get(i), orderId);
+            unlockStock(productIds.get(i), skuIds.get(i), quantities.get(i), orderId);
         }
         
         log.info("批量库存解锁完成");
@@ -346,6 +393,15 @@ public class InventoryService {
             inventoryCacheService.cacheInventory(inventory);
         }
         
+        return Optional.ofNullable(inventory);
+    }
+    
+    /**
+     * 根据SKU ID查询库存
+     */
+    public Optional<Inventory> getInventoryBySkuId(Long storeId, Long productId, Long skuId) {
+        log.debug("查询SKU库存，店铺ID: {}, 商品ID: {}, SKU ID: {}", storeId, productId, skuId);
+        Inventory inventory = inventoryMapper.selectByStoreIdAndProductIdAndSkuId(storeId, productId, skuId);
         return Optional.ofNullable(inventory);
     }
     

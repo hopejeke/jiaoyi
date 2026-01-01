@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.RefundIdempotencyLogMapper">
+    
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.RefundIdempotencyLog">
+        <id column="id" property="id"/>
+        <result column="order_id" property="orderId"/>
+        <result column="request_no" property="requestNo"/>
+        <result column="refund_id" property="refundId"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="fingerprint" property="fingerprint"/>
+        <result column="request_params" property="requestParams"/>
+        <result column="result" property="result"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+    
+    <!-- 插入幂等性日志 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.RefundIdempotencyLog" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO refund_idempotency_logs (
+            order_id,
+            request_no,
+            refund_id,
+            merchant_id,
+            fingerprint,
+            request_params,
+            result,
+            error_message,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{orderId},
+            #{requestNo},
+            #{refundId},
+            #{merchantId},
+            #{fingerprint},
+            #{requestParams},
+            #{result},
+            #{errorMessage},
+            NOW(),
+            NOW()
+        )
+    </insert>
+    
+    <!-- 根据请求号查询 -->
+    <select id="selectByRequestNo" resultMap="BaseResultMap">
+        SELECT * FROM refund_idempotency_logs
+        WHERE order_id = #{orderId} AND request_no = #{requestNo}
+        LIMIT 1
+    </select>
+    
+    <!-- 根据指纹查询 -->
+    <select id="selectByFingerprint" resultMap="BaseResultMap">
+        SELECT * FROM refund_idempotency_logs
+        WHERE fingerprint = #{fingerprint}
+        LIMIT 1
+    </select>
+    
+    <!-- 更新处理结果 -->
+    <update id="updateResult">
+        UPDATE refund_idempotency_logs
+        SET refund_id = #{refundId},
+            result = #{result},
+            error_message = #{errorMessage},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+    
+</mapper>
+
+
+
+

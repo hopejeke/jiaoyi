@@ -1,0 +1,889 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>退款管理</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background-color: #f5f5f5;
+            color: #333;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        
+        .header {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            margin-bottom: 20px;
+        }
+        
+        .header h1 {
+            color: #2c3e50;
+            margin-bottom: 10px;
+        }
+        
+        .search-form {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .form-group {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .form-group label {
+            font-weight: 500;
+            margin-bottom: 5px;
+            color: #555;
+        }
+        
+        .form-group input,
+        .form-group select {
+            padding: 8px 12px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        
+        .form-group input:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #007bff;
+            box-shadow: 0 0 0 2px rgba(0,123,255,0.25);
+        }
+        
+        .btn {
+            padding: 8px 16px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary {
+            background-color: #007bff;
+            color: white;
+        }
+        
+        .btn-primary:hover {
+            background-color: #0056b3;
+        }
+        
+        .btn-danger {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .btn-danger:hover {
+            background-color: #c82333;
+        }
+        
+        .btn-success {
+            background-color: #28a745;
+            color: white;
+        }
+        
+        .btn-success:hover {
+            background-color: #218838;
+        }
+        
+        .card {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .card h2 {
+            color: #2c3e50;
+            margin-bottom: 15px;
+            font-size: 18px;
+        }
+        
+        .order-info {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .info-item {
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+        }
+        
+        .info-item label {
+            display: block;
+            font-size: 12px;
+            color: #666;
+            margin-bottom: 5px;
+        }
+        
+        .info-item span {
+            font-size: 14px;
+            font-weight: 500;
+            color: #333;
+        }
+        
+        .order-items {
+            margin-top: 20px;
+        }
+        
+        .order-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px;
+            border-bottom: 1px solid #eee;
+        }
+        
+        .order-item:last-child {
+            border-bottom: none;
+        }
+        
+        .item-info {
+            flex: 1;
+        }
+        
+        .item-name {
+            font-weight: 500;
+            margin-bottom: 5px;
+        }
+        
+        .item-details {
+            font-size: 12px;
+            color: #666;
+        }
+        
+        .item-price {
+            font-weight: 500;
+            color: #dc3545;
+        }
+        
+        .refund-list {
+            margin-top: 20px;
+        }
+        
+        .refund-item {
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin-bottom: 10px;
+            background-color: #f8f9fa;
+        }
+        
+        .refund-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .refund-status {
+            padding: 4px 12px;
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 500;
+        }
+        
+        .status-created {
+            background-color: #ffc107;
+            color: #856404;
+        }
+        
+        .status-processing {
+            background-color: #17a2b8;
+            color: white;
+        }
+        
+        .status-succeeded {
+            background-color: #28a745;
+            color: white;
+        }
+        
+        .status-failed {
+            background-color: #dc3545;
+            color: white;
+        }
+        
+        .status-canceled {
+            background-color: #6c757d;
+            color: white;
+        }
+        
+        .refund-details {
+            font-size: 12px;
+            color: #666;
+            margin-top: 10px;
+        }
+        
+        .refund-details table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        
+        .refund-details th,
+        .refund-details td {
+            padding: 8px;
+            text-align: left;
+            border-bottom: 1px solid #ddd;
+        }
+        
+        .refund-details th {
+            background-color: #f8f9fa;
+            font-weight: 500;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+        }
+        
+        .modal-content {
+            background-color: white;
+            margin: 5% auto;
+            padding: 20px;
+            border-radius: 8px;
+            width: 90%;
+            max-width: 600px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .modal-header h2 {
+            color: #2c3e50;
+        }
+        
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: #000;
+        }
+        
+        .refund-type-selector {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .refund-type-selector label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        
+        .refund-type-selector input[type="radio"] {
+            margin-right: 5px;
+        }
+        
+        .refund-items-list {
+            margin-top: 15px;
+        }
+        
+        .refund-item-row {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-radius: 4px;
+            margin-bottom: 10px;
+        }
+        
+        .refund-item-row input[type="number"] {
+            width: 80px;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        
+        .checkbox-group label {
+            display: flex;
+            align-items: center;
+            cursor: pointer;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            margin-right: 8px;
+        }
+        
+        .message {
+            padding: 15px;
+            border-radius: 4px;
+            margin-bottom: 20px;
+        }
+        
+        .message-success {
+            background-color: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+        }
+        
+        .message-error {
+            background-color: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>💰 退款管理</h1>
+            <div class="search-form">
+                <div class="form-group">
+                    <label for="orderIdInput">订单ID:</label>
+                    <input type="text" id="orderIdInput" placeholder="请输入订单ID" onkeypress="if(event.key==='Enter'){event.preventDefault();loadOrder();}">
+                </div>
+                <div class="form-group">
+                    <button type="button" class="btn btn-primary" onclick="loadOrder()">查询订单</button>
+                </div>
+            </div>
+        </div>
+        
+        <div id="messageContainer"></div>
+        
+        <div id="orderContainer" style="display: none;">
+            <div class="card">
+                <h2>订单信息</h2>
+                <div class="order-info" id="orderInfo"></div>
+                
+                <div class="order-items">
+                    <h3>订单商品</h3>
+                    <div id="orderItemsList"></div>
+                </div>
+                
+                <div style="margin-top: 20px;">
+                    <button class="btn btn-danger" onclick="showRefundModal()">申请退款</button>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>退款记录</h2>
+                <div id="refundList" class="refund-list"></div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 退款申请模态框 -->
+    <div id="refundModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>申请退款</h2>
+                <span class="close" onclick="closeRefundModal()">&times;</span>
+            </div>
+            
+            <form id="refundForm">
+                <div class="form-group">
+                    <label>退款类型:</label>
+                    <div class="refund-type-selector">
+                        <label>
+                            <input type="radio" name="refundType" value="BY_ITEMS" checked onchange="onRefundTypeChange()">
+                            按商品退款
+                        </label>
+                        <label>
+                            <input type="radio" name="refundType" value="BY_AMOUNT" onchange="onRefundTypeChange()">
+                            按金额退款
+                        </label>
+                    </div>
+                </div>
+                
+                <div id="byItemsSection">
+                    <div class="form-group">
+                        <label>选择要退款的商品:</label>
+                        <div id="refundItemsList" class="refund-items-list"></div>
+                    </div>
+                </div>
+                
+                <div id="byAmountSection" style="display: none;">
+                    <div class="form-group">
+                        <label for="refundAmountInput">退款金额:</label>
+                        <input type="number" id="refundAmountInput" step="0.01" min="0.01" placeholder="请输入退款金额">
+                    </div>
+                </div>
+                
+                <div class="checkbox-group">
+                    <label>
+                        <input type="checkbox" id="refundDeliveryFee">
+                        退配送费
+                    </label>
+                    <label>
+                        <input type="checkbox" id="refundTips">
+                        退小费
+                    </label>
+                    <label>
+                        <input type="checkbox" id="refundCharge">
+                        退服务费
+                    </label>
+                </div>
+                
+                <div class="form-group">
+                    <label for="refundReason">退款原因:</label>
+                    <textarea id="refundReason" rows="3" placeholder="请输入退款原因" required></textarea>
+                </div>
+                
+                <div style="margin-top: 20px; text-align: right;">
+                    <button type="button" class="btn btn-secondary" onclick="closeRefundModal()">取消</button>
+                    <button type="submit" class="btn btn-danger">提交退款</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        let currentOrder = null;
+        let currentOrderItems = [];
+        
+        function showMessage(message, type) {
+            const container = document.getElementById('messageContainer');
+            container.innerHTML = `<div class="message message-${type}">${message}</div>`;
+            setTimeout(() => {
+                container.innerHTML = '';
+            }, 5000);
+        }
+        
+        async function loadOrder() {
+            const orderId = document.getElementById('orderIdInput').value.trim();
+            if (!orderId) {
+                showMessage('请输入订单ID', 'error');
+                return;
+            }
+            
+            // 显示加载状态
+            showMessage('正在查询订单...', 'success');
+            
+            try {
+                console.log('查询订单，订单ID:', orderId);
+                const response = await fetch(`/api/orders/${orderId}`);
+                console.log('响应状态:', response.status, response.statusText);
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                const result = await response.json();
+                console.log('响应结果:', result);
+                
+                if (result.code === 200) {
+                    currentOrder = result.data;
+                    console.log('订单数据:', currentOrder);
+                    displayOrder(currentOrder);
+                    
+                    // 加载退款列表
+                    await loadRefunds(orderId);
+                    showMessage('查询成功', 'success');
+                } else {
+                    showMessage(result.message || '查询订单失败', 'error');
+                }
+            } catch (error) {
+                console.error('查询订单错误:', error);
+                showMessage('查询订单失败: ' + error.message, 'error');
+            }
+        }
+        
+        function displayOrder(order) {
+            document.getElementById('orderContainer').style.display = 'block';
+            
+            // 显示订单信息
+            const orderInfo = document.getElementById('orderInfo');
+            const orderPrice = JSON.parse(order.orderPrice || '{}');
+            
+            orderInfo.innerHTML = `
+                <div class="info-item">
+                    <label>订单ID</label>
+                    <span>${order.id}</span>
+                </div>
+                <div class="info-item">
+                    <label>订单状态</label>
+                    <span>${getOrderStatusText(order.status)}</span>
+                </div>
+                <div class="info-item">
+                    <label>订单总金额</label>
+                    <span>¥${parseFloat(orderPrice.total || 0).toFixed(2)}</span>
+                </div>
+                <div class="info-item">
+                    <label>已退款金额</label>
+                    <span>¥${parseFloat(order.refundAmount || 0).toFixed(2)}</span>
+                </div>
+                <div class="info-item">
+                    <label>可退金额</label>
+                    <span>¥${(parseFloat(orderPrice.total || 0) - parseFloat(order.refundAmount || 0)).toFixed(2)}</span>
+                </div>
+            `;
+            
+            // 显示订单商品
+            if (order.orderItems && order.orderItems.length > 0) {
+                currentOrderItems = order.orderItems;
+                const itemsList = document.getElementById('orderItemsList');
+                itemsList.innerHTML = order.orderItems.map(item => `
+                    <div class="order-item">
+                        <div class="item-info">
+                            <div class="item-name">${item.itemName || '商品'}</div>
+                            <div class="item-details">
+                                数量: ${item.quantity} | 
+                                单价: ¥${parseFloat(item.itemPrice || 0).toFixed(2)} | 
+                                小计: ¥${parseFloat(item.itemPriceTotal || 0).toFixed(2)}
+                            </div>
+                        </div>
+                        <div class="item-price">¥${parseFloat(item.itemPriceTotal || 0).toFixed(2)}</div>
+                    </div>
+                `).join('');
+            }
+        }
+        
+        async function loadRefunds(orderId) {
+            try {
+                const response = await fetch(`/api/refunds/order/${orderId}`);
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    displayRefunds(result.data || []);
+                } else {
+                    showMessage(result.message || '查询退款列表失败', 'error');
+                }
+            } catch (error) {
+                showMessage('查询退款列表失败: ' + error.message, 'error');
+            }
+        }
+        
+        function displayRefunds(refunds) {
+            const refundList = document.getElementById('refundList');
+            
+            if (!refunds || refunds.length === 0) {
+                refundList.innerHTML = '<div class="empty-state">暂无退款记录</div>';
+                return;
+            }
+            
+            refundList.innerHTML = refunds.map(refund => `
+                <div class="refund-item">
+                    <div class="refund-header">
+                        <div>
+                            <strong>退款单号:</strong> ${refund.requestNo}<br>
+                            <small>退款金额: ¥${parseFloat(refund.refundAmount || 0).toFixed(2)}</small>
+                        </div>
+                        <span class="refund-status status-${refund.status.toLowerCase()}">
+                            ${getRefundStatusText(refund.status)}
+                        </span>
+                    </div>
+                    <div class="refund-details">
+                        <div><strong>退款原因:</strong> ${refund.reason || '无'}</div>
+                        <div><strong>创建时间:</strong> ${formatDateTime(refund.createdAt)}</div>
+                        ${refund.processedAt ? `<div><strong>处理时间:</strong> ${formatDateTime(refund.processedAt)}</div>` : ''}
+                        ${refund.errorMessage ? `<div style="color: #dc3545;"><strong>错误信息:</strong> ${refund.errorMessage}</div>` : ''}
+                        ${refund.refundItems && refund.refundItems.length > 0 ? `
+                            <table>
+                                <thead>
+                                    <tr>
+                                        <th>科目</th>
+                                        <th>数量</th>
+                                        <th>金额</th>
+                                        <th>税费</th>
+                                        <th>折扣</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    ${refund.refundItems.map(item => `
+                                        <tr>
+                                            <td>${getRefundSubjectText(item.subject)}</td>
+                                            <td>${item.refundQty || '-'}</td>
+                                            <td>¥${parseFloat(item.refundAmount || 0).toFixed(2)}</td>
+                                            <td>¥${parseFloat(item.taxRefund || 0).toFixed(2)}</td>
+                                            <td>¥${parseFloat(item.discountRefund || 0).toFixed(2)}</td>
+                                        </tr>
+                                    `).join('')}
+                                </tbody>
+                            </table>
+                        ` : ''}
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        function showRefundModal() {
+            if (!currentOrder) {
+                showMessage('请先查询订单', 'error');
+                return;
+            }
+            
+            // 检查订单状态：允许已支付(2)、已完成(4)的订单退款
+            // 不允许：已下单待支付(1)、已取消(5)、已退款(6)、支付失败(7)
+            const refundableStatuses = [2, 4, 100]; // 2=已支付, 4=已完成, 100=兼容旧状态码
+            if (!refundableStatuses.includes(currentOrder.status)) {
+                const statusText = getOrderStatusText(currentOrder.status);
+                showMessage(`当前订单状态为"${statusText}"，只有已支付或已完成的订单才能申请退款`, 'error');
+                return;
+            }
+            
+            // 填充退款商品列表
+            const refundItemsList = document.getElementById('refundItemsList');
+            refundItemsList.innerHTML = currentOrderItems.map((item, index) => {
+                const itemId = String(item.id); // 确保ID是字符串
+                return `
+                <div class="refund-item-row">
+                    <input type="checkbox" id="item_${itemId}" value="${itemId}" data-max="${item.quantity}" 
+                           onchange="toggleQtyInput('${itemId}', this.checked)">
+                    <label for="item_${itemId}" style="flex: 1; cursor: pointer;">
+                        ${item.itemName || '商品'} - 数量: ${item.quantity} - ¥${parseFloat(item.itemPriceTotal || 0).toFixed(2)}
+                    </label>
+                    <input type="number" id="qty_${itemId}" min="1" max="${item.quantity}" value="1" 
+                           style="display: none; width: 80px;" onchange="updateRefundItemQty('${itemId}', this.value)">
+                </div>
+            `;
+            }).join('');
+            
+            document.getElementById('refundModal').style.display = 'block';
+        }
+        
+        function toggleQtyInput(itemId, checked) {
+            const qtyInput = document.getElementById(`qty_${itemId}`);
+            if (qtyInput) {
+                qtyInput.style.display = checked ? 'block' : 'none';
+                if (!checked) {
+                    qtyInput.value = 1; // 重置为1
+                }
+            }
+        }
+        
+        function updateRefundItemQty(itemId, qty) {
+            const checkbox = document.getElementById(`item_${itemId}`);
+            const maxQty = checkbox ? parseInt(checkbox.getAttribute('data-max')) : 1;
+            const qtyInput = document.getElementById(`qty_${itemId}`);
+            
+            if (qtyInput) {
+                let value = parseInt(qty) || 1;
+                if (value < 1) value = 1;
+                if (value > maxQty) value = maxQty;
+                qtyInput.value = value;
+            }
+        }
+        
+        function onRefundTypeChange() {
+            const refundType = document.querySelector('input[name="refundType"]:checked').value;
+            document.getElementById('byItemsSection').style.display = refundType === 'BY_ITEMS' ? 'block' : 'none';
+            document.getElementById('byAmountSection').style.display = refundType === 'BY_AMOUNT' ? 'block' : 'none';
+        }
+        
+        function closeRefundModal() {
+            document.getElementById('refundModal').style.display = 'none';
+            document.getElementById('refundForm').reset();
+        }
+        
+        document.getElementById('refundForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            if (!currentOrder) {
+                showMessage('订单信息不存在', 'error');
+                return;
+            }
+            
+            const refundType = document.querySelector('input[name="refundType"]:checked').value;
+            const reason = document.getElementById('refundReason').value.trim();
+            
+            if (!reason) {
+                showMessage('请输入退款原因', 'error');
+                return;
+            }
+            
+            const requestNo = 'REF' + Date.now() + Math.random().toString(36).substr(2, 9);
+            
+            // 确保订单ID和订单项ID都作为字符串处理，避免JavaScript大整数精度丢失
+            const orderIdStr = String(currentOrder.id);
+            
+            // 构建请求体，确保大整数ID作为字符串发送
+            const requestBody = {
+                orderId: orderIdStr, // 字符串，后端会自动转换为Long
+                requestNo: requestNo,
+                refundType: refundType,
+                refundDeliveryFee: document.getElementById('refundDeliveryFee').checked,
+                refundTips: document.getElementById('refundTips').checked,
+                refundCharge: document.getElementById('refundCharge').checked,
+                reason: reason
+            };
+            
+            if (refundType === 'BY_ITEMS') {
+                const selectedItems = [];
+                currentOrderItems.forEach(item => {
+                    const itemId = String(item.id); // 确保ID是字符串
+                    const checkbox = document.getElementById(`item_${itemId}`);
+                    if (checkbox && checkbox.checked) {
+                        const qty = parseInt(document.getElementById(`qty_${itemId}`).value) || 1;
+                        selectedItems.push({
+                            orderItemId: itemId, // 字符串，后端会自动转换为Long
+                            refundQuantity: qty
+                        });
+                    }
+                });
+                
+                if (selectedItems.length === 0) {
+                    showMessage('请至少选择一个商品', 'error');
+                    return;
+                }
+                
+                requestBody.refundItems = selectedItems;
+            } else {
+                const refundAmount = parseFloat(document.getElementById('refundAmountInput').value);
+                if (!refundAmount || refundAmount <= 0) {
+                    showMessage('请输入有效的退款金额', 'error');
+                    return;
+                }
+                
+                requestBody.refundAmount = refundAmount;
+            }
+            
+            try {
+                // 手动构建JSON字符串，确保大整数ID保持为字符串格式（带引号）
+                // 因为JSON.stringify会自动将字符串数字转换为数字，导致精度丢失
+                // 所以我们需要手动构建JSON，确保ID字段的值是带引号的字符串
+                let jsonParts = [];
+                jsonParts.push(`"orderId":"${orderIdStr}"`);
+                jsonParts.push(`"requestNo":${JSON.stringify(requestNo)}`);
+                jsonParts.push(`"refundType":${JSON.stringify(refundType)}`);
+                jsonParts.push(`"refundDeliveryFee":${requestBody.refundDeliveryFee}`);
+                jsonParts.push(`"refundTips":${requestBody.refundTips}`);
+                jsonParts.push(`"refundCharge":${requestBody.refundCharge}`);
+                jsonParts.push(`"reason":${JSON.stringify(reason)}`);
+                
+                if (refundType === 'BY_ITEMS') {
+                    const itemsJson = requestBody.refundItems.map(item => 
+                        `{"orderItemId":"${item.orderItemId}","refundQuantity":${item.refundQuantity}}`
+                    ).join(',');
+                    jsonParts.push(`"refundItems":[${itemsJson}]`);
+                } else {
+                    jsonParts.push(`"refundAmount":${requestBody.refundAmount}`);
+                }
+                
+                const jsonBody = '{' + jsonParts.join(',') + '}';
+                
+                console.log('退款请求体（JSON）:', jsonBody);
+                console.log('订单ID（字符串）:', orderIdStr);
+                
+                const response = await fetch('/api/refunds', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: jsonBody
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    showMessage('退款申请已提交', 'success');
+                    closeRefundModal();
+                    await loadRefunds(currentOrder.id);
+                    await loadOrder(); // 刷新订单信息
+                } else {
+                    showMessage(result.message || '提交退款失败', 'error');
+                }
+            } catch (error) {
+                showMessage('提交退款失败: ' + error.message, 'error');
+            }
+        });
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('refundModal');
+            if (event.target === modal) {
+                closeRefundModal();
+            }
+        }
+        
+        // 这个事件监听器已经不需要了，因为我们在checkbox上直接绑定了onchange事件
+        
+        function getOrderStatusText(status) {
+            const statusMap = {
+                1: '已下单待支付',
+                2: '已支付',
+                3: '制作中',
+                4: '已完成',
+                5: '已取消',
+                6: '已退款',
+                7: '支付失败',
+                8: '配送中',
+                9: '待接单',
+                100: '已支付'  // 兼容旧的状态码
+            };
+            return statusMap[status] || statusMap[String(status)] || '未知';
+        }
+        
+        function getRefundStatusText(status) {
+            const statusMap = {
+                'CREATED': '已创建',
+                'PROCESSING': '处理中',
+                'SUCCEEDED': '退款成功',
+                'FAILED': '退款失败',
+                'CANCELED': '已取消'
+            };
+            return statusMap[status] || status;
+        }
+        
+        function getRefundSubjectText(subject) {
+            const subjectMap = {
+                'ITEM': '商品',
+                'TAX': '税费',
+                'DELIVERY_FEE': '配送费',
+                'TIPS': '小费',
+                'CHARGE': '服务费',
+                'DISCOUNT': '折扣'
+            };
+            return subjectMap[subject] || subject;
+        }
+        
+        function formatDateTime(dateTimeStr) {
+            if (!dateTimeStr) return '-';
+            const date = new Date(dateTimeStr);
+            return date.toLocaleString('zh-CN');
+        }
+    </script>
+</body>
+</html>
+

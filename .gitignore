@@ -52,5 +52,12 @@ Thumbs.db
 *.wmv
 
 *-local.yml
+*-local.properties
+application-local.properties
+
+# 环境变量文件
+.env
+.env.local
+.env.*.local
 
 images/

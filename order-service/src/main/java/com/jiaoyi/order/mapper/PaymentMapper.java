@@ -28,11 +28,6 @@ public interface PaymentMapper {
     List<Payment> selectByOrderId(@Param("orderId") Long orderId);
     
     /**
-     * 根据支付流水号查询支付记录
-     */
-    Payment selectByPaymentNo(@Param("paymentNo") String paymentNo);
-    
-    /**
      * 根据第三方交易号查询支付记录
      */
     Payment selectByThirdPartyTradeNo(@Param("thirdPartyTradeNo") String thirdPartyTradeNo);
@@ -57,6 +52,8 @@ public interface PaymentMapper {
      */
     int updatePaymentIntentId(@Param("id") Long id, @Param("paymentIntentId") String paymentIntentId);
 }
+
+
 
 
 

@@ -34,12 +34,15 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 @Slf4j
-@RocketMQMessageListener(
-    topic = RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC,
-    consumerGroup = RocketMQConfig.PRODUCT_CACHE_UPDATE_CONSUMER_GROUP,
-    selectorExpression = RocketMQConfig.PRODUCT_CACHE_UPDATE_TAG
-)
-public class StoreProductCacheUpdateMessageService implements RocketMQListener<MessageExt> {
+// 暂时注释掉 RocketMQ 监听器，避免启动错误
+// TODO: 升级到兼容 Spring Boot 3.x 的 RocketMQ 版本后重新启用
+// @RocketMQMessageListener(
+//     topic = RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC,
+//     consumerGroup = RocketMQConfig.PRODUCT_CACHE_UPDATE_CONSUMER_GROUP,
+//     selectorExpression = RocketMQConfig.PRODUCT_CACHE_UPDATE_TAG
+// )
+// public class StoreProductCacheUpdateMessageService implements RocketMQListener<MessageExt> {
+public class StoreProductCacheUpdateMessageService {
     
     private final StoreProductMapper storeProductMapper;
     private final StoreProductCacheService storeProductCacheService;
@@ -54,7 +57,7 @@ public class StoreProductCacheUpdateMessageService implements RocketMQListener<M
      * 2. 消息中应该已经包含了productId（在写入outbox时已设置）
      * 3. 如果productId为null，可能是消息格式问题，需要降级处理
      */
-    @Override
+    // @Override - 暂时注释掉，因为不再实现 RocketMQListener 接口
     @Transactional
     public void onMessage(MessageExt messageExt) {
         try {

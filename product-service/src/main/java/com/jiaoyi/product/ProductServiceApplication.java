@@ -2,6 +2,7 @@ package com.jiaoyi.product;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.cloud.client.discovery.EnableDiscoveryClient;
 import org.springframework.cloud.openfeign.EnableFeignClients;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
@@ -16,6 +17,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
     }
 )
 @EnableScheduling
+@EnableDiscoveryClient
 @EnableFeignClients
 // 注意：不要在这里使用 @MapperScan，Mapper 的扫描和 SqlSessionFactory 绑定在 DataSourceConfig 中配置
 // 这样可以精确控制哪些 Mapper 使用哪个数据源

@@ -7,7 +7,7 @@
         <id column="id" property="id"/>
         <result column="merchant_id" property="merchantId"/>
         <result column="user_id" property="userId"/>
-        <result column="order_type" property="orderType" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="order_type" property="orderType" typeHandler="com.jiaoyi.order.handler.OrderTypeTypeHandler"/>
         <result column="status" property="status"/>
         <result column="local_status" property="localStatus"/>
         <result column="kitchen_status" property="kitchenStatus"/>
@@ -39,7 +39,7 @@
             refund_amount, refund_reason, version,
             create_time, update_time
         ) VALUES (
-            #{merchantId}, #{userId}, #{orderType, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{status}, #{localStatus}, #{kitchenStatus},
+            #{merchantId}, #{userId}, #{orderType, typeHandler=com.jiaoyi.order.handler.OrderTypeTypeHandler}, #{status}, #{localStatus}, #{kitchenStatus},
             #{orderPrice}, #{customerInfo}, #{deliveryAddress}, #{notes},
             #{posOrderId}, #{paymentMethod}, #{paymentStatus}, #{stripePaymentIntentId},
             #{refundAmount}, #{refundReason}, #{version},
@@ -50,6 +50,11 @@
     <!-- 根据ID查询订单 -->
     <select id="selectById" parameterType="long" resultMap="BaseResultMap">
         SELECT * FROM orders WHERE id = #{id}
+    </select>
+
+    <!-- 根据ID查询订单（带行锁，用于并发控制） -->
+    <select id="selectByIdForUpdate" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM orders WHERE id = #{id} FOR UPDATE
     </select>
 
     <!-- 根据merchantId和id查询订单（在线点餐，包含分片键） -->
@@ -94,7 +99,7 @@
     <!-- 更新订单（使用乐观锁） -->
     <update id="update" parameterType="com.jiaoyi.order.entity.Order">
         UPDATE orders SET
-            order_type = #{orderType, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            order_type = #{orderType, typeHandler=com.jiaoyi.order.handler.OrderTypeTypeHandler},
             status = #{status},
             local_status = #{localStatus},
             kitchen_status = #{kitchenStatus},
@@ -164,6 +169,23 @@
             update_time = NOW()
         WHERE id = #{id}
     </update>
+    
+    <!-- 更新订单退款金额（累加） -->
+    <update id="updateRefundAmount">
+        UPDATE orders SET
+            refund_amount = #{refundAmount},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+    
+    <!-- 根据商户ID和时间范围查询订单（用于高峰拒单统计） -->
+    <select id="selectByMerchantIdAndTimeRange" resultMap="BaseResultMap">
+        SELECT * FROM orders 
+        WHERE merchant_id = #{merchantId} 
+        AND create_time &gt;= #{startTime}
+        AND create_time &lt;= #{endTime}
+        ORDER BY create_time DESC
+    </select>
 
 </mapper>
 

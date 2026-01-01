@@ -8,7 +8,7 @@
         <result column="order_id" property="orderId"/>
         <result column="payment_id" property="paymentId"/>
         <result column="third_party_trade_no" property="thirdPartyTradeNo"/>
-        <result column="payment_service" property="paymentService" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="payment_service" property="paymentService" typeHandler="com.jiaoyi.order.handler.PaymentServiceTypeHandler"/>
         <result column="callback_data" property="callbackData"/>
         <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
         <result column="result" property="result"/>
@@ -23,7 +23,7 @@
             order_id, payment_id, third_party_trade_no, payment_service,
             callback_data, status, result, error_message, processed_at, create_time
         ) VALUES (
-            #{orderId}, #{paymentId}, #{thirdPartyTradeNo}, #{paymentService, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            #{orderId}, #{paymentId}, #{thirdPartyTradeNo}, #{paymentService, typeHandler=com.jiaoyi.order.handler.PaymentServiceTypeHandler},
             #{callbackData}, #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler}, #{result}, #{errorMessage}, #{processedAt}, #{createTime}
         )
     </insert>

@@ -578,12 +578,22 @@
                 if (result.code === 200 && result.data && Array.isArray(result.data)) {
                     // 将后端返回的商品数据转换为前端格式
                     // 注意：将 id 转换为字符串，避免 JavaScript 大整数精度丢失
-                    menuItems = result.data.map(product => ({
-                        itemId: String(product.id), // 使用字符串类型，避免精度丢失
-                        name: product.productName || '商品',
-                        price: parseFloat(product.unitPrice || 0),
-                        description: product.description || ''
-                    }));
+                    menuItems = result.data.map(product => {
+                        // 获取第一个 SKU 的 ID（如果存在）
+                        let defaultSkuId = null;
+                        if (product.skus && Array.isArray(product.skus) && product.skus.length > 0) {
+                            defaultSkuId = String(product.skus[0].id);
+                        }
+                        
+                        return {
+                            itemId: String(product.id), // 使用字符串类型，避免精度丢失
+                            name: product.productName || '商品',
+                            price: parseFloat(product.unitPrice || 0),
+                            description: product.description || '',
+                            skuId: defaultSkuId, // 保存第一个 SKU 的 ID
+                            skus: product.skus || [] // 保存所有 SKU 信息（用于后续扩展）
+                        };
+                    });
                     
                     console.log('从后端获取到商品列表，数量:', menuItems.length);
                     
@@ -593,20 +603,50 @@
                     }
                     
                     // 渲染菜单
-                    menuList.innerHTML = menuItems.map(item => `
+                    menuList.innerHTML = menuItems.map(item => {
+                        // 生成 SKU 选择器
+                        let skuSelector = '';
+                        if (item.skus && item.skus.length > 0) {
+                            if (item.skus.length === 1) {
+                                // 只有一个 SKU，显示 SKU 名称
+                                const sku = item.skus[0];
+                                skuSelector = `<div style="margin: 8px 0; font-size: 0.9rem; color: #666;">
+                                    <span style="font-weight: bold;">规格：</span>${sku.skuName || sku.skuCode || '默认'}
+                                    ${sku.skuPrice ? ` (¥${parseFloat(sku.skuPrice).toFixed(2)})` : ''}
+                                </div>`;
+                            } else {
+                                // 多个 SKU，显示下拉选择器
+                                const defaultSkuId = String(item.skus[0].id);
+                                const skuOptions = item.skus.map((sku, index) => {
+                                    const skuPrice = sku.skuPrice ? ` (¥${parseFloat(sku.skuPrice).toFixed(2)})` : '';
+                                    const selected = index === 0 ? ' selected' : '';
+                                    return `<option value="${sku.id}"${selected}>${sku.skuName || sku.skuCode || '默认'}${skuPrice}</option>`;
+                                }).join('');
+                                skuSelector = `<div style="margin: 8px 0;">
+                                    <label style="display: block; font-size: 0.9rem; color: #666; margin-bottom: 4px;">选择规格：</label>
+                                    <select id="sku-select-${item.itemId}" style="width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.9rem;" onchange="updateSkuForItem('${item.itemId}', this.value)">
+                                        ${skuOptions}
+                                    </select>
+                                </div>`;
+                            }
+                        }
+                        
+                        return `
                         <div class="menu-item">
                             <div class="menu-item-name">${item.name}</div>
                             <div style="color: #666; font-size: 0.9rem; margin-bottom: 10px;">${item.description || ''}</div>
+                            ${skuSelector}
                             <div class="menu-item-price">¥${item.price.toFixed(2)}</div>
                             <div class="menu-item-actions">
                                 <div class="quantity-control">
                                     <button class="quantity-btn" onclick="decreaseQuantity('${item.itemId}')">-</button>
-                                    <span class="quantity-display" id="qty-${item.itemId}">${cart[item.itemId]?.quantity || 0}</span>
+                                    <span class="quantity-display" id="qty-${item.itemId}">${getCartQuantityForItem(item.itemId)}</span>
                                     <button class="quantity-btn" onclick="increaseQuantity('${item.itemId}')">+</button>
                                 </div>
                             </div>
                         </div>
-                    `).join('');
+                    `;
+                    }).join('');
                     
                     console.log('Menu rendered successfully');
                     updateCart();
@@ -618,6 +658,74 @@
                 console.error('加载菜单失败:', error);
                 menuList.innerHTML = '<div style="text-align: center; padding: 40px; color: #e74c3c;">加载菜单失败: ' + error.message + '</div>';
             }
+        }
+        
+        // 获取商品当前选中的 SKU ID
+        function getSelectedSkuId(itemId) {
+            itemId = String(itemId);
+            const skuSelect = document.getElementById(`sku-select-${itemId}`);
+            if (skuSelect) {
+                return String(skuSelect.value);
+            }
+            // 如果没有选择器，使用第一个 SKU
+            const item = menuItems.find(m => String(m.itemId) === itemId);
+            if (item && item.skus && item.skus.length > 0) {
+                return String(item.skus[0].id);
+            }
+            return null;
+        }
+        
+        // 更新商品的 SKU
+        function updateSkuForItem(itemId, skuId) {
+            itemId = String(itemId);
+            skuId = String(skuId);
+            
+            // 如果购物车中已有该商品，需要更新 SKU
+            const cartKey = getCartKey(itemId, skuId);
+            const oldCartKey = Object.keys(cart).find(key => {
+                const parts = key.split('|');
+                return parts[0] === itemId;
+            });
+            
+            if (oldCartKey && oldCartKey !== cartKey) {
+                // 如果之前有不同 SKU 的商品，需要更新
+                const oldItem = cart[oldCartKey];
+                if (oldItem) {
+                    delete cart[oldCartKey];
+                    cart[cartKey] = oldItem;
+                    cart[cartKey].skuId = skuId;
+                    // 更新 SKU 名称和价格
+                    const item = menuItems.find(m => String(m.itemId) === itemId);
+                    if (item && item.skus) {
+                        const sku = item.skus.find(s => String(s.id) === skuId);
+                        if (sku) {
+                            cart[cartKey].skuName = sku.skuName || sku.skuCode || '';
+                            cart[cartKey].price = sku.skuPrice ? parseFloat(sku.skuPrice) : cart[cartKey].price;
+                        }
+                    }
+                }
+            }
+            
+            updateCart();
+            updateQuantityDisplay(itemId);
+        }
+        
+        // 获取购物车的 key（productId|skuId）
+        function getCartKey(itemId, skuId) {
+            return `${String(itemId)}|${String(skuId || 'default')}`;
+        }
+        
+        // 获取商品在购物车中的总数量（所有 SKU 的总和）
+        function getCartQuantityForItem(itemId) {
+            itemId = String(itemId);
+            let total = 0;
+            Object.keys(cart).forEach(key => {
+                const parts = key.split('|');
+                if (parts[0] === itemId) {
+                    total += cart[key].quantity || 0;
+                }
+            });
+            return total;
         }
         
         // 增加数量
@@ -632,16 +740,40 @@
                 return;
             }
             
-            if (!cart[itemId]) {
-                cart[itemId] = {
+            // 获取选中的 SKU ID
+            const skuId = getSelectedSkuId(itemId);
+            if (!skuId && item.skus && item.skus.length > 0) {
+                alert('请先选择规格');
+                return;
+            }
+            
+            const cartKey = getCartKey(itemId, skuId);
+            
+            if (!cart[cartKey]) {
+                // 获取 SKU 信息
+                let skuName = '';
+                let price = item.price;
+                
+                if (item.skus && item.skus.length > 0) {
+                    const sku = item.skus.find(s => String(s.id) === skuId);
+                    if (sku) {
+                        skuName = sku.skuName || sku.skuCode || '';
+                        price = sku.skuPrice ? parseFloat(sku.skuPrice) : price;
+                    }
+                }
+                
+                cart[cartKey] = {
                     name: item.name,
-                    price: item.price,
-                    quantity: 0
+                    skuName: skuName,
+                    price: price,
+                    quantity: 0,
+                    skuId: skuId,
+                    productId: itemId
                 };
             }
             
-            cart[itemId].quantity++;
-            console.log('Quantity increased, new quantity:', cart[itemId].quantity);
+            cart[cartKey].quantity++;
+            console.log('Quantity increased, new quantity:', cart[cartKey].quantity);
             updateCart();
             updateQuantityDisplay(itemId);
         }
@@ -652,11 +784,17 @@
             itemId = String(itemId);
             console.log('decreaseQuantity called with itemId:', itemId);
             
-            if (!cart[itemId] || cart[itemId].quantity <= 0) return;
+            // 找到该商品在购物车中的第一个 SKU（通常是最新添加的）
+            const cartKey = Object.keys(cart).find(key => {
+                const parts = key.split('|');
+                return parts[0] === itemId && cart[key].quantity > 0;
+            });
             
-            cart[itemId].quantity--;
-            if (cart[itemId].quantity === 0) {
-                delete cart[itemId];
+            if (!cartKey || !cart[cartKey] || cart[cartKey].quantity <= 0) return;
+            
+            cart[cartKey].quantity--;
+            if (cart[cartKey].quantity === 0) {
+                delete cart[cartKey];
             }
             
             updateCart();
@@ -669,7 +807,35 @@
             itemId = String(itemId);
             const qtyDisplay = document.getElementById(`qty-${itemId}`);
             if (qtyDisplay) {
-                qtyDisplay.textContent = cart[itemId]?.quantity || 0;
+                qtyDisplay.textContent = getCartQuantityForItem(itemId);
+            }
+        }
+        
+        // 在购物车中增加数量
+        function increaseCartItem(cartKey) {
+            if (!cart[cartKey]) return;
+            cart[cartKey].quantity++;
+            updateCart();
+            calculatePrice();
+        }
+        
+        // 在购物车中减少数量
+        function decreaseCartItem(cartKey) {
+            if (!cart[cartKey] || cart[cartKey].quantity <= 0) return;
+            cart[cartKey].quantity--;
+            if (cart[cartKey].quantity === 0) {
+                delete cart[cartKey];
+            }
+            updateCart();
+            calculatePrice();
+            
+            // 更新菜单中的数量显示
+            if (cart[cartKey]) {
+                const parts = cartKey.split('|');
+                updateQuantityDisplay(parts[0]);
+            } else {
+                const parts = cartKey.split('|');
+                updateQuantityDisplay(parts[0]);
             }
         }
         
@@ -692,18 +858,21 @@
                 document.getElementById('chargeItem').style.display = 'none';
                 document.getElementById('discountItem').style.display = 'none';
             } else {
-                cartItems.innerHTML = cartItemIds.map(itemId => {
-                    const item = cart[itemId];
+                cartItems.innerHTML = cartItemIds.map(cartKey => {
+                    const item = cart[cartKey];
+                    const parts = cartKey.split('|');
+                    const itemId = parts[0];
+                    const skuName = item.skuName ? ` (${item.skuName})` : '';
                     return `
                         <div class="cart-item">
                             <div class="cart-item-info">
-                                <div class="cart-item-name">${item.name}</div>
+                                <div class="cart-item-name">${item.name}${skuName}</div>
                                 <div class="cart-item-price">¥${item.price.toFixed(2)} × ${item.quantity}</div>
                             </div>
                             <div class="cart-item-actions">
-                                <button class="quantity-btn" onclick="decreaseQuantity('${itemId}')">-</button>
+                                <button class="quantity-btn" onclick="decreaseCartItem('${cartKey}')">-</button>
                                 <span class="quantity-display">${item.quantity}</span>
-                                <button class="quantity-btn" onclick="increaseQuantity('${itemId}')">+</button>
+                                <button class="quantity-btn" onclick="increaseCartItem('${cartKey}')">+</button>
                             </div>
                         </div>
                     `;
@@ -739,15 +908,26 @@
             document.getElementById('priceError').style.display = 'none';
             
             try {
-                // 构建订单项（只传 productId 和 quantity）
-                // 注意：productId 必须作为字符串传递，避免 JavaScript 大整数精度丢失
-                const orderItems = cartItemIds.map(itemId => {
-                    const item = cart[itemId];
-                    // 保持 productId 为字符串类型，不要使用 parseInt
-                    return {
-                        productId: String(itemId), // 确保是字符串类型
+                // 构建订单项（包含 productId、skuId 和 quantity）
+                // 注意：productId 和 skuId 必须作为字符串传递，避免 JavaScript 大整数精度丢失
+                const orderItems = cartItemIds.map(cartKey => {
+                    const item = cart[cartKey];
+                    const parts = cartKey.split('|');
+                    const productId = parts[0];
+                    const skuId = item.skuId || parts[1];
+                    
+                    // 保持 productId 和 skuId 为字符串类型，不要使用 parseInt
+                    const orderItem = {
+                        productId: String(productId), // 确保是字符串类型
                         quantity: item.quantity
                     };
+                    
+                    // 如果购物车中有 skuId，则添加到订单项中
+                    if (skuId && skuId !== 'default') {
+                        orderItem.skuId = String(skuId); // 确保是字符串类型
+                    }
+                    
+                    return orderItem;
                 });
                 
                 // 调用价格计算接口
@@ -798,12 +978,12 @@
                 document.getElementById('priceError').textContent = '价格计算失败: ' + error.message;
                 document.getElementById('priceError').style.display = 'block';
                 
-                // 显示前端计算的预估价格（作为后备）
-                let subtotal = 0;
-                cartItemIds.forEach(itemId => {
-                    const item = cart[itemId];
-                    subtotal += item.price * item.quantity;
-                });
+                    // 显示前端计算的预估价格（作为后备）
+                    let subtotal = 0;
+                    cartItemIds.forEach(cartKey => {
+                        const item = cart[cartKey];
+                        subtotal += item.price * item.quantity;
+                    });
                 document.getElementById('subtotal').textContent = `¥${subtotal.toFixed(2)}`;
                 document.getElementById('deliveryFee').textContent = '¥0.00';
                 document.getElementById('total').textContent = `¥${subtotal.toFixed(2)}`;
@@ -836,23 +1016,34 @@
             
             // 构建订单项
             // 注意：productId 必须作为字符串传递，避免 JavaScript 大整数精度丢失
-            const orderItems = cartItemIds.map((itemId, index) => {
-                const item = cart[itemId];
+            const orderItems = cartItemIds.map((cartKey, index) => {
+                const item = cart[cartKey];
+                const parts = cartKey.split('|');
+                const productId = parts[0];
+                const skuId = item.skuId || parts[1];
+                
                 // 保持 productId 为字符串类型，不要使用 parseInt
-                return {
-                    saleItemId: String(itemId), // 确保是字符串类型
+                const orderItem = {
+                    saleItemId: String(productId), // 确保是字符串类型
                     orderItemId: index + 1,
                     quantity: item.quantity,
-                    itemName: item.name,
+                    itemName: item.name + (item.skuName ? ` (${item.skuName})` : ''),
                     itemPrice: item.price,
                     itemPriceTotal: item.price * item.quantity,
                     displayPrice: item.price
                 };
+                
+                // 如果购物车中有 skuId，则添加到订单项中
+                if (skuId && skuId !== 'default') {
+                    orderItem.skuId = String(skuId); // 确保是字符串类型
+                }
+                
+                return orderItem;
             });
             
             // 计算订单价格
-            const subtotal = cartItemIds.reduce((sum, itemId) => {
-                const item = cart[itemId];
+            const subtotal = cartItemIds.reduce((sum, cartKey) => {
+                const item = cart[cartKey];
                 return sum + item.price * item.quantity;
             }, 0);
             
@@ -891,13 +1082,22 @@
                         receiverPhone: document.getElementById('receiverPhone')?.value || '未填写',
                         receiverAddress: document.getElementById('receiverAddress')?.value || '未填写',
                         remark: notes,
-                        orderItems: orderItems.map(item => ({
-                            productId: String(item.saleItemId), // 确保 productId 是字符串类型，避免精度丢失
-                            productName: item.itemName, // 可选，后端会从数据库查询
-                            productImage: null, // 可选，后端会从数据库查询
-                            // unitPrice: item.itemPrice, // 已移除：为了安全，价格由后端从数据库查询
-                            quantity: item.quantity
-                        })),
+                        orderItems: orderItems.map(item => {
+                            const orderItem = {
+                                productId: String(item.saleItemId), // 确保 productId 是字符串类型，避免精度丢失
+                                productName: item.itemName, // 可选，后端会从数据库查询
+                                productImage: null, // 可选，后端会从数据库查询
+                                // unitPrice: item.itemPrice, // 已移除：为了安全，价格由后端从数据库查询
+                                quantity: item.quantity
+                            };
+                            
+                            // 如果订单项中有 skuId，则添加到请求中
+                            if (item.skuId) {
+                                orderItem.skuId = String(item.skuId); // 确保是字符串类型
+                            }
+                            
+                            return orderItem;
+                        }),
                         paymentMethod: document.getElementById('paymentMethod').value || "CREDIT_CARD", // 使用用户选择的支付方式
                         payOnline: true // 在线支付
                     })

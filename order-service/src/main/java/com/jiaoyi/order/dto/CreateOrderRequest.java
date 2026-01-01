@@ -114,6 +114,13 @@ public class CreateOrderRequest {
         private Long productId;
         
         /**
+         * SKU ID（如果商品有SKU，必须提供）
+         * 支持从字符串类型反序列化，避免 JavaScript 大整数精度丢失问题
+         */
+        @JsonDeserialize(using = LongStringDeserializer.class)
+        private Long skuId;
+        
+        /**
          * 商品名称（可选，后端会从数据库查询，但前端可以传用于显示）
          */
         private String productName;

@@ -527,7 +527,7 @@
                 paymentInfo.innerHTML = `
                     <div style="background: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
                         <h3 style="color: #333; margin-bottom: 15px;">支付信息</h3>
-                        <p><strong>支付流水号:</strong> ${payment.paymentNo}</p>
+                        <p><strong>支付ID:</strong> ${payment.paymentId}</p>
                         <p><strong>支付方式:</strong> ${payment.paymentMethod}</p>
                         <p><strong>支付金额:</strong> ¥${payment.amount.toFixed(2)}</p>
                         <p><strong>支付状态:</strong> <span style="color: ${payment.status === 'PENDING' ? '#ff9500' : payment.status === 'SUCCESS' ? '#28a745' : '#dc3545'}">${getStatusText(payment.status)}</span></p>
@@ -559,11 +559,11 @@
                                             style="padding: 10px 20px; background: #007bff; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px;">
                                         检查支付状态
                                     </button>
-                                    <button onclick="simulatePaymentSuccess('${currentOrder.orderNumber || currentOrder.orderNo || currentOrder.id}', '${payment.paymentNo}', '${payment.amount}')" 
+                                    <button onclick="simulatePaymentSuccess('${currentOrder.orderNumber || currentOrder.orderNo || currentOrder.id}', '${payment.paymentId}', '${payment.amount}')" 
                                             style="padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">
                                         模拟支付成功
                                     </button>
-                                    <button onclick="simulatePaymentFail('${currentOrder.orderNumber || currentOrder.orderNo || currentOrder.id}', '${payment.paymentNo}', '${payment.amount}')" 
+                                    <button onclick="simulatePaymentFail('${currentOrder.orderNumber || currentOrder.orderNo || currentOrder.id}', '${payment.paymentId}', '${payment.amount}')" 
                                             style="padding: 10px 20px; background: #dc3545; color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 14px; margin-left: 10px;">
                                         模拟支付失败
                                     </button>
@@ -703,8 +703,8 @@
         }
         
         // 模拟支付成功
-        async function simulatePaymentSuccess(orderNo, paymentNo, amount) {
-            console.log('模拟支付成功回调:', { orderNo, paymentNo, amount });
+        async function simulatePaymentSuccess(orderNo, paymentId, amount) {
+            console.log('模拟支付成功回调:', { orderNo, paymentId, amount });
             try {
                 const response = await fetch('/api/payment/alipay/notify', {
                     method: 'POST',
@@ -731,8 +731,8 @@
         }
         
         // 模拟支付失败
-        async function simulatePaymentFail(orderNo, paymentNo, amount) {
-            console.log('模拟支付失败回调:', { orderNo, paymentNo, amount });
+        async function simulatePaymentFail(orderNo, paymentId, amount) {
+            console.log('模拟支付失败回调:', { orderNo, paymentId, amount });
             try {
                 const response = await fetch('/api/payment/alipay/notify', {
                     method: 'POST',

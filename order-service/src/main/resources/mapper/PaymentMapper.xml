@@ -11,8 +11,7 @@
         <result column="status" property="status"/>
         <result column="type" property="type"/>
         <result column="category" property="category"/>
-        <result column="payment_service" property="paymentService" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
-        <result column="payment_no" property="paymentNo"/>
+        <result column="payment_service" property="paymentService" typeHandler="com.jiaoyi.order.handler.PaymentServiceTypeHandler"/>
         <result column="third_party_trade_no" property="thirdPartyTradeNo"/>
         <result column="amount" property="amount"/>
         <result column="tip_amount" property="tipAmount"/>
@@ -29,12 +28,12 @@
     <insert id="insert" parameterType="com.jiaoyi.order.entity.Payment" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO payments (
             order_id, transaction_id, merchant_id, status, type, category, payment_service,
-            payment_no, third_party_trade_no, amount, tip_amount, order_price,
+            third_party_trade_no, amount, tip_amount, order_price,
             card_info, extra, stripe_payment_intent_id, version,
             create_time, update_time
         ) VALUES (
-            #{orderId}, #{transactionId}, #{merchantId}, #{status}, #{type}, #{category}, #{paymentService, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
-            #{paymentNo}, #{thirdPartyTradeNo}, #{amount}, #{tipAmount}, #{orderPrice},
+            #{orderId}, #{transactionId}, #{merchantId}, #{status}, #{type}, #{category}, #{paymentService, typeHandler=com.jiaoyi.order.handler.PaymentServiceTypeHandler},
+            #{thirdPartyTradeNo}, #{amount}, #{tipAmount}, #{orderPrice},
             #{cardInfo}, #{extra}, #{stripePaymentIntentId}, #{version},
             #{createTime}, #{updateTime}
         )
@@ -48,11 +47,6 @@
     <!-- 根据订单ID查询支付记录 -->
     <select id="selectByOrderId" parameterType="long" resultMap="BaseResultMap">
         SELECT * FROM payments WHERE order_id = #{orderId} ORDER BY create_time DESC
-    </select>
-
-    <!-- 根据支付流水号查询支付记录 -->
-    <select id="selectByPaymentNo" parameterType="string" resultMap="BaseResultMap">
-        SELECT * FROM payments WHERE payment_no = #{paymentNo}
     </select>
 
     <!-- 根据第三方交易号查询支付记录 -->

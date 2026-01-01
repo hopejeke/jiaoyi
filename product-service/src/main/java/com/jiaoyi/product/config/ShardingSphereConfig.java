@@ -58,6 +58,9 @@ public class ShardingSphereConfig {
         // 创建属性配置
         Properties props = new Properties();
         props.setProperty("sql-show", "true");
+        // 禁用元数据校验，允许表结构动态变化（开发环境）
+        // 注意：生产环境建议启用校验以确保数据一致性
+        props.setProperty("check-table-metadata-enabled", "false");
         
         // 创建ShardingSphere数据源
         // 注意：outbox_node 和 outbox 表不在 ShardingSphere 中配置，使用普通数据源连接（见 DataSourceConfig）

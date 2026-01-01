@@ -61,13 +61,16 @@ public class InventoryController {
     }
     
     /**
-     * 检查库存是否充足
+     * 检查库存是否充足（基于SKU）
      */
     @PostMapping("/check")
     public ResponseEntity<ApiResponse<Boolean>> checkStock(@RequestBody CheckStockRequest request) {
-        log.info("检查库存，商品ID: {}, 数量: {}", request.getProductId(), request.getQuantity());
+        log.info("检查库存（SKU级别），商品ID: {}, SKU ID: {}, 数量: {}", request.getProductId(), request.getSkuId(), request.getQuantity());
         try {
-            inventoryService.checkAndLockStock(request.getProductId(), request.getQuantity());
+            if (request.getSkuId() == null) {
+                return ResponseEntity.ok(ApiResponse.error(400, "SKU ID不能为空"));
+            }
+            inventoryService.checkAndLockStock(request.getProductId(), request.getSkuId(), request.getQuantity());
             return ResponseEntity.ok(ApiResponse.success(true));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -75,15 +78,16 @@ public class InventoryController {
     }
     
     /**
-     * 锁定库存
+     * 锁定库存（基于SKU）
      */
     @PostMapping("/{productId}/lock")
     public ResponseEntity<ApiResponse<Void>> lockStock(
             @PathVariable Long productId,
+            @RequestParam Long skuId,
             @RequestParam Integer quantity) {
-        log.info("锁定库存，商品ID: {}, 数量: {}", productId, quantity);
+        log.info("锁定库存（SKU级别），商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
         try {
-            inventoryService.checkAndLockStock(productId, quantity);
+            inventoryService.checkAndLockStock(productId, skuId, quantity);
             return ResponseEntity.ok(ApiResponse.success("锁定成功", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -91,15 +95,16 @@ public class InventoryController {
     }
     
     /**
-     * 解锁库存
+     * 解锁库存（基于SKU）
      */
     @PostMapping("/{productId}/unlock")
     public ResponseEntity<ApiResponse<Void>> unlockStock(
             @PathVariable Long productId,
+            @RequestParam Long skuId,
             @RequestParam Integer quantity) {
-        log.info("解锁库存，商品ID: {}, 数量: {}", productId, quantity);
+        log.info("解锁库存（SKU级别），商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
         try {
-            inventoryService.unlockStock(productId, quantity, null);
+            inventoryService.unlockStock(productId, skuId, quantity, null);
             return ResponseEntity.ok(ApiResponse.success("解锁成功", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -107,15 +112,16 @@ public class InventoryController {
     }
     
     /**
-     * 扣减库存
+     * 扣减库存（基于SKU）
      */
     @PostMapping("/{productId}/deduct")
     public ResponseEntity<ApiResponse<Void>> deductStock(
             @PathVariable Long productId,
+            @RequestParam Long skuId,
             @RequestParam Integer quantity) {
-        log.info("扣减库存，商品ID: {}, 数量: {}", productId, quantity);
+        log.info("扣减库存（SKU级别），商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
         try {
-            inventoryService.deductStock(productId, quantity, null);
+            inventoryService.deductStock(productId, skuId, quantity, null);
             return ResponseEntity.ok(ApiResponse.success("扣减成功", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -123,13 +129,13 @@ public class InventoryController {
     }
     
     /**
-     * 批量锁定库存
+     * 批量锁定库存（基于SKU）
      */
     @PostMapping("/lock/batch")
     public ResponseEntity<ApiResponse<Void>> lockStockBatch(@RequestBody LockStockBatchRequest request) {
-        log.info("批量锁定库存，商品数量: {}", request.getProductIds().size());
+        log.info("批量锁定库存（SKU级别），商品数量: {}", request.getProductIds().size());
         try {
-            inventoryService.checkAndLockStockBatch(request.getProductIds(), request.getQuantities());
+            inventoryService.checkAndLockStockBatch(request.getProductIds(), request.getSkuIds(), request.getQuantities());
             return ResponseEntity.ok(ApiResponse.success("批量锁定成功", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -137,13 +143,13 @@ public class InventoryController {
     }
     
     /**
-     * 批量解锁库存
+     * 批量解锁库存（基于SKU）
      */
     @PostMapping("/unlock/batch")
     public ResponseEntity<ApiResponse<Void>> unlockStockBatch(@RequestBody UnlockStockBatchRequest request) {
-        log.info("批量解锁库存，订单ID: {}, 商品数量: {}", request.getOrderId(), request.getProductIds().size());
+        log.info("批量解锁库存（SKU级别），订单ID: {}, 商品数量: {}", request.getOrderId(), request.getProductIds().size());
         try {
-            inventoryService.unlockStockBatch(request.getProductIds(), request.getQuantities(), request.getOrderId());
+            inventoryService.unlockStockBatch(request.getProductIds(), request.getSkuIds(), request.getQuantities(), request.getOrderId());
             return ResponseEntity.ok(ApiResponse.success("批量解锁成功", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -151,13 +157,13 @@ public class InventoryController {
     }
     
     /**
-     * 批量扣减库存
+     * 批量扣减库存（基于SKU）
      */
     @PostMapping("/deduct/batch")
     public ResponseEntity<ApiResponse<Void>> deductStockBatch(@RequestBody DeductStockBatchRequest request) {
-        log.info("批量扣减库存，订单ID: {}, 商品数量: {}", request.getOrderId(), request.getProductIds().size());
+        log.info("批量扣减库存（SKU级别），订单ID: {}, 商品数量: {}", request.getOrderId(), request.getProductIds().size());
         try {
-            inventoryService.deductStockBatch(request.getProductIds(), request.getQuantities(), request.getOrderId());
+            inventoryService.deductStockBatch(request.getProductIds(), request.getSkuIds(), request.getQuantities(), request.getOrderId());
             return ResponseEntity.ok(ApiResponse.success("批量扣减成功", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -187,39 +193,43 @@ public class InventoryController {
     }
     
     /**
-     * 检查库存请求DTO
+     * 检查库存请求DTO（基于SKU）
      */
     @Data
     public static class CheckStockRequest {
         private Long productId;
+        private Long skuId;
         private Integer quantity;
     }
     
     /**
-     * 批量锁定库存请求DTO
+     * 批量锁定库存请求DTO（基于SKU）
      */
     @Data
     public static class LockStockBatchRequest {
         private List<Long> productIds;
+        private List<Long> skuIds;
         private List<Integer> quantities;
     }
     
     /**
-     * 批量解锁库存请求DTO
+     * 批量解锁库存请求DTO（基于SKU）
      */
     @Data
     public static class UnlockStockBatchRequest {
         private List<Long> productIds;
+        private List<Long> skuIds;
         private List<Integer> quantities;
         private Long orderId;
     }
     
     /**
-     * 批量扣减库存请求DTO
+     * 批量扣减库存请求DTO（基于SKU）
      */
     @Data
     public static class DeductStockBatchRequest {
         private List<Long> productIds;
+        private List<Long> skuIds;
         private List<Integer> quantities;
         private Long orderId;
     }

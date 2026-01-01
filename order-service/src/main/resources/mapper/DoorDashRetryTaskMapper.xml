@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.DoorDashRetryTaskMapper">
+    
+    <!-- BaseResultMap -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.DoorDashRetryTask">
+        <id column="id" property="id"/>
+        <result column="order_id" property="orderId"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="payment_id" property="paymentId"/>
+        <result column="status" property="status"/>
+        <result column="retry_count" property="retryCount"/>
+        <result column="max_retry_count" property="maxRetryCount"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="error_stack" property="errorStack"/>
+        <result column="next_retry_time" property="nextRetryTime"/>
+        <result column="last_retry_time" property="lastRetryTime"/>
+        <result column="success_time" property="successTime"/>
+        <result column="manual_intervention_time" property="manualInterventionTime"/>
+        <result column="manual_intervention_note" property="manualInterventionNote"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+    
+    <!-- 插入重试任务 -->
+    <!-- 注意：ShardingSphere 会自动生成 ID（雪花算法），使用 useGeneratedKeys 获取生成的 ID -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.DoorDashRetryTask" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO doordash_retry_task (
+            order_id, merchant_id, payment_id, status, retry_count, max_retry_count,
+            error_message, error_stack, next_retry_time, last_retry_time,
+            success_time, manual_intervention_time, manual_intervention_note,
+            create_time, update_time
+        ) VALUES (
+            #{orderId}, #{merchantId}, #{paymentId}, #{status}, #{retryCount}, #{maxRetryCount},
+            #{errorMessage}, #{errorStack}, #{nextRetryTime}, #{lastRetryTime},
+            #{successTime}, #{manualInterventionTime}, #{manualInterventionNote},
+            #{createTime}, #{updateTime}
+        )
+    </insert>
+    
+    <!-- 根据ID查询任务 -->
+    <select id="selectById" resultMap="BaseResultMap">
+        SELECT * FROM doordash_retry_task WHERE id = #{id}
+    </select>
+    
+    <!-- 根据订单ID查询任务 -->
+    <select id="selectByOrderId" resultMap="BaseResultMap">
+        SELECT * FROM doordash_retry_task WHERE order_id = #{orderId} LIMIT 1
+    </select>
+    
+    <!-- 根据商户ID和订单ID查询任务（推荐，包含分片键） -->
+    <select id="selectByMerchantIdAndOrderId" resultMap="BaseResultMap">
+        SELECT * FROM doordash_retry_task 
+        WHERE merchant_id = #{merchantId} AND order_id = #{orderId} 
+        LIMIT 1
+    </select>
+    
+    <!-- 查询待重试的任务（状态为 PENDING 且 nextRetryTime <= 当前时间） -->
+    <!-- 注意：由于使用了分片，这个查询会在所有分片上执行，ShardingSphere 会自动合并结果 -->
+    <select id="selectPendingTasks" resultMap="BaseResultMap">
+        SELECT * FROM doordash_retry_task 
+        WHERE status = 'PENDING' 
+        AND next_retry_time &lt;= #{currentTime}
+        AND retry_count &lt; max_retry_count
+        ORDER BY next_retry_time ASC
+        LIMIT 100
+    </select>
+    
+    <!-- 统计各状态的任务数量（优化：直接在 SQL 中统计，避免查询所有数据） -->
+    <select id="countByStatus" resultType="java.util.Map">
+        SELECT 
+            status,
+            COUNT(*) as count
+        FROM doordash_retry_task
+        <where>
+            <if test="merchantId != null and merchantId != ''">
+                AND merchant_id = #{merchantId}
+            </if>
+        </where>
+        GROUP BY status
+    </select>
+    
+    <!-- 查询需要人工介入的任务（状态为 FAILED 或 MANUAL） -->
+    <select id="selectManualInterventionTasks" resultMap="BaseResultMap">
+        SELECT * FROM doordash_retry_task 
+        WHERE (status = 'FAILED' OR status = 'MANUAL')
+        <if test="merchantId != null and merchantId != ''">
+            AND merchant_id = #{merchantId}
+        </if>
+        ORDER BY create_time DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+    
+    <!-- 更新任务状态 -->
+    <update id="updateStatus">
+        UPDATE doordash_retry_task 
+        SET status = #{status},
+            error_message = #{errorMessage},
+            error_stack = #{errorStack},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+    
+    <!-- 更新重试信息 -->
+    <update id="updateRetryInfo">
+        UPDATE doordash_retry_task 
+        SET retry_count = #{retryCount},
+            next_retry_time = #{nextRetryTime},
+            last_retry_time = #{lastRetryTime},
+            error_message = #{errorMessage},
+            error_stack = #{errorStack},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+    
+    <!-- 更新任务为成功状态 -->
+    <update id="updateSuccess">
+        UPDATE doordash_retry_task 
+        SET status = 'SUCCESS',
+            success_time = #{successTime},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+    
+    <!-- 更新任务为需要人工介入状态 -->
+    <update id="updateManualIntervention">
+        UPDATE doordash_retry_task 
+        SET status = 'MANUAL',
+            manual_intervention_time = #{manualInterventionTime},
+            manual_intervention_note = #{manualInterventionNote},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+    
+</mapper>
+
