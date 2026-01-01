@@ -12,9 +12,6 @@ stripe.webhook-secret=whsec_YOUR_WEBHOOK_SECRET_HERE
 alipay.private-key=YOUR_ALIPAY_PRIVATE_KEY_HERE
 alipay.alipay-public-key=YOUR_ALIPAY_PUBLIC_KEY_HERE
 
-#stripe.secret-key=sk_test_51ScdSXCT67yEvdCoNLORRfCDLwhv38MNJBv3cycNJ9Spa3ivwOITdQ7cjKxokqt5N9WkBDjqLh8b4yvISnWS7Xrp00Ubv3YGz5
-#stripe.publishable-key=pk_test_51ScdSXCT67yEvdCoRnRLzFEJIXBEDTe943LZAxYjpSHNonXZFFKglRSLsHNn60QeYJFWtlUEUOhPmuK86ARCnAnC00cPio5gYN
-
 
 
 
