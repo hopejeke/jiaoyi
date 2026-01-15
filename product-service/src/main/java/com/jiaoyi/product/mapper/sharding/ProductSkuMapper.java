@@ -22,8 +22,20 @@ public interface ProductSkuMapper {
     
     /**
      * 根据ID查询SKU
+     * 注意：由于 product_sku 表是分片表（基于 store_id），selectById 没有分片键可能查询不到
+     * 建议使用 selectByProductIdAndId 或 selectByStoreIdAndId
      */
     Optional<ProductSku> selectById(@Param("id") Long id);
+    
+    /**
+     * 根据商品ID和SKU ID查询SKU（推荐，包含分片键）
+     */
+    Optional<ProductSku> selectByProductIdAndId(@Param("productId") Long productId, @Param("id") Long id);
+    
+    /**
+     * 根据店铺ID和SKU ID查询SKU（推荐，包含分片键）
+     */
+    Optional<ProductSku> selectByStoreIdAndId(@Param("storeId") Long storeId, @Param("id") Long id);
     
     /**
      * 根据商品ID查询所有SKU

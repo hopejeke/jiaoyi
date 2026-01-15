@@ -13,10 +13,20 @@
         <module name="product-service" />
         <module name="order-service" />
         <module name="common" />
+        <module name="outbox-starter" />
         <module name="coupon-service" />
         <module name="gateway-service" />
       </profile>
+      <profile name="Maven default annotation processors profile" enabled="true">
+        <sourceOutputDir name="target/generated-sources/annotations" />
+        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <module name="load-test" />
+      </profile>
     </annotationProcessing>
+    <bytecodeTargetLevel>
+      <module name="outbox-service" target="21" />
+    </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">
@@ -25,6 +35,8 @@
       <module name="gateway-service" options="-parameters" />
       <module name="jiaoyi" options="" />
       <module name="order-service" options="-parameters" />
+      <module name="outbox-service" options="-parameters" />
+      <module name="outbox-starter" options="-parameters" />
       <module name="product-service" options="-parameters" />
     </option>
   </component>

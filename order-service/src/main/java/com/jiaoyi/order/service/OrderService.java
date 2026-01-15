@@ -366,6 +366,52 @@ public class OrderService {
             throw new BusinessException("orderType 不能为空");
         }
         
+        // 从订单项中获取 storeId（所有订单项应该属于同一个门店）
+        Long storeId = null;
+        if (orderItems != null && !orderItems.isEmpty()) {
+            // 从第一个订单项的商品信息中获取 storeId
+            // 注意：这里假设所有订单项都属于同一个门店
+            OrderItem firstItem = orderItems.get(0);
+            if (firstItem.getStoreId() != null) {
+                storeId = firstItem.getStoreId();
+            } else if (firstItem.getProductId() != null) {
+                // 如果订单项中没有 storeId，从商品服务查询
+                try {
+                    com.jiaoyi.common.ApiResponse<?> productResponse = productServiceClient.getProductByMerchantIdAndId(
+                            order.getMerchantId(), firstItem.getProductId());
+                    if (productResponse.getCode() == 200 && productResponse.getData() != null) {
+                        @SuppressWarnings("unchecked")
+                        java.util.Map<String, Object> productMap = (java.util.Map<String, Object>) productResponse.getData();
+                        Object storeIdObj = productMap.get("storeId");
+                        if (storeIdObj != null) {
+                            storeId = Long.valueOf(storeIdObj.toString());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("查询商品信息获取 storeId 失败，商品ID: {}", firstItem.getProductId(), e);
+                }
+            }
+        }
+        
+        if (storeId == null) {
+            throw new BusinessException("无法获取门店ID，请确保订单项包含有效的商品信息");
+        }
+        
+        // 设置 storeId 到订单和订单项
+        order.setStoreId(storeId);
+        if (orderItems != null) {
+            for (OrderItem item : orderItems) {
+                item.setStoreId(storeId);
+            }
+        }
+        
+        // 计算 shard_id（基于 storeId，与商品服务保持一致）
+        if (order.getShardId() == null) {
+            int shardId = com.jiaoyi.order.util.ShardUtil.calculateShardId(storeId);
+            order.setShardId(shardId);
+            log.info("计算 shard_id: {} (基于 storeId: {})", shardId, storeId);
+        }
+        
         // 高峰拒单检查（排除堂食订单）
         if (!OrderTypeEnum.SELF_DINE_IN.equals(order.getOrderType())) {
             MerchantCapabilityConfig config = merchantCapabilityConfigMapper.selectByMerchantId(order.getMerchantId());
@@ -563,6 +609,9 @@ public class OrderService {
                             for (OrderItem item : orderItems) {
                                 item.setOrderId(order.getId());
                                 item.setMerchantId(order.getMerchantId());
+                                // 设置 storeId 和 shardId（与订单保持一致，确保同库同表）
+                                item.setStoreId(order.getStoreId());
+                                item.setShardId(order.getShardId());
                                 
                                 // 确保 saleItemId 不为 null（数据库要求）
                                 if (item.getSaleItemId() == null) {
@@ -596,6 +645,11 @@ public class OrderService {
                         // 8. 保存订单优惠券关联记录（如果有）
                         if (!orderCoupons.isEmpty()) {
                             orderCoupons.forEach(oc -> oc.setOrderId(order.getId()));
+                            // 设置 merchantId 和 storeId
+                            for (OrderCoupon coupon : orderCoupons) {
+                                coupon.setMerchantId(order.getMerchantId());
+                                coupon.setStoreId(order.getStoreId());
+                            }
                             orderCouponMapper.batchInsert(orderCoupons);
                             
                             // 使用优惠券（调用优惠券服务）
@@ -1132,6 +1186,7 @@ public class OrderService {
             // 5. 创建订单优惠券关联记录
             OrderCoupon orderCoupon = new OrderCoupon();
             orderCoupon.setOrderId(null); // 稍后设置
+            // merchantId 和 storeId 稍后从订单中设置
             orderCoupon.setCouponId(couponId);
             orderCoupon.setCouponCode(couponCode);
             orderCoupon.setAppliedAmount(discountAmount);

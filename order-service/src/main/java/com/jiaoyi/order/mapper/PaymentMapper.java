@@ -19,8 +19,15 @@ public interface PaymentMapper {
     
     /**
      * 根据ID查询支付记录
+     * 注意：由于 payments 表是分片表（基于 merchant_id），selectById 没有分片键可能查询不到
+     * 建议使用 selectByMerchantIdAndId
      */
     Payment selectById(@Param("id") Long id);
+    
+    /**
+     * 根据商户ID和支付ID查询支付记录（推荐，包含分片键）
+     */
+    Payment selectByMerchantIdAndId(@Param("merchantId") String merchantId, @Param("id") Long id);
     
     /**
      * 根据订单ID查询支付记录

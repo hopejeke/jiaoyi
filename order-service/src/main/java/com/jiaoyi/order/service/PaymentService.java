@@ -419,10 +419,23 @@ public class PaymentService {
         Payment payment = new Payment();
         payment.setOrderId(order.getId());
         payment.setMerchantId(order.getMerchantId());
+        payment.setStoreId(order.getStoreId()); // 设置 storeId（用于分片）
+        // 计算并设置 shardId（基于 storeId，与订单保持一致）
+        if (order.getStoreId() != null) {
+            int shardId = com.jiaoyi.order.util.ShardUtil.calculateShardId(order.getStoreId());
+            payment.setShardId(shardId);
+        } else if (order.getShardId() != null) {
+            payment.setShardId(order.getShardId());
+        } else {
+            throw new IllegalStateException("无法获取 storeId 或 shardId，无法创建支付记录");
+        }
         payment.setStatus(PaymentStatusEnum.PENDING.getCode());
         payment.setType(PaymentTypeEnum.CHARGE.getCode());
         payment.setAmount(amount);
         payment.setOrderPrice(order.getOrderPrice());
+        // 生成支付流水号（格式：PAY_{订单ID}_{时间戳}）
+        String paymentNo = "PAY_" + order.getId() + "_" + System.currentTimeMillis();
+        payment.setPaymentNo(paymentNo);
         payment.setCreateTime(LocalDateTime.now());
         payment.setUpdateTime(LocalDateTime.now());
         payment.setVersion(1);
@@ -498,9 +511,43 @@ public class PaymentService {
             return false;
         }
         
+        // 先查询订单和支付记录，以便在创建回调日志时设置 paymentService
+        Order order = orderMapper.selectById(orderId);
+        if (order == null) {
+            log.warn("订单不存在，订单ID: {}", orderId);
+            return false;
+        }
+        
+        // 查询支付记录（幂等性检查）
+        Payment payment = paymentMapper.selectByOrderId(orderId).stream()
+                .filter(p -> p.getType() != null && p.getType().equals(PaymentTypeEnum.CHARGE.getCode()))
+                .findFirst()
+                .orElse(null);
+        
+        // 确定支付服务类型：优先从 Payment 记录获取，如果没有则根据 thirdPartyTradeNo 判断（Stripe 的 paymentIntentId）
+        PaymentServiceEnum paymentService = null;
+        if (payment != null && payment.getPaymentService() != null) {
+            paymentService = payment.getPaymentService();
+        } else {
+            // 如果没有 Payment 记录，根据 thirdPartyTradeNo 判断（Stripe 的 paymentIntentId 通常以 pi_ 开头）
+            if (thirdPartyTradeNo != null && thirdPartyTradeNo.startsWith("pi_")) {
+                paymentService = PaymentServiceEnum.STRIPE;
+            } else {
+                // 默认使用 STRIPE（因为当前主要使用 Stripe）
+                paymentService = PaymentServiceEnum.STRIPE;
+                log.warn("无法确定支付服务类型，使用默认值 STRIPE，订单ID: {}, thirdPartyTradeNo: {}", orderId, thirdPartyTradeNo);
+            }
+        }
+        
         if (existingLog != null) {
             callbackLog = existingLog;
-            // 更新状态为处理中
+            // 更新状态为处理中，并更新支付ID和支付服务（如果之前没有设置）
+            if (callbackLog.getPaymentId() == null && payment != null) {
+                callbackLog.setPaymentId(payment.getId());
+            }
+            if (callbackLog.getPaymentService() == null) {
+                callbackLog.setPaymentService(paymentService);
+            }
             paymentCallbackLogMapper.updateStatus(
                     callbackLog.getId(), 
                     PaymentCallbackLogStatusEnum.PROCESSING, 
@@ -514,6 +561,10 @@ public class PaymentService {
             callbackLog.setThirdPartyTradeNo(thirdPartyTradeNo);
             callbackLog.setStatus(PaymentCallbackLogStatusEnum.PROCESSING);
             callbackLog.setCreateTime(LocalDateTime.now());
+            callbackLog.setPaymentService(paymentService); // 设置支付服务类型
+            if (payment != null) {
+                callbackLog.setPaymentId(payment.getId());
+            }
             // 保存回调数据（用于审计）
             try {
                 Map<String, Object> callbackData = new HashMap<>();
@@ -540,32 +591,6 @@ public class PaymentService {
         }
         
         try {
-            // 1. 查询订单
-            Order order = orderMapper.selectById(orderId);
-            if (order == null) {
-                log.warn("订单不存在，订单ID: {}", orderId);
-                if (callbackLog != null) {
-                    paymentCallbackLogMapper.updateStatus(
-                            callbackLog.getId(), 
-                            PaymentCallbackLogStatusEnum.FAILED, 
-                            null, 
-                            "订单不存在"
-                    );
-                }
-                return false;
-            }
-            
-            // 更新回调日志的订单ID
-            if (callbackLog != null && callbackLog.getOrderId() == null) {
-                callbackLog.setOrderId(orderId);
-            }
-            
-            // 2. 查询支付记录（幂等性检查）
-            Payment payment = paymentMapper.selectByOrderId(orderId).stream()
-                    .filter(p -> p.getType() != null && p.getType().equals(PaymentTypeEnum.CHARGE.getCode()))
-                    .findFirst()
-                    .orElse(null);
-            
             if (payment == null) {
                 log.warn("支付记录不存在，订单ID: {}", orderId);
                 if (callbackLog != null) {
@@ -577,12 +602,6 @@ public class PaymentService {
                     );
                 }
                 return false;
-            }
-            
-            // 更新回调日志的支付ID和支付服务
-            if (callbackLog != null) {
-                callbackLog.setPaymentId(payment.getId());
-                callbackLog.setPaymentService(payment.getPaymentService());
             }
             
             // 3. 检查是否已处理（幂等性）
@@ -747,7 +766,7 @@ public class PaymentService {
      * @param orderType 订单类型（DELIVERY/PICKUP/SELF_DINE_IN）
      * @return true 如果开启自动接单，false 如果未开启（默认返回 true，即默认自动接单）
      */
-    private boolean checkMerchantAutoAccept(String merchantId, OrderTypeEnum orderType) {
+    public boolean checkMerchantAutoAccept(String merchantId, OrderTypeEnum orderType) {
         try {
             // 从商品服务获取商户信息
             com.jiaoyi.common.ApiResponse<?> merchantResponse = productServiceClient.getMerchant(merchantId);
@@ -991,7 +1010,7 @@ public class PaymentService {
      * @param order 订单
      * @return true 如果订单已超时
      */
-    private boolean isOrderTimeout(Order order) {
+    public boolean isOrderTimeout(Order order) {
         if (order.getCreateTime() == null) {
             return false;
         }
@@ -1068,13 +1087,26 @@ public class PaymentService {
                 orderMapper.update(order);
                 
                 // 创建退款支付记录
-                Payment refundPayment = new Payment();
-                refundPayment.setOrderId(order.getId());
-                refundPayment.setMerchantId(order.getMerchantId());
-                refundPayment.setStatus(PaymentStatusEnum.SUCCESS.getCode());
-                refundPayment.setType(PaymentTypeEnum.REFUND.getCode());
-                refundPayment.setAmount(refundAmount);
-                refundPayment.setThirdPartyTradeNo(thirdPartyTradeNo);
+            Payment refundPayment = new Payment();
+            refundPayment.setOrderId(order.getId());
+            refundPayment.setMerchantId(order.getMerchantId());
+            refundPayment.setStoreId(order.getStoreId()); // 设置 storeId（用于分片）
+            // 计算并设置 shardId（基于 storeId，与订单保持一致）
+            if (order.getStoreId() != null) {
+                int shardId = com.jiaoyi.order.util.ShardUtil.calculateShardId(order.getStoreId());
+                refundPayment.setShardId(shardId);
+            } else if (order.getShardId() != null) {
+                refundPayment.setShardId(order.getShardId());
+            } else {
+                throw new IllegalStateException("无法获取 storeId 或 shardId，无法创建退款支付记录");
+            }
+            // 生成退款支付流水号（格式：REFUND_{订单ID}_{时间戳}）
+            String refundPaymentNo = "REFUND_" + order.getId() + "_" + System.currentTimeMillis();
+            refundPayment.setPaymentNo(refundPaymentNo);
+            refundPayment.setStatus(PaymentStatusEnum.SUCCESS.getCode());
+            refundPayment.setType(PaymentTypeEnum.REFUND.getCode());
+            refundPayment.setAmount(refundAmount);
+            refundPayment.setThirdPartyTradeNo(thirdPartyTradeNo);
                 refundPayment.setPaymentService(paymentService);
                 refundPayment.setCategory(payment.getCategory());
                 refundPayment.setCreateTime(LocalDateTime.now());
@@ -1200,11 +1232,9 @@ public class PaymentService {
                     delivery.setDeliveryFeeQuotedAt(LocalDateTime.now());
                     delivery.setDeliveryFeeQuoteId(newQuote.getQuoteId());
                     
-                    // 如果 Delivery 记录还没有 id，先插入
-                    if (delivery.getId() == null || delivery.getId().isEmpty()) {
-                        // 此时还没有 deliveryId，先保存报价信息，等创建 DoorDash 配送后再更新 id
-                        deliveryMapper.insert(delivery);
-                    } else {
+                    // 如果 Delivery 记录已经有 id，更新数据库中的报价信息
+                    // 注意：如果还没有 id，不能插入（因为 id 是主键且不能为 null），需要等到创建 DoorDash 配送后获取到 delivery_id 再插入
+                    if (delivery.getId() != null && !delivery.getId().isEmpty()) {
                         // 更新数据库中的报价信息
                         deliveryMapper.updateQuoteInfo(
                                 delivery.getId(),
@@ -1213,6 +1243,7 @@ public class PaymentService {
                                 newQuote.getQuoteId()
                         );
                     }
+                    // 如果还没有 id，暂时不插入，等创建 DoorDash 配送后获取到 delivery_id 再插入
                     
                     // 如果有费用差异，更新费用差异信息
                     if (delivery.getDeliveryFeeVariance() != null && !delivery.getDeliveryFeeVariance().isEmpty()) {
@@ -1559,6 +1590,7 @@ public class PaymentService {
             delivery = new Delivery();
             delivery.setOrderId(order.getId());
             delivery.setMerchantId(order.getMerchantId());
+            delivery.setStoreId(order.getStoreId()); // 设置 storeId（用于分片）
             delivery.setExternalDeliveryId("order_" + order.getId());
             delivery.setStatus(com.jiaoyi.order.enums.DeliveryStatusEnum.CREATED);
             delivery.setVersion(0L);

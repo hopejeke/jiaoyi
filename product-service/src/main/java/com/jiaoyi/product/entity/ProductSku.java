@@ -35,6 +35,11 @@ public class ProductSku {
     private Long storeId;
     
     /**
+     * 分片ID（0-1023，基于storeId计算，用于分库分表路由）
+     */
+    private Integer productShardId;
+    
+    /**
      * SKU编码（唯一标识，如：PROD001-RED-L）
      */
     private String skuCode;

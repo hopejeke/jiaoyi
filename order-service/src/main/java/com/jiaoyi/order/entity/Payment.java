@@ -38,6 +38,17 @@ public class Payment {
     private String merchantId;
     
     /**
+     * 门店ID（用于分片，与商品服务保持一致）
+     */
+    private Long storeId;
+    
+    /**
+     * 分片ID（0-1023，基于 storeId 计算，用于分库分表路由）
+     * 注意：此字段必须与 storeId 一起设置，确保分片一致性
+     */
+    private Integer shardId;
+    
+    /**
      * 支付状态：100-成功，200-失败
      */
     private Integer status;
@@ -56,6 +67,11 @@ public class Payment {
      * 支付服务（枚举）
      */
     private PaymentServiceEnum paymentService;
+    
+    /**
+     * 支付流水号（唯一标识，用于幂等性）
+     */
+    private String paymentNo;
     
     /**
      * 第三方支付平台交易号

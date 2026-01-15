@@ -41,3 +41,5 @@ public class CapabilityOfOrderConfig implements Serializable {
     private Integer closingDuration;
 }
 
+
+

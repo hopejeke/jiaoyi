@@ -198,6 +198,16 @@ public class RefundService {
             refund.setOrderId(request.getOrderId());
             refund.setPaymentId(payment.getId());
             refund.setMerchantId(order.getMerchantId());
+            refund.setStoreId(order.getStoreId()); // 设置 storeId（用于分片）
+            // 计算并设置 shardId（基于 storeId，与订单保持一致）
+            if (order.getStoreId() != null) {
+                int shardId = com.jiaoyi.order.util.ShardUtil.calculateShardId(order.getStoreId());
+                refund.setShardId(shardId);
+            } else if (order.getShardId() != null) {
+                refund.setShardId(order.getShardId());
+            } else {
+                throw new IllegalStateException("无法获取 storeId 或 shardId，无法创建退款单");
+            }
             refund.setRequestNo(request.getRequestNo());
             refund.setRefundAmount(calculation.getTotalRefundAmount());
             refund.setReason(request.getReason());
@@ -223,7 +233,10 @@ public class RefundService {
             for (RefundItemDetail item : calculation.getRefundItems()) {
                 RefundItem refundItem = new RefundItem();
                 refundItem.setRefundId(refund.getRefundId());
-                refundItem.setMerchantId(order.getMerchantId());  // 设置分片键
+                refundItem.setMerchantId(order.getMerchantId());
+                refundItem.setStoreId(order.getStoreId()); // 设置 storeId（用于分片）
+                // 设置 shardId（与退款单保持一致）
+                refundItem.setShardId(refund.getShardId());
                 refundItem.setOrderItemId(item.getOrderItemId());
                 refundItem.setSubject(item.getSubject());
                 refundItem.setRefundQty(item.getRefundQty());

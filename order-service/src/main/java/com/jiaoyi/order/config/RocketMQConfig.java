@@ -25,6 +25,36 @@ public class RocketMQConfig {
      * 订单超时Producer Group
      */
     public static final String ORDER_TIMEOUT_PRODUCER_GROUP = "order-timeout-producer-group";
+    
+    /**
+     * 支付成功Topic
+     */
+    public static final String PAYMENT_SUCCEEDED_TOPIC = "payment-succeeded-topic";
+    
+    /**
+     * 支付成功Consumer Group
+     */
+    public static final String PAYMENT_SUCCEEDED_CONSUMER_GROUP = "payment-succeeded-consumer-group";
+    
+    /**
+     * 支付成功Tag
+     */
+    public static final String PAYMENT_SUCCEEDED_TAG = "succeeded";
+    
+    /**
+     * 库存扣减Topic
+     */
+    public static final String DEDUCT_STOCK_TOPIC = "deduct-stock-topic";
+    
+    /**
+     * 库存扣减Consumer Group
+     */
+    public static final String DEDUCT_STOCK_CONSUMER_GROUP = "deduct-stock-consumer-group";
+    
+    /**
+     * 库存扣减Tag
+     */
+    public static final String DEDUCT_STOCK_TAG = "deduct";
 }
 
 

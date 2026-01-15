@@ -60,27 +60,6 @@ public class MerchantController {
     }
     
     /**
-     * 根据encryptMerchantId查询餐馆
-     */
-    @GetMapping("/encrypt/{encryptMerchantId}")
-    public ResponseEntity<ApiResponse<Merchant>> getMerchantByEncryptMerchantId(@PathVariable String encryptMerchantId) {
-        log.info("查询餐馆，encryptMerchantId: {}", encryptMerchantId);
-        Optional<Merchant> merchant = merchantService.getMerchantByEncryptMerchantId(encryptMerchantId);
-        return merchant.map(value -> ResponseEntity.ok(ApiResponse.success("查询成功", value)))
-                .orElseGet(() -> ResponseEntity.ok(ApiResponse.error(404, "餐馆不存在")));
-    }
-    
-    /**
-     * 根据merchantGroupId查询所有餐馆
-     */
-    @GetMapping("/group/{merchantGroupId}")
-    public ResponseEntity<ApiResponse<List<Merchant>>> getMerchantsByGroupId(@PathVariable String merchantGroupId) {
-        log.info("查询餐馆组，merchantGroupId: {}", merchantGroupId);
-        List<Merchant> merchants = merchantService.getMerchantsByGroupId(merchantGroupId);
-        return ResponseEntity.ok(ApiResponse.success("查询成功", merchants));
-    }
-    
-    /**
      * 查询所有显示的餐馆
      */
     @GetMapping

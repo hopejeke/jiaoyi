@@ -319,9 +319,12 @@ public class StoreProductController {
                     Inventory inventory = inventoryOpt.get();
                     skuMap.put("currentStock", inventory.getCurrentStock());
                     skuMap.put("lockedStock", inventory.getLockedStock());
+                    skuMap.put("stockMode", inventory.getStockMode() != null ? inventory.getStockMode().name() : "UNLIMITED");
                 } else {
+                    // 如果没有库存记录，默认为无限库存
                     skuMap.put("currentStock", 0);
                     skuMap.put("lockedStock", 0);
+                    skuMap.put("stockMode", "UNLIMITED");
                 }
                 
                 skuList.add(skuMap);

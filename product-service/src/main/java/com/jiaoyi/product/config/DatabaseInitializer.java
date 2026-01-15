@@ -42,7 +42,11 @@ public class DatabaseInitializer {
             // 1.5. 强制更新所有 product_sku 表结构（确保 is_delete 字段存在）
             updateAllProductSkuTables(actualJdbcUrl, actualUsername, actualPassword);
             
-            // 2. 创建stores表、users表、outbox_node表和outbox表（在 jiaoyi 基础数据库中）
+            // 1.6. 强制更新所有 inventory 表结构（确保 stock_mode 字段存在）
+            updateAllInventoryTables(actualJdbcUrl, actualUsername, actualPassword);
+            
+            // 2. 创建stores表、users表、outbox_node表和snowflake_worker表（在 jiaoyi 基础数据库中）
+            // 注意：outbox 表已迁移到分片库（jiaoyi_product_0/1/2），不再在基础库创建
             // 构建连接 jiaoyi 的URL：将数据库名插入到端口号和参数之间
             String dbUrl = buildDatabaseUrl(actualJdbcUrl, "jiaoyi");
             log.info("连接基础数据库URL: {}", dbUrl);
@@ -51,7 +55,7 @@ public class DatabaseInitializer {
                 createStoresTable(conn, metaData);
                 createUsersTable(conn, metaData); // 新增：用户表（不分片）
                 createOutboxNodeTable(conn, metaData);
-                createOutboxTable(conn, metaData);
+                // outbox 表已在分片库中创建，不再在基础库创建
                 createSnowflakeWorkerTable(conn, metaData);
             }
             
@@ -145,7 +149,7 @@ public class DatabaseInitializer {
             
             // 为每个数据库创建分片表（只创建 store_products 表）
             for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
-                String dbName = "jiaoyi_" + dbIndex;
+                String dbName = "jiaoyi_product_" + dbIndex;
                 createShardingTables(conn, dbName, dbIndex);
             }
             
@@ -162,8 +166,9 @@ public class DatabaseInitializer {
      */
     private void createDatabases(Connection conn) throws Exception {
         try (Statement stmt = conn.createStatement()) {
+            // 商品服务专用数据库：jiaoyi_product_0/1/2
             for (int i = 0; i < 3; i++) {
-                String dbName = "jiaoyi_" + i;
+                String dbName = "jiaoyi_product_" + i;
                 String createDbSql = "CREATE DATABASE IF NOT EXISTS " + dbName + 
                         " DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
                 stmt.executeUpdate(createDbSql);
@@ -177,6 +182,8 @@ public class DatabaseInitializer {
      */
     private void createShardingTables(Connection conn, String dbName, int dbIndex) {
         try (Statement stmt = conn.createStatement()) {
+            DatabaseMetaData metaData = conn.getMetaData();
+            
             // 切换到指定数据库
             stmt.executeUpdate("USE " + dbName);
             
@@ -190,7 +197,10 @@ public class DatabaseInitializer {
             updateProductSkuTables(stmt, dbIndex);
             
             // 创建库存表分片
-            createInventoryTables(stmt, dbIndex);
+            createInventoryTables(stmt, dbIndex, metaData);
+            
+            // 创建 outbox 表（分库不分表，每个库一张 outbox 表）
+            createOutboxTable(stmt, dbIndex);
             
             log.info("✓ 数据库 {} 的所有分片表创建完成", dbName);
             
@@ -200,14 +210,16 @@ public class DatabaseInitializer {
     }
     
     /**
-     * 创建商品表分片（3个分片表）
+     * 创建商品表分片（32张表/库：store_products_00..store_products_31）
+     * 使用 product_shard_id 作为分片键（基于 storeId 计算，固定1024个虚拟桶）
      */
     private void createStoreProductsTables(Statement stmt, int dbIndex) throws Exception {
-        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
-            String tableName = "store_products_" + tableIndex;
+        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
+            String tableName = "store_products_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
                     "store_id BIGINT NOT NULL COMMENT '店铺ID', " +
+                    "product_shard_id INT NOT NULL COMMENT '分片ID（0-1023，基于storeId计算）', " +
                     "product_name VARCHAR(200) NOT NULL COMMENT '商品名称', " +
                     "description TEXT COMMENT '商品描述', " +
                     "unit_price DECIMAL(10,2) NOT NULL COMMENT '商品单价', " +
@@ -219,27 +231,30 @@ public class DatabaseInitializer {
                     "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
                     "update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
                     "INDEX idx_store_id (store_id), " +
+                    "INDEX idx_product_shard_id (product_shard_id), " +
                     "INDEX idx_product_name (product_name), " +
                     "INDEX idx_category (category), " +
                     "INDEX idx_status (status), " +
                     "INDEX idx_is_delete (is_delete), " +
                     "INDEX idx_create_time (create_time)" +
-                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='店铺商品表_库" + dbIndex + "_分片" + tableIndex + "'";
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='店铺商品表_库" + dbIndex + "_分片" + String.format("%02d", tableIndex) + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 商品表分片创建完成（3个分片表）");
+        log.info("  ✓ 商品表分片创建完成（32个分片表：store_products_00..store_products_31）");
     }
     
     /**
-     * 创建商品SKU表分片（3个分片表）
+     * 创建商品SKU表分片（32张表/库：product_sku_00..product_sku_31）
+     * 使用 product_shard_id 作为分片键，与 store_products 表保持一致
      */
     private void createProductSkuTables(Statement stmt, int dbIndex) throws Exception {
-        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
-            String tableName = "product_sku_" + tableIndex;
+        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
+            String tableName = "product_sku_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
                     "product_id BIGINT NOT NULL COMMENT '商品ID（关联store_products.id）', " +
-                    "store_id BIGINT NOT NULL COMMENT '店铺ID（用于分片）', " +
+                    "store_id BIGINT NOT NULL COMMENT '店铺ID', " +
+                    "product_shard_id INT NOT NULL COMMENT '分片ID（0-1023，基于storeId计算）', " +
                     "sku_code VARCHAR(100) NOT NULL COMMENT 'SKU编码（唯一标识）', " +
                     "sku_attributes TEXT COMMENT 'SKU属性（JSON格式，如：{\"color\":\"红色\",\"size\":\"L\"}）', " +
                     "sku_name VARCHAR(200) COMMENT 'SKU名称（如：红色 L码）', " +
@@ -252,14 +267,15 @@ public class DatabaseInitializer {
                     "update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
                     "UNIQUE KEY uk_product_sku_code (product_id, sku_code), " +
                     "INDEX idx_store_id (store_id), " +
+                    "INDEX idx_product_shard_id (product_shard_id), " +
                     "INDEX idx_product_id (product_id), " +
                     "INDEX idx_sku_code (sku_code), " +
                     "INDEX idx_status (status), " +
                     "INDEX idx_is_delete (is_delete)" +
-                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品SKU表_库" + dbIndex + "_分片" + tableIndex + "'";
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品SKU表_库" + dbIndex + "_分片" + String.format("%02d", tableIndex) + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 商品SKU表分片创建完成（3个分片表）");
+        log.info("  ✓ 商品SKU表分片创建完成（32个分片表：product_sku_00..product_sku_31）");
     }
     
     /**
@@ -272,7 +288,7 @@ public class DatabaseInitializer {
         
         try (Connection conn = DriverManager.getConnection(baseUrl, username, password)) {
             for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
-                String dbName = "jiaoyi_" + dbIndex;
+                String dbName = "jiaoyi_product_" + dbIndex;
                 try (Statement stmt = conn.createStatement()) {
                     stmt.executeUpdate("USE " + dbName);
                     updateProductSkuTables(stmt, dbIndex);
@@ -491,35 +507,123 @@ public class DatabaseInitializer {
     }
     
     /**
-     * 创建库存表分片（3个分片表）
-     * 库存按SKU级别管理，sku_id为NULL时表示商品级别库存（兼容旧数据）
+     * 强制更新所有 inventory 表结构（确保 stock_mode 字段存在）
+     * 在所有数据库初始化完成后调用，确保所有分片表都有 stock_mode 字段
      */
-    private void createInventoryTables(Statement stmt, int dbIndex) throws Exception {
+    private void updateAllInventoryTables(String jdbcUrl, String username, String password) {
+        String baseUrl = extractBaseUrl(jdbcUrl);
+        log.info("开始强制更新所有 inventory 表结构（确保 stock_mode 字段存在）...");
+        
+        try (Connection conn = DriverManager.getConnection(baseUrl, username, password)) {
+            DatabaseMetaData metaData = conn.getMetaData();
+            for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
+                String dbName = "jiaoyi_product_" + dbIndex;
+                try (Statement stmt = conn.createStatement()) {
+                    stmt.executeUpdate("USE " + dbName);
+                    updateInventoryTables(stmt, dbIndex, metaData);
+                } catch (Exception e) {
+                    log.error("更新数据库 {} 的 inventory 表结构失败: {}", dbName, e.getMessage(), e);
+                }
+            }
+            log.info("✓ 所有 inventory 表结构更新完成");
+        } catch (Exception e) {
+            log.error("强制更新 inventory 表结构失败: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
+     * 更新库存表结构（添加缺失的 stock_mode 字段）
+     */
+    private void updateInventoryTables(Statement stmt, int dbIndex, DatabaseMetaData metaData) throws Exception {
         for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
             String tableName = "inventory_" + tableIndex;
+            try {
+                // 检查表是否存在
+                ResultSet tables = metaData.getTables(null, "jiaoyi_product_" + dbIndex, tableName, null);
+                if (!tables.next()) {
+                    log.debug("表 {} 不存在，跳过", tableName);
+                    continue;
+                }
+                
+                // 检查 stock_mode 字段是否存在
+                boolean stockModeExists = false;
+                try (ResultSet columns = metaData.getColumns(null, "jiaoyi_product_" + dbIndex, tableName, "stock_mode")) {
+                    if (columns.next()) {
+                        stockModeExists = true;
+                        log.debug("表 {} 的 stock_mode 字段已存在", tableName);
+                    }
+                }
+                
+                if (!stockModeExists) {
+                    log.info("  为 {} 添加 stock_mode 字段...", tableName);
+                    try {
+                        stmt.executeUpdate("ALTER TABLE " + tableName + 
+                                " ADD COLUMN stock_mode VARCHAR(20) NOT NULL DEFAULT 'UNLIMITED' COMMENT '库存模式：UNLIMITED（无限库存）或 LIMITED（有限库存）' AFTER sku_name");
+                        log.info("  ✓ 表 {} 已添加 stock_mode 字段", tableName);
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && errorMsg.contains("Duplicate column name")) {
+                            log.debug("表 {} 的 stock_mode 字段已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 stock_mode 字段失败: {}", tableName, errorMsg);
+                        }
+                    }
+                    
+                    // 添加索引
+                    try {
+                        stmt.executeUpdate("ALTER TABLE " + tableName + " ADD INDEX idx_stock_mode (stock_mode)");
+                        log.info("  ✓ 表 {} 已添加 idx_stock_mode 索引", tableName);
+                    } catch (Exception e) {
+                        String errorMsg = e.getMessage();
+                        if (errorMsg != null && (errorMsg.contains("Duplicate key name") || errorMsg.contains("already exists"))) {
+                            log.debug("表 {} 的 idx_stock_mode 索引已存在", tableName);
+                        } else {
+                            log.warn("为表 {} 添加 idx_stock_mode 索引失败: {}", tableName, errorMsg);
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.error("更新表 {} 结构时出错: {}", tableName, e.getMessage(), e);
+            }
+        }
+        log.info("  ✓ 库存表结构更新完成（3个分片表）");
+    }
+    
+    /**
+     * 创建库存表分片（32张表/库：inventory_00..inventory_31）
+     * 使用 product_shard_id 作为分片键，与 store_products 表保持一致
+     * 库存按SKU级别管理，sku_id为NULL时表示商品级别库存（兼容旧数据）
+     */
+    private void createInventoryTables(Statement stmt, int dbIndex, DatabaseMetaData metaData) throws Exception {
+        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
+            String tableName = "inventory_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
                     "store_id BIGINT NOT NULL COMMENT '店铺ID', " +
                     "product_id BIGINT NOT NULL COMMENT '商品ID（关联store_products.id）', " +
+                    "product_shard_id INT NOT NULL COMMENT '分片ID（0-1023，基于storeId计算）', " +
                     "sku_id BIGINT COMMENT 'SKU ID（关联product_sku.id），NULL表示商品级别库存', " +
                     "product_name VARCHAR(200) NOT NULL COMMENT '商品名称', " +
                     "sku_name VARCHAR(200) COMMENT 'SKU名称（如果存在SKU）', " +
-                    "current_stock INT NOT NULL DEFAULT 0 COMMENT '当前库存数量', " +
-                    "locked_stock INT NOT NULL DEFAULT 0 COMMENT '锁定库存数量（已下单但未支付）', " +
-                    "min_stock INT NOT NULL DEFAULT 0 COMMENT '最低库存预警线', " +
-                    "max_stock INT COMMENT '最大库存容量', " +
+                    "stock_mode VARCHAR(20) NOT NULL DEFAULT 'UNLIMITED' COMMENT '库存模式：UNLIMITED（无限库存，不设限制）或 LIMITED（有限库存，需要管控数量）', " +
+                    "current_stock INT NOT NULL DEFAULT 0 COMMENT '当前库存数量（仅在 stock_mode = LIMITED 时有效）', " +
+                    "locked_stock INT NOT NULL DEFAULT 0 COMMENT '锁定库存数量（已下单但未支付，仅在 stock_mode = LIMITED 时有效）', " +
+                    "min_stock INT NOT NULL DEFAULT 0 COMMENT '最低库存预警线（仅在 stock_mode = LIMITED 时有效）', " +
+                    "max_stock INT COMMENT '最大库存容量（仅在 stock_mode = LIMITED 时有效）', " +
                     "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
                     "update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
                     "UNIQUE KEY uk_store_product_sku (store_id, product_id, sku_id), " +
                     "INDEX idx_store_id (store_id), " +
+                    "INDEX idx_product_shard_id (product_shard_id), " +
                     "INDEX idx_product_id (product_id), " +
                     "INDEX idx_sku_id (sku_id), " +
                     "INDEX idx_store_product (store_id, product_id), " +
+                    "INDEX idx_stock_mode (stock_mode), " +
                     "INDEX idx_create_time (create_time)" +
-                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存表（SKU级别）_库" + dbIndex + "_分片" + tableIndex + "'";
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存表（SKU级别）_库" + dbIndex + "_分片" + String.format("%02d", tableIndex) + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 库存表分片创建完成（3个分片表）");
+        log.info("  ✓ 库存表分片创建完成（32个分片表：inventory_00..inventory_31）");
     }
     
     /**
@@ -613,17 +717,203 @@ public class DatabaseInitializer {
     }
     
     /**
-     * 创建outbox表（如果不存在）
+     * 创建outbox表（32张表/库：outbox_00..outbox_31）
+     * 用于可靠事件发布（Outbox Pattern）
+     * 使用 product_shard_id 作为分片键，与商品表保持一致
      */
-    private void createOutboxTable(Connection conn, DatabaseMetaData metaData) {
+    private void createOutboxTable(Statement stmt, int dbIndex) throws Exception {
+        // 创建32张分表：outbox_00..outbox_31
+        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
+            String tableSuffix = String.format("%02d", tableIndex);
+            String tableName = "outbox_" + tableSuffix;
+        String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID', " +
+                "type VARCHAR(100) NOT NULL COMMENT '任务类型（如：DEDUCT_STOCK_HTTP、PAYMENT_SUCCEEDED_MQ）', " +
+                "biz_key VARCHAR(255) NOT NULL COMMENT '业务键（如：orderId，用于唯一约束和幂等）', " +
+                "sharding_key VARCHAR(100) COMMENT '通用分片键（业务方可以存 merchantId, storeId, userId 等）', " +
+                "product_shard_id INT NOT NULL COMMENT '分片ID（0-1023，基于storeId计算，用于分库分表路由）', " +
+                "event_id VARCHAR(255) COMMENT '事件ID（用于唯一约束和幂等，可选）', " +
+                "topic VARCHAR(100) COMMENT 'RocketMQ Topic（MQ 类型任务使用）', " +
+                "tag VARCHAR(50) COMMENT 'RocketMQ Tag（MQ 类型任务使用）', " +
+                "message_key VARCHAR(255) COMMENT '消息Key（用于消息追踪，MQ 类型任务使用）', " +
+                "payload TEXT NOT NULL COMMENT '任务负载（JSON格式）', " +
+                "status VARCHAR(20) NOT NULL DEFAULT 'NEW' COMMENT '状态：NEW-新建，PROCESSING-处理中，SUCCESS-成功，FAILED-失败，DEAD-死信', " +
+                "retry_count INT NOT NULL DEFAULT 0 COMMENT '重试次数', " +
+                "next_retry_time DATETIME COMMENT '下次重试时间', " +
+                "lock_owner VARCHAR(100) COMMENT '锁持有者（实例ID，用于多实例抢锁）', " +
+                "lock_time DATETIME COMMENT '锁定时间', " +
+                "lock_until DATETIME COMMENT '锁过期时间（用于抢占式 claim）', " +
+                "last_error TEXT COMMENT '最后错误信息', " +
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
+                "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
+                "completed_at DATETIME COMMENT '完成时间（SUCCESS 时记录）', " +
+                "message_body TEXT COMMENT '消息体（兼容旧字段，新版本使用 payload）', " +
+                "error_message TEXT COMMENT '错误信息（兼容旧字段）', " +
+                "sent_at DATETIME COMMENT '发送时间（兼容旧字段）', " +
+                "UNIQUE KEY uk_type_biz (type, biz_key), " +
+                "UNIQUE KEY uk_event_id (event_id), " +
+                "INDEX idx_status (status), " +
+                "INDEX idx_created_at (created_at), " +
+                "INDEX idx_next_retry_time (next_retry_time), " +
+                "INDEX idx_sharding_key (sharding_key), " +
+                "INDEX idx_product_shard_id (product_shard_id), " +
+                "INDEX idx_product_shard_id_status (product_shard_id, status), " +
+                "INDEX idx_lock_owner (lock_owner), " +
+                "INDEX idx_status_next_retry (status, next_retry_time), " +
+                "INDEX idx_claim (product_shard_id, status, next_retry_time, lock_until, id), " +
+                "INDEX idx_cleanup (product_shard_id, status, created_at)" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='可靠任务表（Outbox Pattern）_库" + dbIndex + "_表" + tableSuffix + "'";
+            stmt.executeUpdate(createTableSql);
+        
+        // 检查并添加缺失的列（如果表已存在但缺少这些列）
+        try {
+            Connection conn = stmt.getConnection();
+            DatabaseMetaData metaData = conn.getMetaData();
+            
+            // 检查并添加 sharding_key 列（通用分片键字段）
+            ResultSet shardingKeyColumns = metaData.getColumns(null, null, tableName, "sharding_key");
+            if (!shardingKeyColumns.next()) {
+                log.info("为 outbox 表添加 sharding_key 列");
+                stmt.executeUpdate("ALTER TABLE " + tableName + " ADD COLUMN sharding_key VARCHAR(100) COMMENT '分片键（通用字段，业务方可以存任何分片键值，如 merchant_id、store_id 等，用于分库路由）'");
+                stmt.executeUpdate("ALTER TABLE " + tableName + " ADD INDEX idx_sharding_key (sharding_key)");
+                stmt.executeUpdate("ALTER TABLE " + tableName + " ADD INDEX idx_sharding_key_status (sharding_key, status)");
+            }
+            shardingKeyColumns.close();
+            
+            // 检查并添加 lock_until 列
+            ResultSet columns = metaData.getColumns(null, null, tableName, "lock_until");
+            if (!columns.next()) {
+                // lock_until 列不存在，添加它
+                String alterSql = "ALTER TABLE " + tableName + " ADD COLUMN lock_until DATETIME COMMENT '锁过期时间（用于抢占式 claim）'";
+                stmt.executeUpdate(alterSql);
+                log.info("  ✓ outbox 表添加 lock_until 列完成（数据库 jiaoyi_product_{}）", dbIndex);
+            }
+            columns.close();
+        } catch (Exception e) {
+                log.warn("检查/添加 lock_until 列时出错（数据库 jiaoyi_product_{}）: {}", dbIndex, e.getMessage());
+            // 不抛出异常，因为表可能已经存在且已有该列
+        }
+        
+        // 检查并补齐其他必要字段（幂等操作）
+        try {
+            Connection conn = stmt.getConnection();
+            DatabaseMetaData metaData = conn.getMetaData();
+            
+            // 检查并添加 lock_owner 列（如果不存在）
+            ResultSet lockOwnerColumns = metaData.getColumns(null, null, tableName, "lock_owner");
+            if (!lockOwnerColumns.next()) {
+                String alterSql = "ALTER TABLE " + tableName + " ADD COLUMN lock_owner VARCHAR(100) COMMENT '锁持有者（实例ID，用于多实例抢锁）'";
+                stmt.executeUpdate(alterSql);
+                log.info("  ✓ outbox 表添加 lock_owner 列完成（数据库 jiaoyi_product_{}）", dbIndex);
+            }
+            lockOwnerColumns.close();
+            
+            // 检查并添加 lock_time 列（如果不存在）
+            ResultSet lockTimeColumns = metaData.getColumns(null, null, tableName, "lock_time");
+            if (!lockTimeColumns.next()) {
+                String alterSql = "ALTER TABLE " + tableName + " ADD COLUMN lock_time DATETIME COMMENT '锁定时间'";
+                stmt.executeUpdate(alterSql);
+                log.info("  ✓ outbox 表添加 lock_time 列完成（数据库 jiaoyi_product_{}）", dbIndex);
+            }
+            lockTimeColumns.close();
+            
+            // 检查并添加 next_retry_time 列（如果不存在）
+            ResultSet nextRetryTimeColumns = metaData.getColumns(null, null, tableName, "next_retry_time");
+            if (!nextRetryTimeColumns.next()) {
+                String alterSql = "ALTER TABLE " + tableName + " ADD COLUMN next_retry_time DATETIME COMMENT '下次重试时间'";
+                stmt.executeUpdate(alterSql);
+                log.info("  ✓ outbox 表添加 next_retry_time 列完成（数据库 jiaoyi_product_{}）", dbIndex);
+            }
+            nextRetryTimeColumns.close();
+            
+            // 检查并添加 retry_count 列（如果不存在）
+            ResultSet retryCountColumns = metaData.getColumns(null, null, tableName, "retry_count");
+            if (!retryCountColumns.next()) {
+                String alterSql = "ALTER TABLE " + tableName + " ADD COLUMN retry_count INT NOT NULL DEFAULT 0 COMMENT '重试次数'";
+                stmt.executeUpdate(alterSql);
+                log.info("  ✓ outbox 表添加 retry_count 列完成（数据库 jiaoyi_product_{}）", dbIndex);
+            }
+            retryCountColumns.close();
+            
+            // 检查并添加 updated_at 列（如果不存在）
+            ResultSet updatedAtColumns = metaData.getColumns(null, null, tableName, "updated_at");
+            if (!updatedAtColumns.next()) {
+                String alterSql = "ALTER TABLE " + tableName + " ADD COLUMN updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'";
+                stmt.executeUpdate(alterSql);
+                log.info("  ✓ outbox 表添加 updated_at 列完成（数据库 jiaoyi_product_{}）", dbIndex);
+            }
+            updatedAtColumns.close();
+            
+        } catch (Exception e) {
+            log.warn("检查/添加其他字段时出错（数据库 jiaoyi_product_{}）: {}", dbIndex, e.getMessage());
+            // 不抛出异常，因为表可能已经存在且已有该列
+        }
+        
+            // 添加优化索引（用于两段式 claim，降低扫表成本）
+            // 索引覆盖：product_shard_id, status, next_retry_time, lock_until, id
+            // 用于 SELECT id ... FOR UPDATE SKIP LOCKED 查询
+            // 注意：索引已在CREATE TABLE语句中定义，这里只检查并添加缺失的索引
+            try {
+                // 检查并添加 idx_claim 索引（如果不存在）
+                ResultSet indexRs = stmt.executeQuery("SHOW INDEX FROM " + tableName + " WHERE Key_name = 'idx_claim'");
+                if (!indexRs.next()) {
+                    String createIndexSql = "CREATE INDEX idx_claim ON " + tableName + 
+                            "(product_shard_id, status, next_retry_time, lock_until, id)";
+                    stmt.executeUpdate(createIndexSql);
+                    log.info("  ✓ {} 表添加 idx_claim 索引完成（数据库 jiaoyi_product_{}）", tableName, dbIndex);
+                }
+                indexRs.close();
+                
+                // 检查并添加 idx_cleanup 索引（如果不存在）
+                ResultSet cleanupIndexRs = stmt.executeQuery("SHOW INDEX FROM " + tableName + " WHERE Key_name = 'idx_cleanup'");
+                if (!cleanupIndexRs.next()) {
+                    String createCleanupIndexSql = "CREATE INDEX idx_cleanup ON " + tableName + 
+                            "(product_shard_id, status, created_at)";
+                    stmt.executeUpdate(createCleanupIndexSql);
+                    log.info("  ✓ {} 表添加 idx_cleanup 索引完成（数据库 jiaoyi_product_{}）", tableName, dbIndex);
+                }
+                cleanupIndexRs.close();
+                
+                // 检查并添加 uk_event_id 唯一索引（如果不存在）
+                ResultSet eventIdIndexRs = stmt.executeQuery("SHOW INDEX FROM " + tableName + " WHERE Key_name = 'uk_event_id'");
+                if (!eventIdIndexRs.next()) {
+                    // 先检查 event_id 列是否存在
+                    ResultSet eventIdColumnRs = stmt.executeQuery("SHOW COLUMNS FROM " + tableName + " LIKE 'event_id'");
+                    if (eventIdColumnRs.next()) {
+                        String createEventIdIndexSql = "ALTER TABLE " + tableName + " ADD UNIQUE KEY uk_event_id (event_id)";
+                        stmt.executeUpdate(createEventIdIndexSql);
+                        log.info("  ✓ {} 表添加 uk_event_id 唯一索引完成（数据库 jiaoyi_product_{}）", tableName, dbIndex);
+                    }
+                    eventIdColumnRs.close();
+                }
+                eventIdIndexRs.close();
+            } catch (Exception e) {
+                if (!e.getMessage().contains("Duplicate key name") && 
+                    !e.getMessage().contains("already exists")) {
+                    log.warn("检查/添加索引时出错（数据库 jiaoyi_product_{}, 表 {}）: {}", dbIndex, tableName, e.getMessage());
+                }
+            }
+        }
+        
+        log.info("  ✓ outbox 表创建完成（数据库 jiaoyi_product_{}，共32张表：outbox_00..outbox_31）", dbIndex);
+    }
+    
+    /**
+     * 创建outbox表（旧方法，已废弃，保留用于兼容）
+     * @deprecated 已迁移到分片库，使用 createOutboxTable(Statement stmt, int dbIndex) 方法
+     */
+    @Deprecated
+    private void createOutboxTableOld(Connection conn, DatabaseMetaData metaData) {
         try {
             ResultSet tables = metaData.getTables(null, null, "outbox", null);
             
             if (tables.next()) {
-                log.info("outbox表已存在，检查shard_id列...");
+                log.info("outbox表已存在，检查并添加新字段...");
                 tables.close();
                 // 检查并添加shard_id列（如果不存在）
                 addShardIdToOutbox(conn, metaData);
+                // 检查并添加新字段（type, bizKey, payload 等）
+                addNewFieldsToOutbox(conn, metaData);
                 return;
             }
             tables.close();
@@ -736,6 +1026,136 @@ public class DatabaseInitializer {
     }
     
     /**
+     * 为 outbox 表添加新字段（type, biz_key, payload, next_retry_time, lock_owner, lock_time, last_error, updated_at, completed_at）
+     */
+    private void addNewFieldsToOutbox(Connection conn, DatabaseMetaData metaData) {
+        try (Statement stmt = conn.createStatement()) {
+            // 检查并添加 type 字段
+            try {
+                ResultSet columns = metaData.getColumns(null, null, "outbox", "type");
+                if (!columns.next()) {
+                    stmt.executeUpdate("ALTER TABLE outbox ADD COLUMN type VARCHAR(100) NOT NULL DEFAULT 'UNKNOWN' COMMENT '任务类型' AFTER id");
+                    log.info("✓ outbox表已添加type列");
+                }
+                columns.close();
+            } catch (Exception e) {
+                if (e.getMessage() != null && e.getMessage().contains("Duplicate column name")) {
+                    log.info("outbox表的type列已存在，跳过添加");
+                } else {
+                    log.warn("添加type列失败: {}", e.getMessage());
+                }
+            }
+            
+            // 检查并添加 biz_key 字段
+            try {
+                ResultSet columns = metaData.getColumns(null, null, "outbox", "biz_key");
+                if (!columns.next()) {
+                    stmt.executeUpdate("ALTER TABLE outbox ADD COLUMN biz_key VARCHAR(255) COMMENT '业务键' AFTER type");
+                    // 如果 message_key 有值，复制到 biz_key
+                    stmt.executeUpdate("UPDATE outbox SET biz_key = message_key WHERE biz_key IS NULL AND message_key IS NOT NULL");
+                    log.info("✓ outbox表已添加biz_key列");
+                }
+                columns.close();
+            } catch (Exception e) {
+                if (e.getMessage() != null && e.getMessage().contains("Duplicate column name")) {
+                    log.info("outbox表的biz_key列已存在，跳过添加");
+                } else {
+                    log.warn("添加biz_key列失败: {}", e.getMessage());
+                }
+            }
+            
+            // 检查并添加 payload 字段（如果 message_body 存在，复制数据）
+            try {
+                ResultSet columns = metaData.getColumns(null, null, "outbox", "payload");
+                if (!columns.next()) {
+                    stmt.executeUpdate("ALTER TABLE outbox ADD COLUMN payload TEXT COMMENT '任务负载（JSON格式）' AFTER message_key");
+                    // 复制 message_body 到 payload
+                    stmt.executeUpdate("UPDATE outbox SET payload = message_body WHERE payload IS NULL AND message_body IS NOT NULL");
+                    log.info("✓ outbox表已添加payload列");
+                }
+                columns.close();
+            } catch (Exception e) {
+                if (e.getMessage() != null && e.getMessage().contains("Duplicate column name")) {
+                    log.info("outbox表的payload列已存在，跳过添加");
+                } else {
+                    log.warn("添加payload列失败: {}", e.getMessage());
+                }
+            }
+            
+            // 添加其他新字段
+            String[] newFields = {
+                "next_retry_time DATETIME COMMENT '下次重试时间'",
+                "lock_owner VARCHAR(100) COMMENT '锁持有者（实例ID）'",
+                "lock_time DATETIME COMMENT '锁定时间'",
+                "last_error TEXT COMMENT '最后错误信息'",
+                "updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间'",
+                "completed_at DATETIME COMMENT '完成时间'"
+            };
+            
+            String[] fieldNames = {"next_retry_time", "lock_owner", "lock_time", "last_error", "updated_at", "completed_at"};
+            
+            for (int i = 0; i < newFields.length; i++) {
+                try {
+                    ResultSet columns = metaData.getColumns(null, null, "outbox", fieldNames[i]);
+                    if (!columns.next()) {
+                        stmt.executeUpdate("ALTER TABLE outbox ADD COLUMN " + newFields[i]);
+                        log.info("✓ outbox表已添加{}列", fieldNames[i]);
+                    }
+                    columns.close();
+                } catch (Exception e) {
+                    if (e.getMessage() != null && e.getMessage().contains("Duplicate column name")) {
+                        log.info("outbox表的{}列已存在，跳过添加", fieldNames[i]);
+                    } else {
+                        log.warn("添加{}列失败: {}", fieldNames[i], e.getMessage());
+                    }
+                }
+            }
+            
+            // 更新 status 默认值（如果还是 PENDING，改为 NEW）
+            try {
+                stmt.executeUpdate("UPDATE outbox SET status = 'NEW' WHERE status = 'PENDING'");
+                log.info("✓ 已更新旧状态 PENDING 为 NEW");
+            } catch (Exception e) {
+                log.warn("更新状态失败: {}", e.getMessage());
+            }
+            
+            // 添加唯一约束（如果不存在）
+            try {
+                stmt.executeUpdate("ALTER TABLE outbox ADD UNIQUE KEY uk_type_biz (type, biz_key)");
+                log.info("✓ 已添加唯一约束 uk_type_biz");
+            } catch (Exception e) {
+                if (e.getMessage() != null && e.getMessage().contains("Duplicate key name")) {
+                    log.info("唯一约束 uk_type_biz 已存在，跳过添加");
+                } else {
+                    log.warn("添加唯一约束失败: {}", e.getMessage());
+                }
+            }
+            
+            // 添加新索引
+            try {
+                stmt.executeUpdate("ALTER TABLE outbox ADD INDEX idx_next_retry_time (next_retry_time)");
+                log.info("✓ 已添加索引 idx_next_retry_time");
+            } catch (Exception e) {
+                if (e.getMessage() != null && e.getMessage().contains("Duplicate key name")) {
+                    log.info("索引 idx_next_retry_time 已存在，跳过添加");
+                }
+            }
+            
+            try {
+                stmt.executeUpdate("ALTER TABLE outbox ADD INDEX idx_lock_owner (lock_owner)");
+                log.info("✓ 已添加索引 idx_lock_owner");
+            } catch (Exception e) {
+                if (e.getMessage() != null && e.getMessage().contains("Duplicate key name")) {
+                    log.info("索引 idx_lock_owner 已存在，跳过添加");
+                }
+            }
+            
+        } catch (Exception e) {
+            log.error("为outbox表添加新字段失败: {}", e.getMessage(), e);
+        }
+    }
+    
+    /**
      * 创建 snowflake_worker 表（用于管理雪花算法 worker-id）
      */
     private void createSnowflakeWorkerTable(Connection conn, DatabaseMetaData metaData) {
@@ -783,7 +1203,7 @@ public class DatabaseInitializer {
         try (Connection conn = DriverManager.getConnection(baseUrl, username, password)) {
             // 为每个数据库创建分片表
             for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
-                String dbName = "jiaoyi_" + dbIndex;
+                String dbName = "jiaoyi_product_" + dbIndex;
                 try (Statement stmt = conn.createStatement()) {
                     stmt.executeUpdate("USE " + dbName);
                     
@@ -869,8 +1289,6 @@ public class DatabaseInitializer {
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
                     "merchant_id VARCHAR(50) NOT NULL COMMENT '餐馆ID（POS系统ID）', " +
-                    "merchant_group_id VARCHAR(50) NOT NULL COMMENT '餐馆组ID', " +
-                    "encrypt_merchant_id VARCHAR(100) NOT NULL COMMENT '加密的餐馆ID', " +
                     "name VARCHAR(200) NOT NULL COMMENT '餐馆名称', " +
                     "time_zone VARCHAR(50) NOT NULL COMMENT '时区', " +
                     "logo VARCHAR(500) COMMENT '餐馆Logo', " +
@@ -906,8 +1324,6 @@ public class DatabaseInitializer {
                     "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
                     "update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
                     "UNIQUE KEY uk_merchant_id (merchant_id), " +
-                    "INDEX idx_merchant_group_id (merchant_group_id), " +
-                    "INDEX idx_encrypt_merchant_id (encrypt_merchant_id), " +
                     "INDEX idx_display (display)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='餐馆表_库" + dbIndex + "_分片" + tableIndex + "'";
             stmt.executeUpdate(createTableSql);

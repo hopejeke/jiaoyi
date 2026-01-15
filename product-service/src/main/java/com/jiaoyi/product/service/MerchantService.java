@@ -112,20 +112,6 @@ public class MerchantService {
     }
     
     /**
-     * 根据encryptMerchantId查询餐馆
-     */
-    public Optional<Merchant> getMerchantByEncryptMerchantId(String encryptMerchantId) {
-        return merchantMapper.selectByEncryptMerchantId(encryptMerchantId);
-    }
-    
-    /**
-     * 根据merchantGroupId查询所有餐馆
-     */
-    public List<Merchant> getMerchantsByGroupId(String merchantGroupId) {
-        return merchantMapper.selectByMerchantGroupId(merchantGroupId);
-    }
-    
-    /**
      * 查询所有显示的餐馆
      */
     public List<Merchant> getAllDisplayMerchants() {

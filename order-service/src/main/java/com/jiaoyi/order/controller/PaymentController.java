@@ -1,18 +1,20 @@
 package com.jiaoyi.order.controller;
 
 import com.jiaoyi.common.ApiResponse;
+import com.jiaoyi.order.config.RocketMQConfig;
 import com.jiaoyi.order.config.StripeConfig;
 import com.jiaoyi.order.dto.PaymentResponse;
 import com.jiaoyi.order.entity.Order;
+import com.jiaoyi.order.entity.OrderItem;
 import com.jiaoyi.order.entity.Payment;
 import com.jiaoyi.order.enums.PaymentStatusEnum;
+import com.jiaoyi.order.mapper.OrderItemMapper;
 import com.jiaoyi.order.mapper.OrderMapper;
 import com.jiaoyi.order.mapper.PaymentMapper;
 import com.jiaoyi.order.service.AlipayService;
+import com.jiaoyi.order.service.OutboxHelper;
 import com.jiaoyi.order.service.PaymentService;
-import com.jiaoyi.order.client.ProductServiceClient;
-import com.jiaoyi.order.mapper.OrderItemMapper;
-import com.jiaoyi.order.entity.OrderItem;
+import com.jiaoyi.order.service.WebhookEventLogService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -38,11 +40,12 @@ public class PaymentController {
     private final AlipayService alipayService;
     private final PaymentService paymentService;
     private final OrderMapper orderMapper;
-    private final PaymentMapper paymentMapper;
     private final OrderItemMapper orderItemMapper;
-    private final ProductServiceClient productServiceClient;
+    private final PaymentMapper paymentMapper;
     private final StripeConfig stripeConfig;
     private final ObjectMapper objectMapper;
+    private final WebhookEventLogService webhookEventLogService;
+    private final OutboxHelper outboxHelper;
     
     /**
      * 支付宝支付回调
@@ -72,81 +75,65 @@ public class PaymentController {
                     outTradeNo, tradeStatus, totalAmount, tradeNo);
             
             if ("TRADE_SUCCESS".equals(tradeStatus) || "TRADE_FINISHED".equals(tradeStatus)) {
-                // 支付成功，更新订单状态和库存（参照 OO 项目的支付回调处理）
+                // 【回调链路】：事件幂等 + 更新支付/订单状态 + 写库存扣减 outbox，立即返回 200
                 log.info("开始处理支付成功回调，订单号: {}, 支付宝交易号: {}", outTradeNo, tradeNo);
                 
                 try {
-                    // 1. 先查询订单当前状态（outTradeNo 是订单ID的字符串形式）
+                    // 1. 解析订单ID（outTradeNo 是订单ID的字符串形式）
                     Long orderId = Long.parseLong(outTradeNo);
-                    Order order = orderMapper.selectById(orderId);
-                    if (order == null) {
-                        log.warn("订单不存在，订单ID: {}", orderId);
-                        return "FAIL";
+                    
+                    // 2. 事件幂等：使用 tradeNo 作为 eventId（支付宝交易号唯一）
+                    String eventId = tradeNo; // 使用支付宝交易号作为事件ID
+                    String eventType = "TRADE_SUCCESS";
+                    
+                    boolean isFirstTime = webhookEventLogService.tryInsert(
+                            eventId,
+                            eventType,
+                            null, // paymentIntentId（支付宝没有）
+                            tradeNo, // thirdPartyTradeNo
+                            orderId
+                    );
+                    
+                    if (!isFirstTime) {
+                        log.info("重复事件，直接返回（幂等），eventId: {}, orderId: {}", eventId, orderId);
+                        return "success"; // 重复事件，直接返回（幂等成功）
                     }
                     
-                    // 2. 检查订单状态
-                    if (com.jiaoyi.order.enums.OrderStatusEnum.CANCELLED.getCode().equals(order.getStatus())) {
-                        log.warn("订单已取消，但收到支付成功回调，订单ID: {}, 当前状态: {}", orderId, order.getStatus());
-                        // 订单已取消但支付成功，需要特殊处理
-                        return handleCancelledOrderPayment(order, outTradeNo);
-                    }
-                    
-                    if (com.jiaoyi.order.enums.OrderStatusEnum.PAID.getCode().equals(order.getStatus())) {
-                        log.info("订单已支付，重复回调（幂等处理），订单ID: {}", orderId);
-                        return "success"; // 幂等处理
-                    }
-                    
-                    if (!com.jiaoyi.order.enums.OrderStatusEnum.PENDING.getCode().equals(order.getStatus())) {
-                        log.warn("订单状态不允许支付，订单ID: {}, 当前状态: {}", orderId, order.getStatus());
-                        return "FAIL";
-                    }
-                    
-                    // 3. 使用 PaymentService 处理支付成功（包含幂等性检查和原子更新，以及超时检查）
+                    // 3. 直接更新支付和订单状态（在事务中）
                     boolean paymentProcessed = paymentService.handlePaymentSuccess(outTradeNo, tradeNo);
                     
-                    // 如果订单超时已退款，不继续处理（不扣减库存）
                     if (!paymentProcessed) {
-                        log.warn("订单超时已退款，不继续处理，订单号: {}", outTradeNo);
+                        log.warn("支付处理失败或订单已超时退款，orderId: {}, eventId: {}", orderId, eventId);
+                        webhookEventLogService.markFailed(eventId, "支付处理失败或订单已超时退款");
                         return "success"; // 告知支付宝处理成功（已退款）
                     }
                     
-                    // 4. 扣减库存（通过 Feign Client 调用 product-service）
-                    log.info("开始扣减库存，订单号: {}", outTradeNo);
-                    // 查询订单项
-                    List<OrderItem> orderItems = orderItemMapper.selectByOrderId(order.getId());
-                    if (orderItems != null && !orderItems.isEmpty()) {
-                        List<Long> productIds = orderItems.stream()
-                                .filter(item -> item.getProductId() != null)
-                                .map(OrderItem::getProductId)
-                                .collect(java.util.stream.Collectors.toList());
-                        List<Long> skuIds = orderItems.stream()
-                                .filter(item -> item.getSkuId() != null)
-                                .map(OrderItem::getSkuId)
-                                .collect(java.util.stream.Collectors.toList());
-                        List<Integer> quantities = orderItems.stream()
-                                .map(OrderItem::getQuantity)
-                                .collect(java.util.stream.Collectors.toList());
-                        
-                        if (!productIds.isEmpty() && !skuIds.isEmpty() && productIds.size() == skuIds.size()) {
-                            // 调用批量扣减库存接口（SKU级别）
-                            ProductServiceClient.DeductStockBatchRequest deductRequest = new ProductServiceClient.DeductStockBatchRequest();
-                            deductRequest.setProductIds(productIds);
-                            deductRequest.setSkuIds(skuIds);
-                            deductRequest.setQuantities(quantities);
-                            deductRequest.setOrderId(order.getId());
-                            productServiceClient.deductStockBatch(deductRequest);
-                            log.info("库存扣减成功（SKU级别），订单号: {}, 商品数量: {}", outTradeNo, productIds.size());
-                        } else {
-                            log.warn("订单项缺少productId或skuId，无法扣减库存，订单号: {}", outTradeNo);
-                        }
-                    } else {
-                        log.warn("订单项为空，无法扣减库存，订单号: {}", outTradeNo);
+                    // 4. 查询订单项，写入库存扣减任务到 outbox
+                    List<OrderItem> orderItems = orderItemMapper.selectByOrderId(orderId);
+                    boolean enqueued = outboxHelper.enqueueDeductStockTask(orderId, orderItems);
+                    
+                    if (!enqueued) {
+                        log.warn("写入库存扣减 outbox 失败，orderId: {}, eventId: {}", orderId, eventId);
+                        webhookEventLogService.markProcessed(eventId);
+                        return "success";
                     }
                     
-                    log.info("支付成功处理完成，订单号: {}", outTradeNo);
+                    // 6. 标记事件为已处理
+                    webhookEventLogService.markProcessed(eventId);
+                    
+                    // 7. 立即返回 200（回调链路结束）
                     return "success";
+                    
                 } catch (Exception e) {
-                    log.error("处理支付成功回调异常，订单号: {}", outTradeNo, e);
+                    log.error("处理支付成功回调异常，订单号: {}, 交易号: {}", outTradeNo, tradeNo, e);
+                    // 如果处理失败，标记事件为失败
+                    if (tradeNo != null) {
+                        try {
+                            webhookEventLogService.markFailed(tradeNo, "处理异常: " + e.getMessage());
+                        } catch (Exception ex) {
+                            log.error("标记事件失败异常", ex);
+                        }
+                    }
                     return "fail";
                 }
             } else {

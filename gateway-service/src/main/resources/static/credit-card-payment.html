@@ -432,17 +432,19 @@
                         
                         // 6. 检查支付状态
                         if (paymentIntent.status === 'succeeded') {
-                            showSuccess('支付成功！订单已处理完成。');
+                            // Stripe 支付成功，但需要等待后端 Webhook 回调更新订单状态
+                            // 不要立即显示成功，而是开始轮询订单状态
+                            showInfo('支付已确认，等待订单状态更新...');
                             
                             // 如果用户选择保存卡片，保存到后端
                             if (saveCard) {
                                 await saveCardToBackend(paymentMethod.id);
                             }
                             
-                            // 3秒后跳转到订单详情
+                            // 等待 2 秒后开始轮询（给 Webhook 一些时间）
                             setTimeout(() => {
-                                window.location.href = `orders.html?merchantId=${currentOrder.merchantId}&orderId=${orderId}`;
-                            }, 3000);
+                                startPaymentStatusPolling(orderId);
+                            }, 2000);
                         } else {
                             throw new Error('支付状态异常: ' + paymentIntent.status);
                         }
@@ -471,7 +473,8 @@
                     return;
                 }
                 
-                await fetch('/api/wallet/payment-card', {
+                // 注意：如果 wallet 服务未部署，此接口可能返回 404，但不影响支付流程
+                const response = await fetch('/api/wallet/payment-card', {
                     method: 'POST',
                     headers: {
                         'Content-Type': 'application/json'
@@ -482,8 +485,14 @@
                         stripePaymentMethodId: paymentMethodId
                     })
                 });
+                
+                if (!response.ok && response.status !== 404) {
+                    // 404 表示接口不存在（wallet 服务未部署），这是正常的，不记录错误
+                    console.warn('保存卡片失败:', response.status, response.statusText);
+                }
             } catch (error) {
-                console.error('保存卡片失败:', error);
+                // 网络错误或其他错误，但不影响支付流程
+                console.warn('保存卡片失败（不影响支付）:', error.message);
             }
         }
         
@@ -505,8 +514,15 @@
                     
                     if (result.code === 200) {
                         const order = result.data;
-                        // 检查订单状态：2 = 已支付
-                        if (order.status === 2) {
+                        // 检查订单状态：
+                        // 2 = 已支付
+                        // 3 = 制作中（自动接单后）
+                        // 9 = 待接单（非自动接单）
+                        // 8 = 配送中
+                        // 4 = 已完成
+                        // 这些状态都表示支付已成功
+                        if (order.status === 2 || order.status === 3 || order.status === 9 || 
+                            order.status === 8 || order.status === 4) {
                             clearInterval(pollingInterval);
                             showSuccess('支付成功！订单已处理完成。');
                             
@@ -514,6 +530,14 @@
                             setTimeout(() => {
                                 window.location.href = `orders.html?merchantId=${order.merchantId}&orderId=${orderId}`;
                             }, 3000);
+                        } else if (order.status === 5) {
+                            // 订单已取消
+                            clearInterval(pollingInterval);
+                            showError('订单已取消');
+                        } else if (order.status === 7) {
+                            // 支付失败
+                            clearInterval(pollingInterval);
+                            showError('支付失败');
                         }
                     }
                 } catch (error) {
@@ -521,12 +545,19 @@
                 }
             }, 3000);
             
-            // 30秒后停止轮询
+            // 60秒后停止轮询（增加超时时间，因为 Webhook 可能需要更长时间）
             setTimeout(() => {
                 if (pollingInterval) {
                     clearInterval(pollingInterval);
+                    // 如果超时后还没有检测到支付成功，提示用户手动刷新
+                    const result = document.getElementById('paymentResult');
+                    if (result && result.textContent.includes('等待订单状态更新')) {
+                        result.className = 'result warning';
+                        result.textContent = '支付处理中，如果长时间未更新，请刷新页面或联系客服';
+                        result.style.display = 'block';
+                    }
                 }
-            }, 30000);
+            }, 60000);
         }
         
         // 显示成功消息

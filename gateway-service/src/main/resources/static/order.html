@@ -581,8 +581,20 @@
                     menuItems = result.data.map(product => {
                         // 获取第一个 SKU 的 ID（如果存在）
                         let defaultSkuId = null;
+                        let skusWithInventory = [];
                         if (product.skus && Array.isArray(product.skus) && product.skus.length > 0) {
                             defaultSkuId = String(product.skus[0].id);
+                            // 处理SKU，包含库存信息
+                            skusWithInventory = product.skus.map(sku => ({
+                                ...sku,
+                                id: String(sku.id),
+                                // 保存库存信息（后端已返回 currentStock 和 lockedStock）
+                                inventory: {
+                                    currentStock: sku.currentStock || 0,
+                                    lockedStock: sku.lockedStock || 0,
+                                    stockMode: sku.stockMode || 'UNLIMITED' // 如果没有返回，默认为无限库存
+                                }
+                            }));
                         }
                         
                         return {
@@ -591,7 +603,8 @@
                             price: parseFloat(product.unitPrice || 0),
                             description: product.description || '',
                             skuId: defaultSkuId, // 保存第一个 SKU 的 ID
-                            skus: product.skus || [] // 保存所有 SKU 信息（用于后续扩展）
+                            skus: skusWithInventory, // 保存所有 SKU 信息（包含库存）
+                            storeId: product.storeId ? String(product.storeId) : null // 保存店铺ID，用于查询库存
                         };
                     });
                     
@@ -729,7 +742,7 @@
         }
         
         // 增加数量
-        function increaseQuantity(itemId) {
+        async function increaseQuantity(itemId) {
             // 确保 itemId 是字符串类型，避免精度丢失
             itemId = String(itemId);
             console.log('increaseQuantity called with itemId:', itemId, 'type:', typeof itemId);
@@ -749,28 +762,57 @@
             
             const cartKey = getCartKey(itemId, skuId);
             
-            if (!cart[cartKey]) {
-                // 获取 SKU 信息
-                let skuName = '';
-                let price = item.price;
-                
-                if (item.skus && item.skus.length > 0) {
-                    const sku = item.skus.find(s => String(s.id) === skuId);
-                    if (sku) {
-                        skuName = sku.skuName || sku.skuCode || '';
-                        price = sku.skuPrice ? parseFloat(sku.skuPrice) : price;
-                    }
+            // 获取 SKU 信息（包含库存）
+            let skuName = '';
+            let price = item.price;
+            let skuInventory = null;
+            
+            if (item.skus && item.skus.length > 0) {
+                const sku = item.skus.find(s => String(s.id) === skuId);
+                if (sku) {
+                    skuName = sku.skuName || sku.skuCode || '';
+                    price = sku.skuPrice ? parseFloat(sku.skuPrice) : price;
+                    // 从SKU中获取库存信息
+                    skuInventory = sku.inventory || null;
                 }
-                
+            }
+            
+            if (!cart[cartKey]) {
                 cart[cartKey] = {
                     name: item.name,
                     skuName: skuName,
                     price: price,
                     quantity: 0,
                     skuId: skuId,
-                    productId: itemId
+                    productId: itemId,
+                    inventory: skuInventory // 保存SKU的库存信息
                 };
+            } else {
+                // 更新库存信息（如果SKU切换了）
+                cart[cartKey].inventory = skuInventory;
             }
+            
+            // 检查库存限制
+            const inventory = cart[cartKey].inventory;
+            if (inventory) {
+                // 使用 stockMode 字段判断（如果后端返回了）
+                // 如果没有 stockMode，则根据 currentStock 是否存在判断
+                const stockMode = inventory.stockMode || (inventory.currentStock !== undefined && inventory.currentStock !== null ? 'LIMITED' : 'UNLIMITED');
+                
+                if (stockMode === 'LIMITED') {
+                    // 有限库存模式：检查可用库存
+                    const currentStock = inventory.currentStock || 0;
+                    const lockedStock = inventory.lockedStock || 0;
+                    const availableStock = currentStock - lockedStock;
+                    const currentQuantity = cart[cartKey].quantity;
+                    
+                    if (currentQuantity >= availableStock) {
+                        alert(`库存不足！当前可用库存：${availableStock}，已选择：${currentQuantity}`);
+                        return;
+                    }
+                }
+            }
+            // UNLIMITED 模式或没有库存信息：不限制数量
             
             cart[cartKey].quantity++;
             console.log('Quantity increased, new quantity:', cart[cartKey].quantity);

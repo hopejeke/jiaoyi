@@ -89,3 +89,5 @@ ALTER TABLE product_sku_2 ADD COLUMN version BIGINT NOT NULL DEFAULT 0 COMMENT '
 
 
 
+
+

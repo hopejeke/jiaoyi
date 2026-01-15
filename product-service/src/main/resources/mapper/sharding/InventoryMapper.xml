@@ -6,10 +6,12 @@
     <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.Inventory">
         <id column="id" property="id"/>
         <result column="store_id" property="storeId"/>
+        <result column="product_shard_id" property="productShardId"/>
         <result column="product_id" property="productId"/>
         <result column="sku_id" property="skuId"/>
         <result column="product_name" property="productName"/>
         <result column="sku_name" property="skuName"/>
+        <result column="stock_mode" property="stockMode" typeHandler="com.jiaoyi.product.handler.StockModeTypeHandler"/>
         <result column="current_stock" property="currentStock"/>
         <result column="locked_stock" property="lockedStock"/>
         <result column="min_stock" property="minStock"/>
@@ -21,7 +23,7 @@
     <!-- 插入库存记录 -->
     <insert id="insert" parameterType="com.jiaoyi.product.entity.Inventory" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO inventory (
-            store_id, product_id, sku_id, product_name, sku_name, current_stock, locked_stock, min_stock, max_stock
+            store_id, product_shard_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock
             <if test="createTime != null">
                 , create_time
             </if>
@@ -29,7 +31,7 @@
                 , update_time
             </if>
         ) VALUES (
-            #{storeId}, #{productId}, #{skuId}, #{productName}, #{skuName}, #{currentStock}, #{lockedStock}, #{minStock}, #{maxStock}
+            #{storeId}, #{productShardId}, #{productId}, #{skuId}, #{productName}, #{skuName}, #{stockMode, typeHandler=com.jiaoyi.product.handler.StockModeTypeHandler}, #{currentStock}, #{lockedStock}, #{minStock}, #{maxStock}
             <if test="createTime != null">
                 , #{createTime}
             </if>
@@ -41,38 +43,44 @@
 
     <!-- 根据商品ID查询库存（兼容旧接口） -->
     <select id="selectByProductId" parameterType="long" resultMap="BaseResultMap">
-        SELECT * FROM inventory WHERE product_id = #{productId} LIMIT 1
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory WHERE product_id = #{productId} LIMIT 1
     </select>
 
     <!-- 根据店铺ID和商品ID查询库存（商品级别，sku_id为NULL） -->
     <select id="selectByStoreIdAndProductId" resultMap="BaseResultMap">
-        SELECT * FROM inventory 
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory 
         WHERE store_id = #{storeId} AND product_id = #{productId} AND sku_id IS NULL
         LIMIT 1
     </select>
     
     <!-- 根据店铺ID、商品ID和SKU ID查询库存（SKU级别） -->
     <select id="selectByStoreIdAndProductIdAndSkuId" resultMap="BaseResultMap">
-        SELECT * FROM inventory 
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory 
         WHERE store_id = #{storeId} AND product_id = #{productId} AND sku_id = #{skuId}
         LIMIT 1
     </select>
     
     <!-- 根据商品ID查询所有SKU库存 -->
     <select id="selectByProductIdWithSku" resultMap="BaseResultMap">
-        SELECT * FROM inventory 
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory 
         WHERE product_id = #{productId} AND sku_id IS NOT NULL
         ORDER BY sku_id
     </select>
 
     <!-- 查询库存不足的商品 -->
     <select id="selectLowStockItems" resultMap="BaseResultMap">
-        SELECT * FROM inventory WHERE (current_stock - locked_stock) &lt; min_stock
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory WHERE (current_stock - locked_stock) &lt; min_stock
     </select>
 
     <!-- 根据店铺ID查询库存不足的商品 -->
     <select id="selectLowStockItemsByStoreId" parameterType="long" resultMap="BaseResultMap">
-        SELECT * FROM inventory 
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory 
         WHERE store_id = #{storeId} AND (current_stock - locked_stock) &lt; min_stock
     </select>
 
@@ -128,12 +136,36 @@
 
     <!-- 查询所有库存记录 -->
     <select id="selectAll" resultMap="BaseResultMap">
-        SELECT * FROM inventory ORDER BY id
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory ORDER BY id
     </select>
     
-    <!-- 更新库存数量 -->
+    <!-- 根据店铺ID查询所有库存 -->
+    <select id="selectByStoreId" parameterType="long" resultMap="BaseResultMap">
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory 
+        WHERE store_id = #{storeId}
+        ORDER BY product_id, sku_id
+    </select>
+    
+    <!-- 根据ID查询库存 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory WHERE id = #{id}
+    </select>
+    
+    <!-- 根据店铺ID和库存ID查询库存（推荐，包含分片键） -->
+    <select id="selectByStoreIdAndId" resultMap="BaseResultMap">
+        SELECT id, store_id, product_id, sku_id, product_name, sku_name, stock_mode, current_stock, locked_stock, min_stock, max_stock, create_time, update_time 
+        FROM inventory 
+        WHERE store_id = #{storeId} AND id = #{id}
+        LIMIT 1
+    </select>
+    
+    <!-- 更新库存数量（包含库存模式） -->
     <update id="updateStock">
         UPDATE inventory SET
+            stock_mode = #{stockMode, typeHandler=com.jiaoyi.product.handler.StockModeTypeHandler},
             current_stock = #{currentStock},
             <if test="minStock != null">
                 min_stock = #{minStock},
@@ -149,6 +181,20 @@
         <if test="skuId == null">
             AND sku_id IS NULL
         </if>
+    </update>
+    
+    <!-- 根据ID更新库存数量 -->
+    <update id="updateStockById">
+        UPDATE inventory SET
+            current_stock = #{currentStock},
+            <if test="minStock != null">
+                min_stock = #{minStock},
+            </if>
+            <if test="maxStock != null">
+                max_stock = #{maxStock},
+            </if>
+            update_time = NOW()
+        WHERE id = #{id}
     </update>
 
 </mapper>

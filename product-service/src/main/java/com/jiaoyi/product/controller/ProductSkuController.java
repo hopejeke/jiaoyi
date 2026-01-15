@@ -39,11 +39,26 @@ public class ProductSkuController {
     
     /**
      * 根据ID查询SKU
+     * 注意：由于 product_sku 表是分片表，只传 id 可能查询不到
+     * 建议使用 /product/{productId}/sku/{skuId} 接口
      */
     @GetMapping("/{skuId}")
     public ResponseEntity<ApiResponse<ProductSku>> getSkuById(@PathVariable Long skuId) {
         log.info("查询SKU，SKU ID: {}", skuId);
         Optional<ProductSku> sku = productSkuService.getSkuById(skuId);
+        return sku.map(value -> ResponseEntity.ok(ApiResponse.success("查询成功", value)))
+                .orElseGet(() -> ResponseEntity.ok(ApiResponse.error(404, "SKU不存在")));
+    }
+    
+    /**
+     * 根据商品ID和SKU ID查询SKU（推荐，包含分片键）
+     */
+    @GetMapping("/product/{productId}/sku/{skuId}")
+    public ResponseEntity<ApiResponse<ProductSku>> getSkuByProductIdAndId(
+            @PathVariable Long productId,
+            @PathVariable Long skuId) {
+        log.info("查询SKU，商品ID: {}, SKU ID: {}", productId, skuId);
+        Optional<ProductSku> sku = productSkuService.getSkuByProductIdAndId(productId, skuId);
         return sku.map(value -> ResponseEntity.ok(ApiResponse.success("查询成功", value)))
                 .orElseGet(() -> ResponseEntity.ok(ApiResponse.error(404, "SKU不存在")));
     }

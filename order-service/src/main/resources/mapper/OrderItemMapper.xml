@@ -7,6 +7,8 @@
         <id column="id" property="id"/>
         <result column="order_id" property="orderId"/>
         <result column="merchant_id" property="merchantId"/>
+        <result column="store_id" property="storeId"/>
+        <result column="shard_id" property="shardId"/>
         <result column="product_id" property="productId"/>
         <result column="sku_id" property="skuId"/>
         <result column="sku_name" property="skuName"/>
@@ -42,13 +44,13 @@
     <!-- 注意：INSERT 语句中不包含 id 字段，让 ShardingSphere 自动生成并填充 -->
     <insert id="insert" parameterType="com.jiaoyi.order.entity.OrderItem" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO order_items (
-            order_id, merchant_id, product_id, sku_id, sku_name, sku_attributes, sale_item_id, order_item_id,
+            order_id, merchant_id, store_id, shard_id, product_id, sku_id, sku_name, sku_attributes, sale_item_id, order_item_id,
             item_name, product_image, item_price, quantity, item_price_total, display_price,
             detail_price_id, detail_price_info, size_id, options, combo_detail,
             discount_name, charge_name, course_number, item_type, item_number,
             kitchen_index, category_id, version, create_time, update_time
         ) VALUES (
-            #{orderId}, #{merchantId}, #{productId}, #{skuId}, #{skuName}, #{skuAttributes}, #{saleItemId}, #{orderItemId},
+            #{orderId}, #{merchantId}, #{storeId}, #{shardId}, #{productId}, #{skuId}, #{skuName}, #{skuAttributes}, #{saleItemId}, #{orderItemId},
             #{itemName}, #{productImage}, #{itemPrice}, #{quantity}, #{itemPriceTotal}, #{displayPrice},
             #{detailPriceId}, #{detailPriceInfo}, #{sizeId}, #{options}, #{comboDetail},
             #{discountName}, #{chargeName}, #{courseNumber}, #{itemType}, #{itemNumber},
@@ -62,14 +64,14 @@
     <!-- 注意：批量插入时，ShardingSphere 会为每个 item 单独生成 ID -->
     <insert id="insertBatch" parameterType="java.util.List" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO order_items (
-            order_id, merchant_id, product_id, sku_id, sku_name, sku_attributes, sale_item_id, order_item_id,
+            order_id, merchant_id, store_id, shard_id, product_id, sku_id, sku_name, sku_attributes, sale_item_id, order_item_id,
             item_name, product_image, item_price, quantity, item_price_total, display_price,
             detail_price_id, detail_price_info, size_id, options, combo_detail,
             discount_name, charge_name, course_number, item_type, item_number,
             kitchen_index, category_id, version, create_time, update_time
         ) VALUES
         <foreach collection="orderItems" item="item" separator=",">
-            (#{item.orderId}, #{item.merchantId}, #{item.productId}, #{item.skuId}, #{item.skuName}, #{item.skuAttributes}, #{item.saleItemId}, #{item.orderItemId},
+            (#{item.orderId}, #{item.merchantId}, #{item.storeId}, #{item.shardId}, #{item.productId}, #{item.skuId}, #{item.skuName}, #{item.skuAttributes}, #{item.saleItemId}, #{item.orderItemId},
              #{item.itemName}, #{item.productImage}, #{item.itemPrice}, #{item.quantity}, #{item.itemPriceTotal}, #{item.displayPrice},
              #{item.detailPriceId}, #{item.detailPriceInfo}, #{item.sizeId}, #{item.options}, #{item.comboDetail},
              #{item.discountName}, #{item.chargeName}, #{item.courseNumber}, #{item.itemType}, #{item.itemNumber},

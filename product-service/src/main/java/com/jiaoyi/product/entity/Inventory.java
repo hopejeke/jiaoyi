@@ -14,12 +14,40 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class Inventory {
     
+    /**
+     * 库存模式枚举
+     */
+    public enum StockMode {
+        /**
+         * 无限库存（不设库存限制，默认可售无限）
+         */
+        UNLIMITED,
+        
+        /**
+         * 有限库存（需要管控库存数量）
+         */
+        LIMITED;
+        
+        /**
+         * JSON 序列化时使用枚举名称
+         */
+        @com.fasterxml.jackson.annotation.JsonValue
+        public String toValue() {
+            return this.name();
+        }
+    }
+    
     private Long id;
     
     /**
      * 店铺ID
      */
     private Long storeId;
+    
+    /**
+     * 分片ID（0-1023，基于storeId计算，用于分库分表路由）
+     */
+    private Integer productShardId;
     
     /**
      * 商品ID（关联store_products.id）
@@ -43,23 +71,32 @@ public class Inventory {
     private String skuName;
     
     /**
+     * 库存模式：UNLIMITED（无限库存）或 LIMITED（有限库存）
+     * 默认：UNLIMITED（不设库存限制，类似美团商家不设库存的场景）
+     */
+    private StockMode stockMode = StockMode.UNLIMITED;
+    
+    /**
      * 当前库存数量
+     * 仅在 stockMode = LIMITED 时有效
      */
     private Integer currentStock;
     
     /**
      * 锁定库存数量（已下单但未支付）
+     * 仅在 stockMode = LIMITED 时有效
      */
     private Integer lockedStock = 0;
     
-    
     /**
      * 最低库存预警线
+     * 仅在 stockMode = LIMITED 时有效
      */
     private Integer minStock = 0;
     
     /**
      * 最大库存容量
+     * 仅在 stockMode = LIMITED 时有效
      */
     private Integer maxStock;
     

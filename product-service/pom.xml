@@ -24,6 +24,13 @@
             <version>${project.version}</version>
         </dependency>
         
+        <!-- Outbox Starter -->
+        <dependency>
+            <groupId>com.jiaoyi</groupId>
+            <artifactId>outbox-starter</artifactId>
+            <version>${project.version}</version>
+        </dependency>
+        
         <!-- Web -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

@@ -28,7 +28,6 @@ public class ReconciliationService {
     
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
-    private final PaymentMapper paymentMapper;
     private final RefundMapper refundMapper;
     private final RefundItemMapper refundItemMapper;
     private final OrderCouponMapper orderCouponMapper;

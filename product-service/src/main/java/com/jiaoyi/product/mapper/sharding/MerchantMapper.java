@@ -29,16 +29,6 @@ public interface MerchantMapper {
     Optional<Merchant> selectByMerchantId(@Param("merchantId") String merchantId);
     
     /**
-     * 根据encryptMerchantId查询餐馆
-     */
-    Optional<Merchant> selectByEncryptMerchantId(@Param("encryptMerchantId") String encryptMerchantId);
-    
-    /**
-     * 根据merchantGroupId查询所有餐馆
-     */
-    List<Merchant> selectByMerchantGroupId(@Param("merchantGroupId") String merchantGroupId);
-    
-    /**
      * 查询所有显示的餐馆
      */
     List<Merchant> selectAllDisplay();

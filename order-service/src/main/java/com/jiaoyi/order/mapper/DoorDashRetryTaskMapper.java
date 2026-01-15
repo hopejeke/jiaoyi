@@ -21,8 +21,15 @@ public interface DoorDashRetryTaskMapper {
     
     /**
      * 根据ID查询任务
+     * 注意：由于 doordash_retry_task 表是分片表（基于 merchant_id），selectById 没有分片键可能查询不到
+     * 建议使用 selectByMerchantIdAndId
      */
     DoorDashRetryTask selectById(@Param("id") Long id);
+    
+    /**
+     * 根据商户ID和任务ID查询任务（推荐，包含分片键）
+     */
+    DoorDashRetryTask selectByMerchantIdAndId(@Param("merchantId") String merchantId, @Param("id") Long id);
     
     /**
      * 根据订单ID查询任务

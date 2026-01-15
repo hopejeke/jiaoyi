@@ -8,6 +8,8 @@
         <result column="order_id" property="orderId"/>
         <result column="payment_id" property="paymentId"/>
         <result column="merchant_id" property="merchantId"/>
+        <result column="store_id" property="storeId"/>
+        <result column="shard_id" property="shardId"/>
         <result column="request_no" property="requestNo"/>
         <result column="refund_amount" property="refundAmount"/>
         <result column="reason" property="reason"/>
@@ -24,11 +26,11 @@
     <!-- 插入退款单 -->
     <insert id="insert" parameterType="com.jiaoyi.order.entity.Refund" useGeneratedKeys="true" keyProperty="refundId">
         INSERT INTO refunds (
-            order_id, payment_id, merchant_id, request_no, refund_amount, reason,
+            order_id, payment_id, merchant_id, store_id, shard_id, request_no, refund_amount, reason,
             status, third_party_refund_id, error_message, commission_reversal, version,
             created_at, updated_at, processed_at
         ) VALUES (
-            #{orderId}, #{paymentId}, #{merchantId}, #{requestNo}, #{refundAmount}, #{reason},
+            #{orderId}, #{paymentId}, #{merchantId}, #{storeId}, #{shardId}, #{requestNo}, #{refundAmount}, #{reason},
             #{status}, #{thirdPartyRefundId}, #{errorMessage}, #{commissionReversal}, #{version},
             #{createdAt}, #{updatedAt}, #{processedAt}
         )
@@ -37,6 +39,13 @@
     <!-- 根据ID查询退款单 -->
     <select id="selectById" parameterType="long" resultMap="BaseResultMap">
         SELECT * FROM refunds WHERE refund_id = #{refundId}
+    </select>
+
+    <!-- 根据商户ID和退款ID查询退款单（推荐，包含分片键） -->
+    <select id="selectByMerchantIdAndRefundId" resultMap="BaseResultMap">
+        SELECT * FROM refunds 
+        WHERE merchant_id = #{merchantId} AND refund_id = #{refundId}
+        LIMIT 1
     </select>
 
     <!-- 根据订单ID查询退款单列表 -->

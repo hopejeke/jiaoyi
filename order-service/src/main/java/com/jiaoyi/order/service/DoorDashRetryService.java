@@ -56,11 +56,23 @@ public class DoorDashRetryService {
                 return;
             }
             
+            // 从订单中获取 storeId（用于分片）
+            Long storeId = null;
+            try {
+                Order order = orderMapper.selectById(orderId);
+                if (order != null) {
+                    storeId = order.getStoreId();
+                }
+            } catch (Exception e) {
+                log.warn("查询订单获取 storeId 失败，订单ID: {}", orderId, e);
+            }
+            
             // 创建新的重试任务
             DoorDashRetryTask task = new DoorDashRetryTask();
             // ID 由 ShardingSphere 自动生成（雪花算法）
             task.setOrderId(orderId);
             task.setMerchantId(merchantId);
+            task.setStoreId(storeId); // 设置 storeId（用于分片）
             task.setPaymentId(paymentId);
             task.setStatus(DoorDashRetryTask.TaskStatus.PENDING.getCode());
             task.setRetryCount(0);

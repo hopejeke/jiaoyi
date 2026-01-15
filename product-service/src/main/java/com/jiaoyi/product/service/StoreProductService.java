@@ -1,5 +1,7 @@
 package com.jiaoyi.product.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jiaoyi.outbox.OutboxService;
 import com.jiaoyi.product.config.RocketMQConfig;
 import com.jiaoyi.product.dto.StoreProductCacheUpdateMessage;
 import com.jiaoyi.product.entity.Merchant;
@@ -26,6 +28,7 @@ public class StoreProductService {
     private final InventoryService inventoryService;
     private final StoreProductCacheService storeProductCacheService;
     private final OutboxService outboxService;
+    private final ObjectMapper objectMapper;
     private final StoreMapper storeMapper;
     private final MerchantService merchantService;
 
@@ -102,6 +105,12 @@ public class StoreProductService {
             if (storeProduct.getStatus() == null) {
                 storeProduct.setStatus(StoreProduct.StoreProductStatus.ACTIVE);
             }
+            
+            // 计算并设置 product_shard_id（基于 storeId，用于分库分表路由）
+            if (storeProduct.getProductShardId() == null) {
+                int productShardId = com.jiaoyi.product.util.ProductShardUtil.calculateProductShardId(storeId);
+                storeProduct.setProductShardId(productShardId);
+            }
 
             // 注意：create_time 和 update_time 由数据库自动生成，不需要手动设置
             // INSERT时version直接设置为1，插入后通过selectKey自动返回id
@@ -148,11 +157,26 @@ public class StoreProductService {
 
             // 写入outbox表（在同一个事务中）
             String messageKey = String.valueOf(productId); // 使用productId作为messageKey
-            outboxService.saveMessage(
+            String type = RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC.toUpperCase().replace("-", "_") + "_MQ";
+            String payload;
+            try {
+                payload = objectMapper.writeValueAsString(message);
+            } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+                log.error("序列化消息失败，商品ID: {}", productId, e);
+                throw new RuntimeException("序列化消息失败: " + e.getMessage(), e);
+            }
+            String shardingKey = String.valueOf(storeId); // 使用 storeId 作为分片键
+            Integer shardId = storeProduct.getProductShardId(); // 使用已计算的 product_shard_id
+            
+            outboxService.enqueue(
+                    type,
+                    messageKey, // bizKey
+                    payload,
                     RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC,
                     RocketMQConfig.PRODUCT_CACHE_UPDATE_TAG,
                     messageKey,
-                    message
+                    shardingKey,
+                    shardId
             );
             log.info("已写入outbox表，商品ID: {}，定时任务将异步发送消息", productId);
 
@@ -250,11 +274,30 @@ public class StoreProductService {
 
         // 写入outbox表（在同一个事务中）
         String messageKey = String.valueOf(productId);
-        outboxService.saveMessage(
+        String type = RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC.toUpperCase().replace("-", "_") + "_MQ";
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(message);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.error("序列化消息失败，商品ID: {}", productId, e);
+            throw new RuntimeException("序列化消息失败: " + e.getMessage(), e);
+        }
+        String shardingKey = String.valueOf(storeId); // 使用 storeId 作为分片键
+        // 从 storeProduct 获取 product_shard_id，如果没有则计算
+        Integer shardId = storeProduct.getProductShardId();
+        if (shardId == null) {
+            shardId = com.jiaoyi.product.util.ProductShardUtil.calculateProductShardId(storeId);
+        }
+        
+        outboxService.enqueue(
+                type,
+                messageKey, // bizKey
+                payload,
                 RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC,
                 RocketMQConfig.PRODUCT_CACHE_UPDATE_TAG,
                 messageKey,
-                message
+                shardingKey,
+                shardId
         );
         log.info("已写入outbox表（UPDATE），商品ID: {}，定时任务将异步发送消息", productId);
     }
@@ -334,11 +377,27 @@ public class StoreProductService {
 
         // 写入outbox表（在同一个事务中）
         String messageKey = String.valueOf(storeProductId);
-        outboxService.saveMessage(
+        String type = RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC.toUpperCase().replace("-", "_") + "_MQ";
+        String payload;
+        try {
+            payload = objectMapper.writeValueAsString(message);
+        } catch (com.fasterxml.jackson.core.JsonProcessingException e) {
+            log.error("序列化消息失败，商品ID: {}", storeProductId, e);
+            throw new RuntimeException("序列化消息失败: " + e.getMessage(), e);
+        }
+        String shardingKey = String.valueOf(storeId); // 使用 storeId 作为分片键
+        // 计算 product_shard_id
+        Integer shardId = com.jiaoyi.product.util.ProductShardUtil.calculateProductShardId(storeId);
+        
+        outboxService.enqueue(
+                type,
+                messageKey, // bizKey
+                payload,
                 RocketMQConfig.PRODUCT_CACHE_UPDATE_TOPIC,
                 RocketMQConfig.PRODUCT_CACHE_UPDATE_TAG,
                 messageKey,
-                message
+                shardingKey,
+                shardId
         );
         log.info("已写入outbox表（DELETE），商品ID: {}，版本号: {}，定时任务将异步发送消息", storeProductId, version);
     }

@@ -27,16 +27,6 @@ public class Merchant {
     private String merchantId;
     
     /**
-     * 餐馆组ID
-     */
-    private String merchantGroupId;
-    
-    /**
-     * 加密的餐馆ID
-     */
-    private String encryptMerchantId;
-    
-    /**
      * 餐馆名称
      */
     private String name;

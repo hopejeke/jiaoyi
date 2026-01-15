@@ -63,6 +63,12 @@ public class ProductSkuService {
             }
         }
         
+        // 计算并设置 product_shard_id（基于 storeId，用于分库分表路由）
+        if (sku.getProductShardId() == null) {
+            int productShardId = com.jiaoyi.product.util.ProductShardUtil.calculateProductShardId(sku.getStoreId());
+            sku.setProductShardId(productShardId);
+        }
+        
         // 插入SKU（insert 方法会通过 selectKey 自动设置 id）
         productSkuMapper.insert(sku);
         
@@ -88,10 +94,36 @@ public class ProductSkuService {
     
     /**
      * 根据ID查询SKU
+     * 注意：由于 product_sku 表是分片表（基于 store_id），只传 id 可能查询不到
+     * 建议使用 getSkuByProductIdAndId 或 getSkuByStoreIdAndId
      */
     public Optional<ProductSku> getSkuById(Long skuId) {
         Optional<ProductSku> sku = productSkuMapper.selectById(skuId);
         // 过滤已删除的SKU（因为 ShardingSphere 元数据问题，暂时不在 SQL 中过滤）
+        if (sku.isPresent() && sku.get().getIsDelete() != null && sku.get().getIsDelete()) {
+            return Optional.empty();
+        }
+        return sku;
+    }
+    
+    /**
+     * 根据商品ID和SKU ID查询SKU（推荐，包含分片键）
+     */
+    public Optional<ProductSku> getSkuByProductIdAndId(Long productId, Long skuId) {
+        Optional<ProductSku> sku = productSkuMapper.selectByProductIdAndId(productId, skuId);
+        // 过滤已删除的SKU
+        if (sku.isPresent() && sku.get().getIsDelete() != null && sku.get().getIsDelete()) {
+            return Optional.empty();
+        }
+        return sku;
+    }
+    
+    /**
+     * 根据店铺ID和SKU ID查询SKU（推荐，包含分片键）
+     */
+    public Optional<ProductSku> getSkuByStoreIdAndId(Long storeId, Long skuId) {
+        Optional<ProductSku> sku = productSkuMapper.selectByStoreIdAndId(storeId, skuId);
+        // 过滤已删除的SKU
         if (sku.isPresent() && sku.get().getIsDelete() != null && sku.get().getIsDelete()) {
             return Optional.empty();
         }

@@ -6,8 +6,6 @@
     <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.Merchant">
         <id column="id" property="id"/>
         <result column="merchant_id" property="merchantId"/>
-        <result column="merchant_group_id" property="merchantGroupId"/>
-        <result column="encrypt_merchant_id" property="encryptMerchantId"/>
         <result column="name" property="name"/>
         <result column="time_zone" property="timeZone"/>
         <result column="logo" property="logo"/>
@@ -45,7 +43,7 @@
     </resultMap>
 
     <sql id="Base_Column_List">
-        id, merchant_id, merchant_group_id, encrypt_merchant_id, name, time_zone, logo, short_url,
+        id, merchant_id, name, time_zone, logo, short_url,
         is_pickup, is_delivery, pickup_payment_acceptance, delivery_payment_acceptance,
         pickup_prepare_time, delivery_prepare_time, pickup_open_time, delivery_open_time,
         default_delivery_fee, delivery_flat_fee, delivery_variable_rate, delivery_zone_rate,
@@ -58,7 +56,7 @@
     <!-- 插入餐馆 -->
     <insert id="insert" parameterType="com.jiaoyi.product.entity.Merchant" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO merchants (
-            merchant_id, merchant_group_id, encrypt_merchant_id, name, time_zone, logo, short_url,
+            merchant_id, name, time_zone, logo, short_url,
             is_pickup, is_delivery, pickup_payment_acceptance, delivery_payment_acceptance,
             pickup_prepare_time, delivery_prepare_time, pickup_open_time, delivery_open_time,
             default_delivery_fee, delivery_flat_fee, delivery_variable_rate, delivery_zone_rate,
@@ -67,7 +65,7 @@
             enable_auto_receipt, enable_sdi_auto_receipt, enable_sdi_auto_send, enable_popular_item,
             display, personalization, capability_of_order, version, create_time, update_time
         ) VALUES (
-            #{merchantId}, #{merchantGroupId}, #{encryptMerchantId}, #{name}, #{timeZone}, #{logo}, #{shortUrl},
+            #{merchantId}, #{name}, #{timeZone}, #{logo}, #{shortUrl},
             #{isPickup}, #{isDelivery}, #{pickupPaymentAcceptance}, #{deliveryPaymentAcceptance},
             #{pickupPrepareTime}, #{deliveryPrepareTime}, #{pickupOpenTime}, #{deliveryOpenTime},
             #{defaultDeliveryFee}, #{deliveryFlatFee}, #{deliveryVariableRate}, #{deliveryZoneRate},
@@ -95,23 +93,6 @@
         <include refid="Base_Column_List"/>
         FROM merchants
         WHERE merchant_id = #{merchantId}
-    </select>
-
-    <!-- 根据encryptMerchantId查询餐馆 -->
-    <select id="selectByEncryptMerchantId" parameterType="string" resultMap="BaseResultMap">
-        SELECT
-        <include refid="Base_Column_List"/>
-        FROM merchants
-        WHERE encrypt_merchant_id = #{encryptMerchantId}
-    </select>
-
-    <!-- 根据merchantGroupId查询所有餐馆 -->
-    <select id="selectByMerchantGroupId" parameterType="string" resultMap="BaseResultMap">
-        SELECT
-        <include refid="Base_Column_List"/>
-        FROM merchants
-        WHERE merchant_group_id = #{merchantGroupId}
-        ORDER BY create_time DESC
     </select>
 
     <!-- 查询所有显示的餐馆 -->

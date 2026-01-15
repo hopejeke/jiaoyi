@@ -271,10 +271,18 @@ public class OrderController {
                 String productImage = productMap.get("productImage") != null ? 
                         productMap.get("productImage").toString() : itemRequest.getProductImage();
                 
+                // 提取 storeId（用于分片）
+                Long storeId = null;
+                Object storeIdObj = productMap.get("storeId");
+                if (storeIdObj != null) {
+                    storeId = Long.valueOf(storeIdObj.toString());
+                }
+                
                 // 创建订单项
                 OrderItem item = new OrderItem();
                 item.setProductId(itemRequest.getProductId());
                 item.setSkuId(itemRequest.getSkuId());
+                item.setStoreId(storeId); // 设置 storeId（用于分片）
                 item.setSkuName(skuName);
                 item.setSkuAttributes(skuAttributes);
                 item.setItemName(productName != null ? productName : "商品");

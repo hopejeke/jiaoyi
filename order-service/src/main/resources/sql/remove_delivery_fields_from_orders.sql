@@ -64,3 +64,5 @@ ALTER TABLE orders_2 DROP COLUMN IF EXISTS delivery_driver_phone;
 
 
 
+
+

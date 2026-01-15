@@ -1,0 +1,413 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.outbox.mapper.OutboxMapper">
+    
+    <resultMap id="OutboxResultMap" type="com.jiaoyi.outbox.entity.Outbox">
+        <id property="id" column="id"/>
+        <result property="type" column="type"/>
+        <result property="bizKey" column="biz_key"/>
+        <result property="shardingKey" column="sharding_key"/>
+        <result property="shardId" column="shard_id"/>
+        <result property="topic" column="topic"/>
+        <result property="tag" column="tag"/>
+        <result property="messageKey" column="message_key"/>
+        <result property="payload" column="payload"/>
+        <result property="status" column="status" 
+                typeHandler="com.jiaoyi.outbox.OutboxStatusTypeHandler"/>
+        <result property="retryCount" column="retry_count"/>
+        <result property="nextRetryTime" column="next_retry_time"/>
+        <result property="lockOwner" column="lock_owner"/>
+        <result property="lockTime" column="lock_time"/>
+        <result property="lockUntil" column="lock_until"/>
+        <result property="lastError" column="last_error"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+        <result property="completedAt" column="completed_at"/>
+        <!-- 兼容旧字段 -->
+        <result property="messageBody" column="message_body"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="sentAt" column="sent_at"/>
+    </resultMap>
+    
+    <!-- 插入outbox记录（使用动态表名 ${table}） -->
+    <insert id="insert" parameterType="com.jiaoyi.outbox.entity.Outbox" useGeneratedKeys="true" keyProperty="outbox.id">
+        INSERT INTO ${table} (
+            type, biz_key, sharding_key, shard_id, topic, tag, message_key, payload, message_body,
+            status, retry_count, next_retry_time, lock_owner, lock_time, lock_until,
+            last_error, created_at, updated_at, completed_at
+        ) VALUES (
+            #{outbox.type},
+            #{outbox.bizKey},
+            #{outbox.shardingKey},
+            #{outbox.shardId},
+            #{outbox.topic}, 
+            #{outbox.tag}, 
+            #{outbox.messageKey}, 
+            #{outbox.payload},
+            #{outbox.payload}, <!-- message_body 兼容旧字段，使用 payload 的值 -->
+            #{outbox.status, typeHandler=com.jiaoyi.outbox.OutboxStatusTypeHandler}, 
+            #{outbox.retryCount}, 
+            #{outbox.nextRetryTime},
+            #{outbox.lockOwner},
+            #{outbox.lockTime},
+            #{outbox.lastError},
+            #{outbox.createdAt}, 
+            #{outbox.updatedAt},
+            #{outbox.completedAt}
+        )
+    </insert>
+    
+    <select id="selectById" resultMap="OutboxResultMap">
+        SELECT * FROM ${table} WHERE id = #{id}
+    </select>
+    
+    <!-- 查询待处理的任务（NEW 或 FAILED 且 next_retry_time <= now） -->
+    <!-- 使用动态表名 ${table} -->
+    <select id="selectCandidatesByShard" resultMap="OutboxResultMap">
+        SELECT * FROM ${table}
+        WHERE status IN ('NEW', 'FAILED')
+          AND (next_retry_time IS NULL OR next_retry_time &lt;= #{now})
+          AND shard_id IN
+          <foreach collection="shardIds" item="shardId" open="(" separator="," close=")">
+              #{shardId}
+          </foreach>
+        ORDER BY created_at ASC 
+        LIMIT #{limit}
+    </select>
+    
+    <!-- 查询待处理的任务（按单个分片ID查询，用于分库扫描，避免跨库广播） -->
+    <!-- 使用动态表名 ${table} -->
+    <select id="selectCandidatesBySingleShard" resultMap="OutboxResultMap">
+        SELECT * FROM ${table}
+        WHERE shard_id = #{shardId}
+          AND status IN ('NEW', 'FAILED')
+          AND (next_retry_time IS NULL OR next_retry_time &lt;= #{now})
+        ORDER BY created_at ASC 
+        LIMIT #{limit}
+    </select>
+    
+    <!-- CAS 抢锁：将状态从 NEW/FAILED 改为 PROCESSING -->
+    <!-- 使用动态表名 ${table} -->
+    <update id="tryLock">
+        UPDATE ${table}
+        SET status = 'PROCESSING',
+            lock_owner = #{lockOwner},
+            lock_time = #{now},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND status IN ('NEW', 'FAILED')
+          AND (next_retry_time IS NULL OR next_retry_time &lt;= #{now})
+    </update>
+    
+    <!-- 标记为成功 -->
+    <!-- 使用动态表名 ${table} -->
+    <update id="markSuccess">
+        UPDATE ${table}
+        SET status = 'SUCCESS',
+            completed_at = #{completedAt},
+            lock_owner = NULL,
+            lock_time = NULL,
+            lock_until = NULL,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_owner = #{lockOwner}
+    </update>
+    
+    <!-- 标记为失败（可重试） -->
+    <!-- 使用动态表名 ${table} -->
+    <update id="markFailed">
+        UPDATE ${table}
+        SET status = 'FAILED',
+            retry_count = #{retryCount},
+            next_retry_time = #{nextRetryTime},
+            last_error = #{lastError},
+            lock_owner = NULL,
+            lock_time = NULL,
+            lock_until = NULL,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_owner = #{lockedBy}
+    </update>
+    
+    <!-- 标记为死信（超过最大重试次数） -->
+    <!-- 使用动态表名 ${table} -->
+    <update id="markDead">
+        UPDATE ${table}
+        SET status = 'DEAD',
+            last_error = #{lastError},
+            lock_owner = NULL,
+            lock_time = NULL,
+            lock_until = NULL,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_owner = #{lockedBy}
+    </update>
+    
+    <!-- 恢复卡死的任务（PROCESSING 状态超过指定时间，或 lock_until 过期） -->
+    <!-- 使用动态表名 ${table} -->
+    <!-- @deprecated 请使用 recoverStuckByShard，按分片恢复避免跨库广播 -->
+    <update id="recoverStuck">
+        UPDATE ${table}
+        SET status = 'FAILED',
+            lock_owner = NULL,
+            lock_time = NULL,
+            lock_until = NULL,
+            updated_at = NOW()
+        WHERE status = 'PROCESSING'
+          AND (lock_time &lt;= #{stuckThreshold} OR lock_until &lt; #{now})
+    </update>
+    
+    <!-- 按分片恢复卡死的任务（PROCESSING 状态且 lock_until 已过期） -->
+    <!-- 使用动态表名 ${table} -->
+    <!-- 
+    恢复逻辑：
+    1. 将锁已过期的 PROCESSING 任务恢复为 FAILED
+    2. 清除锁信息（lock_owner, lock_time, lock_until）
+    3. 设置 next_retry_time = NOW()（或 NOW() + 10s），进入统一的指数退避重试流程
+    4. 记录恢复原因到 last_error
+    
+    优势：
+    - 避免慢任务被误判为卡死导致并发重复执行
+    - 重试节奏可控，不会重试风暴
+    - 语义清晰，排障简单
+    - 可以加审计：恢复了多少、多久没动、哪个实例最后持有锁
+    -->
+    <update id="recoverStuckByShard">
+        UPDATE ${table}
+        SET status = 'FAILED',
+            lock_owner = NULL,
+            lock_time = NULL,
+            lock_until = NULL,
+            next_retry_time = NOW(),
+            last_error = CONCAT('[RECOVER] lock expired at ', NOW()),
+            updated_at = NOW()
+        WHERE shard_id = #{shardId}
+          AND status = 'PROCESSING'
+          AND lock_until &lt; #{now}
+    </update>
+    
+    <!-- 释放锁：将状态从 PROCESSING 改回 NEW，清除 lock_owner -->
+    <!-- 使用动态表名 ${table} -->
+    <update id="releaseLock">
+        UPDATE ${table}
+        SET status = 'NEW',
+            lock_owner = NULL,
+            lock_time = NULL,
+            lock_until = NULL,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_owner = #{lockOwner}
+    </update>
+    
+    <!-- 续租锁：延长 lock_until 时间（用于慢任务避免锁过期） -->
+    <!-- 使用动态表名 ${table} -->
+    <!-- 
+    使用场景：
+    - handler 执行时间可能超过 lock_timeout（如批量发送、网络抖动、下游慢）
+    - 在执行过程中定期调用此方法续租，避免锁过期被其他实例误判为卡死
+    
+    示例：
+    - 每隔 10 秒调用一次：extendLock(id, instanceId, NOW() + 30秒, NOW())
+    - 或者将 lock_timeout 提高到 2~5 分钟（但会拉长宕机恢复时间）
+    -->
+    <update id="extendLock">
+        UPDATE ${table}
+        SET lock_until = #{newLockUntil},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_owner = #{lockedBy}
+          AND lock_until &gt;= #{now}  -- 只有锁未过期才能续租
+    </update>
+    
+    <!-- 更新shard_id -->
+    <!-- 使用动态表名 ${table} -->
+    <update id="updateShardId">
+        UPDATE ${table}
+        SET shard_id = #{shardId}
+        WHERE id = #{id}
+    </update>
+    
+    <!-- 抢占式 claim：批量更新状态为 PROCESSING，并设置锁信息（按 shard_id 过滤，避免跨库广播） -->
+    <!-- 包含 DEAD 状态的任务（保证最终一致性），但 DEAD 任务需要满足更长的重试间隔（1小时） -->
+    <!-- 使用动态表名 ${table} -->
+    <update id="claim">
+        UPDATE ${table}
+        SET status = 'PROCESSING',
+            lock_owner = #{lockedBy},
+            lock_time = #{now},
+            lock_until = #{lockUntil},
+            updated_at = #{now}
+        WHERE shard_id = #{shardId}
+          AND
+            -- NEW 和 FAILED 状态：按 next_retry_time 重试
+            (status IN ('NEW', 'FAILED') AND (next_retry_time IS NULL OR next_retry_time &lt;= #{now}))
+
+
+          AND (lock_until IS NULL OR lock_until &lt; #{now})
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </update>
+    
+    <!-- 查询已 claim 的任务（用于发送，按 shard_id 过滤，避免跨库广播） -->
+    <!-- 使用动态表名 ${table} -->
+    <select id="selectClaimed" resultMap="OutboxResultMap">
+        SELECT * FROM ${table}
+        WHERE shard_id = #{shardId}
+          AND status = 'PROCESSING'
+          AND lock_owner = #{lockedBy}
+          AND lock_until &gt;= #{now}
+        ORDER BY id ASC
+        LIMIT #{limit}
+    </select>
+    
+    <!-- 标记为已发送（SENT） -->
+    <!-- 使用动态表名 ${table} -->
+    <update id="markSent">
+        UPDATE ${table}
+        SET status = 'SENT',
+            lock_owner = NULL,
+            lock_time = NULL,
+            lock_until = NULL,
+            sent_at = NOW(),
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'PROCESSING'
+          AND lock_owner = #{lockedBy}
+    </update>
+    
+    <!-- 查询死信列表 -->
+    <!-- 使用动态表名 ${table} -->
+    <select id="selectDeadLetters" resultMap="OutboxResultMap">
+        SELECT * FROM ${table}
+        WHERE status = 'DEAD'
+        <if test="type != null and type != ''">
+            AND type = #{type}
+        </if>
+        <if test="bizKey != null and bizKey != ''">
+            AND biz_key = #{bizKey}
+        </if>
+        ORDER BY updated_at DESC
+        LIMIT #{limit} OFFSET #{offset}
+    </select>
+    
+    <!-- 按业务键和类型查询死信任务 -->
+    <!-- 使用动态表名 ${table} -->
+    <select id="selectDeadByBizKeyAndType" resultMap="OutboxResultMap">
+        SELECT * FROM ${table}
+        WHERE status = 'DEAD'
+          AND biz_key = #{bizKey}
+        <if test="type != null and type != ''">
+            AND type = #{type}
+        </if>
+        ORDER BY updated_at DESC
+    </select>
+    
+    <!-- 重置死信任务为 NEW 状态（用于手动重放） -->
+    <!-- 使用动态表名 ${table} -->
+    <!-- 删除 SENT 状态的记录（按 shard_id 范围批量删除） -->
+    <delete id="deleteSentRecordsByShardRange">
+        DELETE FROM ${table}
+        WHERE status = 'SENT'
+        AND shard_id &gt;= #{startShardId}
+        AND shard_id &lt; #{endShardId}
+        AND created_at &lt; #{cutoffTime}
+    </delete>
+    
+    <!-- 删除 DEAD 状态的记录（按 shard_id 范围批量删除） -->
+    <delete id="deleteDeadRecordsByShardRange">
+        DELETE FROM ${table}
+        WHERE status = 'DEAD'
+        AND shard_id &gt;= #{startShardId}
+        AND shard_id &lt; #{endShardId}
+        AND created_at &lt; #{cutoffTime}
+    </delete>
+    
+    <update id="resetDeadToNew">
+        UPDATE ${table}
+        SET status = 'NEW',
+            retry_count = 0,
+            next_retry_time = NULL,
+            lock_owner = NULL,
+            lock_time = NULL,
+            lock_until = NULL,
+            last_error = NULL,
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND status = 'DEAD'
+    </update>
+    
+    <!-- ============================================ -->
+    <!-- 两段式 claim（使用 FOR UPDATE SKIP LOCKED） -->
+    <!-- ============================================ -->
+    <!-- 
+    为什么不用 UPDATE ... ORDER BY ... LIMIT？
+    1. 并发时容易锁等待：多个实例同时执行 UPDATE ... ORDER BY ... LIMIT 时，会互相等待锁
+    2. 索引不佳会扩大锁范围：如果索引不优化，UPDATE 会锁住更多行，影响写 outbox 的业务事务
+    3. 吞吐差：锁等待导致并发性能下降
+    
+    两段式 claim 的优势：
+    1. FOR UPDATE SKIP LOCKED：跳过被其他实例锁住的行，不阻塞
+    2. 各自 claim 不同任务：多个实例并发时各自处理不同任务，提高吞吐量
+    3. 锁范围小：只锁住 SELECT 到的行，不影响其他操作
+    -->
+    
+    <!-- 第一步：SELECT id ... FOR UPDATE SKIP LOCKED（跳过被其他实例锁住的行） -->
+    <!-- 使用动态表名 ${table} -->
+    <select id="selectIdsForClaim" resultType="long">
+        SELECT id
+        FROM ${table}
+        WHERE shard_id = #{shardId}
+          AND status IN ('NEW', 'FAILED')
+          AND (next_retry_time IS NULL OR next_retry_time &lt;= #{now})
+          AND (lock_until IS NULL OR lock_until &lt; #{now})
+        ORDER BY id ASC
+        LIMIT #{limit}
+        FOR UPDATE SKIP LOCKED
+    </select>
+    
+    <!-- 第二步：UPDATE ... WHERE id IN (...) AND shard_id = #{shardId} -->
+    <!-- 使用动态表名 ${table} -->
+    <!-- 注意：必须添加 shard_id 条件，确保 ShardingSphere 能正确路由到对应的分片库 -->
+    <!-- 只允许更新 NEW 和 FAILED 状态的任务，避免重复处理 -->
+    <update id="claimByIds">
+        UPDATE ${table}
+        SET status = 'PROCESSING',
+            lock_owner = #{lockedBy},
+            lock_time = #{now},
+            lock_until = #{lockUntil},
+            updated_at = #{now}
+        WHERE shard_id = #{shardId}
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+          AND status IN ('NEW', 'FAILED')
+          AND (next_retry_time IS NULL OR next_retry_time &lt;= #{now})
+          AND (lock_until IS NULL OR lock_until &lt; #{now})
+    </update>
+    
+    <!-- 第三步：SELECT * ... WHERE id IN (...) AND shard_id = #{shardId} 返回完整数据 -->
+    <!-- 使用动态表名 ${table} -->
+    <!-- 注意：必须添加 shard_id 条件，确保 ShardingSphere 能正确路由到对应的分片库 -->
+    <select id="selectByIds" resultMap="OutboxResultMap">
+        SELECT * FROM ${table}
+        WHERE shard_id = #{shardId}
+          AND id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        ORDER BY id ASC
+    </select>
+    
+    <!-- 两段式 claim 的完整方法（在同一个事务内执行三步） -->
+    <!-- 注意：这个方法在 Java 侧实现，调用上面的三个 SQL -->
+    <!-- 使用动态表名 ${table} -->
+    <!-- 这个方法不需要单独的 SQL，由 Java 代码组合调用 -->
+    
+</mapper>
+

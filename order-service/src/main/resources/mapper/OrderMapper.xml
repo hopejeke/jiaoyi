@@ -6,6 +6,8 @@
     <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.Order">
         <id column="id" property="id"/>
         <result column="merchant_id" property="merchantId"/>
+        <result column="store_id" property="storeId"/>
+        <result column="shard_id" property="shardId"/>
         <result column="user_id" property="userId"/>
         <result column="order_type" property="orderType" typeHandler="com.jiaoyi.order.handler.OrderTypeTypeHandler"/>
         <result column="status" property="status"/>
@@ -33,13 +35,13 @@
     <!-- 注意：INSERT 语句中不包含 id 字段，让 ShardingSphere 自动生成并填充 -->
     <insert id="insert" parameterType="com.jiaoyi.order.entity.Order" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO orders (
-            merchant_id, user_id, order_type, status, local_status, kitchen_status,
+            merchant_id, store_id, shard_id, user_id, order_type, status, local_status, kitchen_status,
             order_price, customer_info, delivery_address, notes,
             pos_order_id, payment_method, payment_status, stripe_payment_intent_id,
             refund_amount, refund_reason, version,
             create_time, update_time
         ) VALUES (
-            #{merchantId}, #{userId}, #{orderType, typeHandler=com.jiaoyi.order.handler.OrderTypeTypeHandler}, #{status}, #{localStatus}, #{kitchenStatus},
+            #{merchantId}, #{storeId}, #{shardId}, #{userId}, #{orderType, typeHandler=com.jiaoyi.order.handler.OrderTypeTypeHandler}, #{status}, #{localStatus}, #{kitchenStatus},
             #{orderPrice}, #{customerInfo}, #{deliveryAddress}, #{notes},
             #{posOrderId}, #{paymentMethod}, #{paymentStatus}, #{stripePaymentIntentId},
             #{refundAmount}, #{refundReason}, #{version},

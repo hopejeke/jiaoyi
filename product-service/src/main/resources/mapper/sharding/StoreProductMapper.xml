@@ -6,6 +6,7 @@
     <resultMap id="StoreProductResultMap" type="com.jiaoyi.product.entity.StoreProduct">
         <id column="id" property="id"/>
         <result column="store_id" property="storeId"/>
+        <result column="product_shard_id" property="productShardId"/>
         <result column="product_name" property="productName"/>
         <result column="description" property="description"/>
         <result column="unit_price" property="unitPrice"/>
@@ -25,7 +26,7 @@
     <!-- 使用 selectKey 在 INSERT 后通过 store_id 和 product_name 查询刚插入的记录（包含分片键） -->
     <insert id="insert" parameterType="com.jiaoyi.product.entity.StoreProduct">
         INSERT INTO store_products (
-            store_id, product_name, description, unit_price, product_image, category, status, version
+            store_id, product_shard_id, product_name, description, unit_price, product_image, category, status, version
             <if test="createTime != null">
                 , create_time
             </if>
@@ -33,7 +34,7 @@
                 , update_time
             </if>
         ) VALUES (
-            #{storeId}, #{productName}, #{description}, #{unitPrice}, #{productImage}, #{category}, #{status}, 1
+            #{storeId}, #{productShardId}, #{productName}, #{description}, #{unitPrice}, #{productImage}, #{category}, #{status}, 1
             <if test="createTime != null">
                 , #{createTime}
             </if>

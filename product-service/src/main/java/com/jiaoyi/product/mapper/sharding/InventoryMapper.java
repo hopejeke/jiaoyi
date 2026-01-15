@@ -83,9 +83,35 @@ public interface InventoryMapper {
     List<Inventory> selectAll();
     
     /**
-     * 更新库存数量
+     * 根据店铺ID查询所有库存
+     */
+    List<Inventory> selectByStoreId(@Param("storeId") Long storeId);
+    
+    /**
+     * 根据ID查询库存
+     * 注意：由于 inventory 表是分片表（基于 store_id），selectById 没有分片键可能查询不到
+     * 建议使用 selectByStoreIdAndId
+     */
+    Inventory selectById(@Param("id") Long id);
+    
+    /**
+     * 根据店铺ID和库存ID查询库存（推荐，包含分片键）
+     */
+    Inventory selectByStoreIdAndId(@Param("storeId") Long storeId, @Param("id") Long id);
+    
+    /**
+     * 更新库存数量（包含库存模式）
      */
     int updateStock(@Param("storeId") Long storeId, @Param("productId") Long productId, @Param("skuId") Long skuId, 
+                    @Param("stockMode") Inventory.StockMode stockMode,
                     @Param("currentStock") Integer currentStock, @Param("minStock") Integer minStock, @Param("maxStock") Integer maxStock);
+    
+    /**
+     * 根据ID更新库存数量
+     */
+    int updateStockById(@Param("id") Long id,
+                        @Param("currentStock") Integer currentStock, 
+                        @Param("minStock") Integer minStock, 
+                        @Param("maxStock") Integer maxStock);
 }
 

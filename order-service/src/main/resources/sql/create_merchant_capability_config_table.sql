@@ -71,3 +71,5 @@ CREATE TABLE IF NOT EXISTS merchant_capability_config_2 (
 -- 注意：需要在所有分片数据库（jiaoyi_0, jiaoyi_1, jiaoyi_2）中执行此脚本
 -- 每个数据库创建3个分片表，共9个表
 
+
+

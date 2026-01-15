@@ -7,6 +7,7 @@
         <id column="id" property="id"/>
         <result column="order_id" property="orderId"/>
         <result column="merchant_id" property="merchantId"/>
+        <result column="store_id" property="storeId"/>
         <result column="payment_id" property="paymentId"/>
         <result column="status" property="status"/>
         <result column="retry_count" property="retryCount"/>
@@ -26,12 +27,12 @@
     <!-- 注意：ShardingSphere 会自动生成 ID（雪花算法），使用 useGeneratedKeys 获取生成的 ID -->
     <insert id="insert" parameterType="com.jiaoyi.order.entity.DoorDashRetryTask" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO doordash_retry_task (
-            order_id, merchant_id, payment_id, status, retry_count, max_retry_count,
+            order_id, merchant_id, store_id, payment_id, status, retry_count, max_retry_count,
             error_message, error_stack, next_retry_time, last_retry_time,
             success_time, manual_intervention_time, manual_intervention_note,
             create_time, update_time
         ) VALUES (
-            #{orderId}, #{merchantId}, #{paymentId}, #{status}, #{retryCount}, #{maxRetryCount},
+            #{orderId}, #{merchantId}, #{storeId}, #{paymentId}, #{status}, #{retryCount}, #{maxRetryCount},
             #{errorMessage}, #{errorStack}, #{nextRetryTime}, #{lastRetryTime},
             #{successTime}, #{manualInterventionTime}, #{manualInterventionNote},
             #{createTime}, #{updateTime}
@@ -41,6 +42,13 @@
     <!-- 根据ID查询任务 -->
     <select id="selectById" resultMap="BaseResultMap">
         SELECT * FROM doordash_retry_task WHERE id = #{id}
+    </select>
+    
+    <!-- 根据商户ID和任务ID查询任务（推荐，包含分片键） -->
+    <select id="selectByMerchantIdAndId" resultMap="BaseResultMap">
+        SELECT * FROM doordash_retry_task 
+        WHERE merchant_id = #{merchantId} AND id = #{id}
+        LIMIT 1
     </select>
     
     <!-- 根据订单ID查询任务 -->

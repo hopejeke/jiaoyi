@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.WebhookEventLogMapper">
+    
+    <resultMap id="WebhookEventLogResultMap" type="com.jiaoyi.order.entity.WebhookEventLog">
+        <id property="id" column="id"/>
+        <result property="eventId" column="event_id"/>
+        <result property="eventType" column="event_type"/>
+        <result property="paymentIntentId" column="payment_intent_id"/>
+        <result property="thirdPartyTradeNo" column="third_party_trade_no"/>
+        <result property="orderId" column="order_id"/>
+        <result property="status" column="status" 
+                typeHandler="com.jiaoyi.order.handler.WebhookEventStatusTypeHandler"/>
+        <result property="errorMessage" column="error_message"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="processedAt" column="processed_at"/>
+    </resultMap>
+    
+    <!-- 尝试插入事件（幂等：如果 eventId 已存在则忽略） -->
+    <insert id="tryInsert" parameterType="com.jiaoyi.order.entity.WebhookEventLog">
+        INSERT IGNORE INTO webhook_event_log (
+            event_id, event_type, payment_intent_id, third_party_trade_no, order_id, 
+            status, error_message, created_at, processed_at
+        ) VALUES (
+            #{eventId},
+            #{eventType},
+            #{paymentIntentId},
+            #{thirdPartyTradeNo},
+            #{orderId},
+            #{status, typeHandler=com.jiaoyi.order.handler.WebhookEventStatusTypeHandler},
+            #{errorMessage},
+            #{createdAt},
+            #{processedAt}
+        )
+    </insert>
+    
+    <select id="selectByEventId" resultMap="WebhookEventLogResultMap">
+        SELECT * FROM webhook_event_log WHERE event_id = #{eventId}
+    </select>
+    
+    <update id="updateStatusToProcessed">
+        UPDATE webhook_event_log 
+        SET status = 'PROCESSED',
+            processed_at = #{processedAt}
+        WHERE event_id = #{eventId}
+    </update>
+    
+    <update id="updateStatusToFailed">
+        UPDATE webhook_event_log 
+        SET status = 'FAILED',
+            error_message = #{errorMessage},
+            processed_at = #{processedAt}
+        WHERE event_id = #{eventId}
+    </update>
+    
+</mapper>
+
+
+

@@ -1,12 +1,17 @@
 package com.jiaoyi.order.controller;
 
+import com.jiaoyi.order.config.RocketMQConfig;
 import com.jiaoyi.order.config.StripeConfig;
 import com.jiaoyi.order.entity.Order;
+import com.jiaoyi.order.entity.OrderItem;
 import com.jiaoyi.order.entity.Payment;
+import com.jiaoyi.order.mapper.OrderItemMapper;
 import com.jiaoyi.order.mapper.OrderMapper;
 import com.jiaoyi.order.mapper.PaymentMapper;
+import com.jiaoyi.order.service.OutboxHelper;
 import com.jiaoyi.order.service.PaymentService;
 import com.jiaoyi.order.service.StripeService;
+import com.jiaoyi.order.service.WebhookEventLogService;
 import com.stripe.exception.SignatureVerificationException;
 import com.stripe.model.Charge;
 import com.stripe.model.Event;
@@ -18,6 +23,9 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Stripe Webhook 控制器
@@ -32,8 +40,11 @@ public class StripeWebhookController {
     private final PaymentService paymentService;
     private final PaymentMapper paymentMapper;
     private final OrderMapper orderMapper;
+    private final OrderItemMapper orderItemMapper;
     private final StripeService stripeService;
     private final StripeConfig stripeConfig;
+    private final WebhookEventLogService webhookEventLogService;
+    private final OutboxHelper outboxHelper;
     
     /**
      * 处理 GET 请求（用于测试和验证）
@@ -154,11 +165,99 @@ public class StripeWebhookController {
     
     /**
      * 处理 Payment Intent 成功事件
+     * 【回调链路】：事件幂等 + 更新支付/订单状态 + 写库存扣减 outbox，立即返回 200
+     * OutboxService 异步发送消息或调用库存服务扣库存
      */
     private void handlePaymentIntentSucceeded(Event event) {
-        log.info("处理 Payment Intent 成功事件");
-        log.info("事件 ID: {}, 类型: {}, API 版本: {}", event.getId(), event.getType(), event.getApiVersion());
+        String eventId = event.getId();
+        String eventType = event.getType();
         
+        log.info("处理 Payment Intent 成功事件，eventId: {}, eventType: {}", eventId, eventType);
+        
+        // 1. 解析 PaymentIntent 信息
+        ParsedPaymentIntent parsed = parsePaymentIntent(event);
+        if (parsed == null || parsed.paymentIntentId == null || parsed.orderId == null) {
+            log.warn("无法解析 PaymentIntent 信息，eventId: {}", eventId);
+            return;
+        }
+        
+        String paymentIntentId = parsed.paymentIntentId;
+        Long orderId = parsed.orderId;
+        String latestChargeId = parsed.latestChargeId;
+        
+        log.info("解析成功，eventId: {}, paymentIntentId: {}, orderId: {}, latestChargeId: {}", 
+                eventId, paymentIntentId, orderId, latestChargeId);
+        
+        // 2. 事件幂等：尝试插入事件日志（如果已存在则直接返回，说明是重复事件）
+        boolean isFirstTime = webhookEventLogService.tryInsert(
+                eventId, 
+                eventType, 
+                paymentIntentId, 
+                latestChargeId, 
+                orderId
+        );
+        
+        if (!isFirstTime) {
+            log.info("重复事件，直接返回（幂等），eventId: {}, paymentIntentId: {}", eventId, paymentIntentId);
+            return; // 重复事件，直接返回（幂等成功）
+        }
+        
+        try {
+            // 3. 直接更新支付和订单状态（在事务中）
+            String orderIdStr = String.valueOf(orderId);
+            log.info("【StripeWebhook】开始处理支付成功，orderId: {}, eventId: {}, paymentIntentId: {}", 
+                    orderId, eventId, paymentIntentId);
+            
+            boolean paymentProcessed = paymentService.handlePaymentSuccess(orderIdStr, paymentIntentId);
+            
+            if (!paymentProcessed) {
+                log.warn("【StripeWebhook】支付处理失败或订单已超时退款，orderId: {}, eventId: {}", orderId, eventId);
+                webhookEventLogService.markFailed(eventId, "支付处理失败或订单已超时退款");
+                return;
+            }
+            
+            log.info("【StripeWebhook】支付处理成功，开始写入库存扣减任务，orderId: {}, eventId: {}", orderId, eventId);
+            
+            // 4. 查询订单项，写入库存扣减任务到 outbox
+            List<OrderItem> orderItems = orderItemMapper.selectByOrderId(orderId);
+            log.info("【StripeWebhook】查询到订单项数量: {}, orderId: {}", 
+                    orderItems != null ? orderItems.size() : 0, orderId);
+            
+            if (orderItems == null || orderItems.isEmpty()) {
+                log.warn("【StripeWebhook】订单项为空，无法写入库存扣减任务，orderId: {}, eventId: {}", orderId, eventId);
+                webhookEventLogService.markProcessed(eventId);
+                return;
+            }
+            
+            boolean enqueued = outboxHelper.enqueueDeductStockTask(orderId, orderItems);
+            
+            if (!enqueued) {
+                log.error("【StripeWebhook】✗ 写入库存扣减 outbox 失败，orderId: {}, eventId: {}", orderId, eventId);
+                webhookEventLogService.markProcessed(eventId);
+                return;
+            }
+            
+            log.info("【StripeWebhook】✓ 库存扣减任务写入成功，orderId: {}, eventId: {}", orderId, eventId);
+            
+            // 6. 标记事件为已处理
+            webhookEventLogService.markProcessed(eventId);
+            
+        } catch (Exception e) {
+            log.error("处理支付成功失败，eventId: {}, orderId: {}, paymentIntentId: {}", 
+                    eventId, orderId, paymentIntentId, e);
+            webhookEventLogService.markFailed(eventId, "处理异常: " + e.getMessage());
+            throw new RuntimeException("处理支付成功失败", e);
+        }
+        
+        // 7. 立即返回 200（回调链路结束）
+        log.info("Payment Intent 成功事件处理完成，eventId: {}, orderId: {}", eventId, orderId);
+    }
+    
+    /**
+     * 解析 PaymentIntent 信息
+     * 返回解析结果，包含 paymentIntentId, orderId, latestChargeId
+     */
+    private ParsedPaymentIntent parsePaymentIntent(Event event) {
         String paymentIntentId = null;
         String orderIdStr = null;
         String latestChargeId = null;
@@ -169,12 +268,13 @@ public class StripeWebhookController {
             
             if (dataObject.isPresent()) {
                 com.stripe.model.StripeObject obj = dataObject.get();
-                log.info("事件数据对象类型: {}", obj.getClass().getName());
+                log.debug("事件数据对象类型: {}", obj.getClass().getName());
                 
                 if (obj instanceof PaymentIntent paymentIntent) {
                     paymentIntentId = paymentIntent.getId();
                     orderIdStr = paymentIntent.getMetadata() != null ? paymentIntent.getMetadata().get("orderId") : null;
-                    log.info("成功从 getDataObjectDeserializer 获取 PaymentIntent，ID: {}", paymentIntentId);
+                    latestChargeId = paymentIntent.getLatestCharge();
+                    log.debug("成功从 getDataObjectDeserializer 获取 PaymentIntent，ID: {}", paymentIntentId);
                 } else {
                     log.warn("事件数据对象不是 PaymentIntent 类型，实际类型: {}", obj.getClass().getName());
                 }
@@ -182,138 +282,71 @@ public class StripeWebhookController {
             
             // 方法2：如果方法1失败，直接从事件数据中解析 JSON
             if (paymentIntentId == null) {
-                log.info("尝试从事件数据 JSON 中解析 PaymentIntent 信息");
+                log.debug("尝试从事件数据 JSON 中解析 PaymentIntent 信息");
                 com.stripe.model.Event.Data eventData = event.getData();
                 if (eventData != null && eventData.getObject() != null) {
                     try {
-                        // 使用 Stripe 的 JSON 解析器
                         com.google.gson.JsonElement jsonElement = com.stripe.net.ApiResource.GSON.toJsonTree(eventData.getObject());
                         com.google.gson.JsonObject jsonObject = null;
                         
-                        // 检查是否是嵌套结构（包含 "object" 字段）
                         if (jsonElement.isJsonObject()) {
                             com.google.gson.JsonObject rootObject = jsonElement.getAsJsonObject();
                             if (rootObject.has("object") && rootObject.get("object").isJsonObject()) {
-                                // 从嵌套的 "object" 字段中获取
                                 jsonObject = rootObject.getAsJsonObject("object");
-                                log.info("从嵌套的 object 字段中解析");
                             } else {
-                                // 直接使用根对象
                                 jsonObject = rootObject;
-                                log.info("直接使用根对象解析");
                             }
                         }
                         
                         if (jsonObject != null) {
-                            // 安全地获取 id
                             if (jsonObject.has("id") && jsonObject.get("id").isJsonPrimitive()) {
                                 paymentIntentId = jsonObject.get("id").getAsString();
-                                log.info("从 JSON 中解析到 PaymentIntent ID: {}", paymentIntentId);
                             }
                             
-                            // 安全地获取 metadata
                             if (jsonObject.has("metadata") && jsonObject.get("metadata").isJsonObject()) {
                                 com.google.gson.JsonObject metadata = jsonObject.getAsJsonObject("metadata");
                                 if (metadata.has("orderId") && metadata.get("orderId").isJsonPrimitive()) {
                                     orderIdStr = metadata.get("orderId").getAsString();
-                                    log.info("从 JSON 中解析到 orderId: {}", orderIdStr);
                                 }
                             }
                             
-                            // 安全地获取 latest_charge
                             if (jsonObject.has("latest_charge")) {
                                 com.google.gson.JsonElement latestChargeElement = jsonObject.get("latest_charge");
                                 if (latestChargeElement.isJsonPrimitive() && !latestChargeElement.isJsonNull()) {
                                     latestChargeId = latestChargeElement.getAsString();
-                                    log.info("从 JSON 中解析到 latest_charge: {}", latestChargeId);
-                                } else if (latestChargeElement.isJsonNull()) {
-                                    log.warn("latest_charge 为 null");
                                 }
                             }
                         }
                     } catch (Exception jsonException) {
                         log.error("解析 JSON 时出错", jsonException);
-                        log.error("事件数据对象类型: {}", eventData.getObject() != null ? eventData.getObject().getClass().getName() : "null");
                     }
                 }
             }
             
-            // 方法3：如果还是失败，使用 Stripe API 重新获取（需要 paymentIntentId）
             if (paymentIntentId == null) {
                 log.error("无法从事件中解析 PaymentIntent ID");
-                log.error("事件数据: {}", event.getData());
-                return;
-            }
-            
-        } catch (Exception e) {
-            log.error("获取 PaymentIntent 信息异常", e);
-            log.error("事件 ID: {}", event.getId());
-            log.error("事件类型: {}", event.getType());
-            log.error("异常堆栈:", e);
-            return;
+                return null;
         }
         
         if (orderIdStr == null || orderIdStr.isEmpty()) {
             log.warn("Payment Intent 元数据中缺少 orderId，Payment Intent ID: {}", paymentIntentId);
-            return;
-        }
-        
-        log.info("Payment Intent 支付成功，Payment Intent ID: {}, 订单ID: {}", paymentIntentId, orderIdStr);
-        
-        // 查询支付记录
-        Payment payment = paymentMapper.selectByPaymentIntentId(paymentIntentId);
-        if (payment == null) {
-            log.warn("支付记录不存在，Payment Intent ID: {}", paymentIntentId);
-            return;
-        }
-        
-        // 检查是否已处理（幂等性）
-        if (payment.getStatus() != null && payment.getStatus().equals(com.jiaoyi.order.enums.PaymentStatusEnum.SUCCESS.getCode())) {
-            log.info("支付已处理，Payment Intent ID: {}", paymentIntentId);
-            return;
-        }
-        
-        // 查询订单，检查订单状态
-        try {
+                return null;
+            }
+            
             Long orderId = Long.parseLong(orderIdStr);
-            com.jiaoyi.order.entity.Order order = orderMapper.selectById(orderId);
-            if (order == null) {
-                log.warn("订单不存在，订单ID: {}", orderId);
-                return;
-            }
             
-            // 检查订单是否已取消（如果已取消，需要自动退款）
-            if (com.jiaoyi.order.enums.OrderStatusEnum.CANCELLED.getCode().equals(order.getStatus())) {
-                log.warn("订单已取消，但收到支付成功回调，订单ID: {}, Payment Intent ID: {}, 当前状态: {}", 
-                        orderId, paymentIntentId, order.getStatus());
-                // 订单已取消但支付成功，需要自动退款
-                handleCancelledOrderPayment(order, payment, paymentIntentId);
-                return;
-            }
+            return new ParsedPaymentIntent(paymentIntentId, orderId, latestChargeId);
             
-            // 检查订单是否已支付（幂等处理）
-            if (com.jiaoyi.order.enums.OrderStatusEnum.PAID.getCode().equals(order.getStatus())) {
-                log.info("订单已支付，重复回调（幂等处理），订单ID: {}", orderId);
-                return;
-            }
-            
-            // 检查订单状态是否允许支付
-            if (!com.jiaoyi.order.enums.OrderStatusEnum.PENDING.getCode().equals(order.getStatus())) {
-                log.warn("订单状态不允许支付，订单ID: {}, 当前状态: {}", orderId, order.getStatus());
-                return;
-            }
-            
-            // 处理支付成功
-            boolean paymentProcessed = paymentService.handlePaymentSuccess(orderIdStr, paymentIntentId);
-            if (paymentProcessed) {
-                log.info("Payment Intent 支付成功处理完成，订单ID: {}, Payment Intent ID: {}", orderId, paymentIntentId);
-            } else {
-                log.warn("订单超时已退款，不继续处理，订单ID: {}, Payment Intent ID: {}", orderId, paymentIntentId);
-            }
         } catch (Exception e) {
-            log.error("处理支付成功失败，订单ID: {}", orderIdStr, e);
+            log.error("解析 PaymentIntent 信息异常", e);
+            return null;
         }
     }
+    
+    /**
+     * 解析结果
+     */
+    private record ParsedPaymentIntent(String paymentIntentId, Long orderId, String latestChargeId) {}
     
     /**
      * 处理 Payment Intent 失败事件

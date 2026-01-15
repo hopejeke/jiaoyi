@@ -1,0 +1,656 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>库存管理</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .header {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .header h1 {
+            color: #667eea;
+            font-size: 2.5rem;
+        }
+        
+        .nav-buttons {
+            display: flex;
+            gap: 15px;
+        }
+        
+        .btn {
+            padding: 12px 25px;
+            border: none;
+            border-radius: 25px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            transition: transform 0.2s, box-shadow 0.2s;
+            text-decoration: none;
+            display: inline-block;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .btn-secondary {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #fa709a 0%, #fee140 100%);
+        }
+        
+        .section {
+            background: white;
+            border-radius: 15px;
+            padding: 30px;
+            margin-bottom: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+        }
+        
+        .section h2 {
+            color: #667eea;
+            margin-bottom: 20px;
+            font-size: 1.8rem;
+        }
+        
+        .filter-bar {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+        
+        .filter-group {
+            display: flex;
+            flex-direction: column;
+            gap: 5px;
+        }
+        
+        .filter-group label {
+            font-size: 14px;
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .filter-group input,
+        .filter-group select {
+            padding: 10px 15px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        
+        .filter-group input:focus,
+        .filter-group select:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .table-container {
+            overflow-x: auto;
+        }
+        
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 20px;
+        }
+        
+        thead {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+        }
+        
+        th, td {
+            padding: 15px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        
+        th {
+            font-weight: 600;
+            font-size: 14px;
+            text-transform: uppercase;
+        }
+        
+        tbody tr:hover {
+            background: #f5f5f5;
+        }
+        
+        .stock-status {
+            display: inline-block;
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .stock-low {
+            background: #fee;
+            color: #c00;
+        }
+        
+        .stock-normal {
+            background: #efe;
+            color: #060;
+        }
+        
+        .stock-high {
+            background: #eef;
+            color: #006;
+        }
+        
+        .action-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .btn-sm {
+            padding: 6px 12px;
+            font-size: 12px;
+            border-radius: 5px;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 1000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            overflow: auto;
+        }
+        
+        .modal-content {
+            background: white;
+            margin: 50px auto;
+            padding: 30px;
+            border-radius: 15px;
+            max-width: 600px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.2);
+        }
+        
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .modal-header h3 {
+            color: #667eea;
+            font-size: 1.5rem;
+        }
+        
+        .close {
+            color: #aaa;
+            font-size: 28px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        
+        .close:hover {
+            color: #000;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #666;
+            font-weight: 500;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e0e0e0;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        
+        .alert {
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        
+        .alert-success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .alert-error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #999;
+        }
+        
+        .empty-state-icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📦 库存管理</h1>
+            <div class="nav-buttons">
+                <a href="index.html" class="btn btn-secondary">返回首页</a>
+                <button class="btn btn-success" onclick="refreshInventory()">刷新数据</button>
+            </div>
+        </div>
+        
+        <!-- 筛选栏 -->
+        <div class="section">
+            <h2>筛选条件</h2>
+            <div class="filter-bar">
+                <div class="filter-group">
+                    <label>店铺ID</label>
+                    <input type="number" id="filterStoreId" placeholder="输入店铺ID">
+                </div>
+                <div class="filter-group">
+                    <label>商品ID</label>
+                    <input type="number" id="filterProductId" placeholder="输入商品ID">
+                </div>
+                <div class="filter-group">
+                    <label>SKU ID</label>
+                    <input type="number" id="filterSkuId" placeholder="输入SKU ID">
+                </div>
+                <div class="filter-group">
+                    <label>库存状态</label>
+                    <select id="filterStockStatus">
+                        <option value="">全部</option>
+                        <option value="low">库存不足</option>
+                        <option value="normal">正常</option>
+                        <option value="high">充足</option>
+                    </select>
+                </div>
+                <div class="filter-group" style="justify-content: flex-end;">
+                    <label>&nbsp;</label>
+                    <button class="btn" onclick="applyFilters()">查询</button>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 库存列表 -->
+        <div class="section">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px;">
+                <h2>库存列表</h2>
+                <button class="btn btn-success" onclick="queryLowStockItems()">查看库存不足商品</button>
+            </div>
+            <div id="alertContainer"></div>
+            <div class="table-container">
+                <div id="loadingIndicator" class="loading" style="display: none;">
+                    正在加载数据...
+                </div>
+                <div id="emptyState" class="empty-state" style="display: none;">
+                    <div class="empty-state-icon">📭</div>
+                    <p>暂无库存数据</p>
+                </div>
+                <table id="inventoryTable" style="display: none;">
+                    <thead>
+                        <tr>
+                            <th>库存ID</th>
+                            <th>店铺ID</th>
+                            <th>商品ID</th>
+                            <th>SKU ID</th>
+                            <th>商品名称</th>
+                            <th>SKU名称</th>
+                            <th>当前库存</th>
+                            <th>锁定库存</th>
+                            <th>可用库存</th>
+                            <th>最低库存</th>
+                            <th>最大库存</th>
+                            <th>库存状态</th>
+                            <th>操作</th>
+                        </tr>
+                    </thead>
+                    <tbody id="inventoryTableBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 编辑库存模态框 -->
+    <div id="editModal" class="modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3>编辑库存</h3>
+                <span class="close" onclick="closeEditModal()">&times;</span>
+            </div>
+            <div id="editModalAlert"></div>
+            <form id="editForm" onsubmit="saveInventory(event)">
+                <input type="hidden" id="editInventoryId">
+                <div class="form-group">
+                    <label>商品名称</label>
+                    <input type="text" id="editProductName" readonly>
+                </div>
+                <div class="form-group">
+                    <label>SKU名称</label>
+                    <input type="text" id="editSkuName" readonly>
+                </div>
+                <div class="form-group">
+                    <label>当前库存 *</label>
+                    <input type="number" id="editCurrentStock" min="0" required>
+                </div>
+                <div class="form-group">
+                    <label>最低库存预警线</label>
+                    <input type="number" id="editMinStock" min="0">
+                </div>
+                <div class="form-group">
+                    <label>最大库存容量</label>
+                    <input type="number" id="editMaxStock" min="0">
+                </div>
+                <div style="display: flex; gap: 10px; justify-content: flex-end; margin-top: 30px;">
+                    <button type="button" class="btn btn-secondary" onclick="closeEditModal()">取消</button>
+                    <button type="submit" class="btn btn-success">保存</button>
+                </div>
+            </form>
+        </div>
+    </div>
+    
+    <script>
+        const API_BASE = '/api/inventory';
+        let currentFilters = {};
+        
+        // 页面加载时获取库存列表
+        window.onload = function() {
+            loadInventoryList();
+        };
+        
+        // 加载库存列表
+        async function loadInventoryList(filters = {}) {
+            const loadingIndicator = document.getElementById('loadingIndicator');
+            const emptyState = document.getElementById('emptyState');
+            const inventoryTable = document.getElementById('inventoryTable');
+            const inventoryTableBody = document.getElementById('inventoryTableBody');
+            
+            loadingIndicator.style.display = 'block';
+            emptyState.style.display = 'none';
+            inventoryTable.style.display = 'none';
+            
+            try {
+                // 构建查询参数
+                const params = new URLSearchParams();
+                if (filters.storeId) params.append('storeId', filters.storeId);
+                if (filters.productId) params.append('productId', filters.productId);
+                if (filters.skuId) params.append('skuId', filters.skuId);
+                
+                const url = params.toString() ? `${API_BASE}?${params.toString()}` : API_BASE;
+                const response = await fetch(url);
+                const result = await response.json();
+                
+                loadingIndicator.style.display = 'none';
+                
+                if (result.code === 200 && result.data && result.data.length > 0) {
+                    inventoryTable.style.display = 'table';
+                    renderInventoryTable(result.data);
+                } else {
+                    emptyState.style.display = 'block';
+                }
+            } catch (error) {
+                loadingIndicator.style.display = 'none';
+                showAlert('error', '加载库存列表失败: ' + error.message);
+            }
+        }
+        
+        // 渲染库存表格
+        function renderInventoryTable(inventoryList) {
+            const tbody = document.getElementById('inventoryTableBody');
+            tbody.innerHTML = '';
+            
+            inventoryList.forEach(inventory => {
+                const availableStock = (inventory.currentStock || 0) - (inventory.lockedStock || 0);
+                const minStock = inventory.minStock || 0;
+                const stockStatus = getStockStatus(availableStock, minStock);
+                
+                const row = document.createElement('tr');
+                row.innerHTML = `
+                    <td>${inventory.id}</td>
+                    <td>${inventory.storeId || '-'}</td>
+                    <td>${inventory.productId || '-'}</td>
+                    <td>${inventory.skuId || '-'}</td>
+                    <td>${inventory.productName || '-'}</td>
+                    <td>${inventory.skuName || '-'}</td>
+                    <td>${inventory.currentStock || 0}</td>
+                    <td>${inventory.lockedStock || 0}</td>
+                    <td><strong>${availableStock}</strong></td>
+                    <td>${minStock}</td>
+                    <td>${inventory.maxStock || '-'}</td>
+                    <td><span class="stock-status ${stockStatus.class}">${stockStatus.text}</span></td>
+                    <td>
+                        <div class="action-buttons">
+                            <button class="btn btn-sm btn-success" onclick="openEditModal(${inventory.id})">编辑</button>
+                        </div>
+                    </td>
+                `;
+                tbody.appendChild(row);
+            });
+        }
+        
+        // 获取库存状态
+        function getStockStatus(availableStock, minStock) {
+            if (availableStock < minStock) {
+                return { class: 'stock-low', text: '库存不足' };
+            } else if (availableStock < minStock * 2) {
+                return { class: 'stock-normal', text: '正常' };
+            } else {
+                return { class: 'stock-high', text: '充足' };
+            }
+        }
+        
+        // 应用筛选
+        function applyFilters() {
+            const filters = {
+                storeId: document.getElementById('filterStoreId').value || null,
+                productId: document.getElementById('filterProductId').value || null,
+                skuId: document.getElementById('filterSkuId').value || null
+            };
+            
+            currentFilters = filters;
+            loadInventoryList(filters);
+        }
+        
+        // 刷新库存列表
+        function refreshInventory() {
+            loadInventoryList(currentFilters);
+            showAlert('success', '库存列表已刷新');
+        }
+        
+        // 查询库存不足商品
+        async function queryLowStockItems() {
+            try {
+                const response = await fetch(`${API_BASE}/low-stock`);
+                const result = await response.json();
+                
+                if (result.code === 200 && result.data && result.data.length > 0) {
+                    renderInventoryTable(result.data);
+                    showAlert('success', `找到 ${result.data.length} 个库存不足的商品`);
+                } else {
+                    showAlert('success', '暂无库存不足的商品');
+                }
+            } catch (error) {
+                showAlert('error', '查询库存不足商品失败: ' + error.message);
+            }
+        }
+        
+        // 打开编辑模态框
+        async function openEditModal(inventoryId) {
+            try {
+                // 先找到对应的库存记录（从表格中获取）
+                const rows = document.querySelectorAll('#inventoryTableBody tr');
+                let inventory = null;
+                
+                for (let row of rows) {
+                    const id = row.cells[0].textContent;
+                    if (id == inventoryId) {
+                        inventory = {
+                            id: id,
+                            productName: row.cells[4].textContent,
+                            skuName: row.cells[5].textContent,
+                            currentStock: parseInt(row.cells[6].textContent),
+                            minStock: parseInt(row.cells[9].textContent),
+                            maxStock: row.cells[10].textContent === '-' ? null : parseInt(row.cells[10].textContent)
+                        };
+                        break;
+                    }
+                }
+                
+                if (!inventory) {
+                    // 如果表格中没有，从API获取
+                    const response = await fetch(`${API_BASE}/${inventoryId}`);
+                    const result = await response.json();
+                    if (result.code === 200) {
+                        inventory = result.data;
+                    } else {
+                        throw new Error('获取库存信息失败');
+                    }
+                }
+                
+                document.getElementById('editInventoryId').value = inventory.id;
+                document.getElementById('editProductName').value = inventory.productName || '-';
+                document.getElementById('editSkuName').value = inventory.skuName || '-';
+                document.getElementById('editCurrentStock').value = inventory.currentStock || 0;
+                document.getElementById('editMinStock').value = inventory.minStock || 0;
+                document.getElementById('editMaxStock').value = inventory.maxStock || '';
+                
+                document.getElementById('editModal').style.display = 'block';
+            } catch (error) {
+                showAlert('error', '打开编辑窗口失败: ' + error.message);
+            }
+        }
+        
+        // 关闭编辑模态框
+        function closeEditModal() {
+            document.getElementById('editModal').style.display = 'none';
+            document.getElementById('editModalAlert').innerHTML = '';
+        }
+        
+        // 保存库存
+        async function saveInventory(event) {
+            event.preventDefault();
+            
+            const inventoryId = document.getElementById('editInventoryId').value;
+            const currentStock = parseInt(document.getElementById('editCurrentStock').value);
+            const minStock = parseInt(document.getElementById('editMinStock').value) || null;
+            const maxStock = parseInt(document.getElementById('editMaxStock').value) || null;
+            
+            try {
+                const response = await fetch(`${API_BASE}/update/${inventoryId}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        currentStock: currentStock,
+                        minStock: minStock,
+                        maxStock: maxStock
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.code === 200) {
+                    showAlertInModal('success', '库存更新成功');
+                    setTimeout(() => {
+                        closeEditModal();
+                        refreshInventory();
+                    }, 1000);
+                } else {
+                    showAlertInModal('error', result.message || '库存更新失败');
+                }
+            } catch (error) {
+                showAlertInModal('error', '库存更新失败: ' + error.message);
+            }
+        }
+        
+        // 显示提示信息
+        function showAlert(type, message) {
+            const alertContainer = document.getElementById('alertContainer');
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+            alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+            setTimeout(() => {
+                alertContainer.innerHTML = '';
+            }, 3000);
+        }
+        
+        // 在模态框中显示提示信息
+        function showAlertInModal(type, message) {
+            const alertContainer = document.getElementById('editModalAlert');
+            const alertClass = type === 'success' ? 'alert-success' : 'alert-error';
+            alertContainer.innerHTML = `<div class="alert ${alertClass}">${message}</div>`;
+        }
+        
+        // 点击模态框外部关闭
+        window.onclick = function(event) {
+            const modal = document.getElementById('editModal');
+            if (event.target === modal) {
+                closeEditModal();
+            }
+        };
+    </script>
+</body>
+</html>
+

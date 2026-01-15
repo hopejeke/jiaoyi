@@ -26,9 +26,14 @@ public class DoorDashRetryTask {
     private Long orderId;
     
     /**
-     * 商户ID（分片键）
+     * 商户ID
      */
     private String merchantId;
+    
+    /**
+     * 门店ID（用于分片，与商品服务保持一致）
+     */
+    private Long storeId;
     
     /**
      * 支付ID（关联 payments.id）
@@ -122,6 +127,8 @@ public class DoorDashRetryTask {
         }
     }
 }
+
+
 
 
 

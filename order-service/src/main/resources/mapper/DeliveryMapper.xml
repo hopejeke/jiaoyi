@@ -7,6 +7,7 @@
         <id column="id" property="id"/>
         <result column="order_id" property="orderId"/>
         <result column="merchant_id" property="merchantId"/>
+        <result column="store_id" property="storeId"/>
         <result column="external_delivery_id" property="externalDeliveryId"/>
         <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
         <result column="delivery_fee_quoted" property="deliveryFeeQuoted"/>
@@ -29,13 +30,13 @@
     <!-- 插入配送记录 -->
     <insert id="insert" parameterType="com.jiaoyi.order.entity.Delivery">
         INSERT INTO deliveries (
-            id, order_id, merchant_id, external_delivery_id, status,
+            id, order_id, merchant_id, store_id, external_delivery_id, status,
             delivery_fee_quoted, delivery_fee_quoted_at, delivery_fee_quote_id,
             delivery_fee_charged_to_user, delivery_fee_billed, delivery_fee_variance,
             tracking_url, distance_miles, eta_minutes, driver_name, driver_phone,
             additional_data, version, create_time, update_time
         ) VALUES (
-            #{id}, #{orderId}, #{merchantId}, #{externalDeliveryId}, #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
+            #{id}, #{orderId}, #{merchantId}, #{storeId}, #{externalDeliveryId}, #{status, typeHandler=org.apache.ibatis.type.EnumTypeHandler},
             #{deliveryFeeQuoted}, #{deliveryFeeQuotedAt}, #{deliveryFeeQuoteId},
             #{deliveryFeeChargedToUser}, #{deliveryFeeBilled}, #{deliveryFeeVariance},
             #{trackingUrl}, #{distanceMiles}, #{etaMinutes}, #{driverName}, #{driverPhone},
@@ -121,6 +122,8 @@
     </update>
 
 </mapper>
+
+
 
 
 

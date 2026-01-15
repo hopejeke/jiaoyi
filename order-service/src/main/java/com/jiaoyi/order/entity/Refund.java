@@ -31,9 +31,20 @@ public class Refund {
     private Long paymentId;
     
     /**
-     * 商户ID（分片键）
+     * 商户ID
      */
     private String merchantId;
+    
+    /**
+     * 门店ID（用于分片，与商品服务保持一致）
+     */
+    private Long storeId;
+    
+    /**
+     * 分片ID（0-1023，基于 storeId 计算，用于分库分表路由）
+     * 注意：此字段必须与 storeId 一起设置，确保分片一致性
+     */
+    private Integer shardId;
     
     /**
      * 退款请求号（幂等键）

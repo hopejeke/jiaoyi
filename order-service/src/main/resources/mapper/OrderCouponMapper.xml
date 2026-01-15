@@ -6,6 +6,8 @@
     <resultMap id="OrderCouponResultMap" type="com.jiaoyi.order.entity.OrderCoupon">
         <id column="id" property="id"/>
         <result column="order_id" property="orderId"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="store_id" property="storeId"/>
         <result column="coupon_id" property="couponId"/>
         <result column="coupon_code" property="couponCode"/>
         <result column="applied_amount" property="appliedAmount"/>
@@ -18,9 +20,9 @@
     <!-- 注意：INSERT 语句中不包含 id 字段，让 ShardingSphere 自动生成并填充 -->
     <insert id="insert" parameterType="com.jiaoyi.order.entity.OrderCoupon" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO order_coupons (
-            order_id, coupon_id, coupon_code, applied_amount, create_time
+            order_id, merchant_id, store_id, coupon_id, coupon_code, applied_amount, create_time
         ) VALUES (
-            #{orderId}, #{couponId}, #{couponCode}, #{appliedAmount}, #{createTime}
+            #{orderId}, #{merchantId}, #{storeId}, #{couponId}, #{couponCode}, #{appliedAmount}, #{createTime}
         )
     </insert>
 
@@ -30,10 +32,10 @@
     <!-- 注意：批量插入时，ShardingSphere 会为每个 item 单独生成 ID -->
     <insert id="batchInsert" parameterType="java.util.List" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO order_coupons (
-            order_id, coupon_id, coupon_code, applied_amount, create_time
+            order_id, merchant_id, store_id, coupon_id, coupon_code, applied_amount, create_time
         ) VALUES
         <foreach collection="orderCoupons" item="item" separator=",">
-            (#{item.orderId}, #{item.couponId}, #{item.couponCode}, #{item.appliedAmount}, #{item.createTime})
+            (#{item.orderId}, #{item.merchantId}, #{item.storeId}, #{item.couponId}, #{item.couponCode}, #{item.appliedAmount}, #{item.createTime})
         </foreach>
     </insert>
 

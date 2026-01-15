@@ -19,8 +19,15 @@ public interface RefundMapper {
     
     /**
      * 根据ID查询退款单
+     * 注意：由于 refunds 表是分片表（基于 merchant_id），selectById 没有分片键可能查询不到
+     * 建议使用 selectByMerchantIdAndRefundId
      */
     Refund selectById(@Param("refundId") Long refundId);
+    
+    /**
+     * 根据商户ID和退款ID查询退款单（推荐，包含分片键）
+     */
+    Refund selectByMerchantIdAndRefundId(@Param("merchantId") String merchantId, @Param("refundId") Long refundId);
     
     /**
      * 根据订单ID查询退款单列表

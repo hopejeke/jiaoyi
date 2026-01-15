@@ -28,9 +28,14 @@ public class Delivery {
     private Long orderId;
     
     /**
-     * 商户ID（用于分片）
+     * 商户ID
      */
     private String merchantId;
+    
+    /**
+     * 门店ID（用于分片，与商品服务保持一致）
+     */
+    private Long storeId;
     
     /**
      * 外部订单ID（external_delivery_id，格式：order_123）
@@ -128,6 +133,8 @@ public class Delivery {
      */
     private LocalDateTime updateTime;
 }
+
+
 
 
 
