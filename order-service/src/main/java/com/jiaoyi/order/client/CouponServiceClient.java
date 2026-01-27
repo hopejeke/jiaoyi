@@ -54,9 +54,14 @@ public interface CouponServiceClient {
     
     /**
      * 退款优惠券（根据订单ID）
+     * 
+     * 返回 OperationResult，包含操作结果状态：
+     * - SUCCESS: 第一次调用，退款成功
+     * - IDEMPOTENT_SUCCESS: 重复调用，但优惠券已退款过（幂等成功）
+     * - FAILED: 操作失败
      */
     @PostMapping("/api/coupons/refund/order/{orderId}")
-    ApiResponse<Boolean> refundCouponByOrderId(@PathVariable("orderId") Long orderId);
+    ApiResponse<com.jiaoyi.common.OperationResult> refundCouponByOrderId(@PathVariable("orderId") Long orderId);
     
     /**
      * 退款优惠券（根据优惠券ID）

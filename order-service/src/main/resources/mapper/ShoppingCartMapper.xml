@@ -1,0 +1,104 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.ShoppingCartMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.ShoppingCart">
+        <id column="id" property="id"/>
+        <result column="user_id" property="userId"/>
+        <result column="table_id" property="tableId"/>
+        <result column="merchant_id" property="merchantId"/>
+        <result column="store_id" property="storeId"/>
+        <result column="shard_id" property="shardId"/>
+        <result column="total_amount" property="totalAmount"/>
+        <result column="total_quantity" property="totalQuantity"/>
+        <result column="expire_time" property="expireTime"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入购物车 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.ShoppingCart" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO shopping_carts (
+            user_id, table_id, merchant_id, store_id, shard_id,
+            total_amount, total_quantity, expire_time, version,
+            create_time, update_time
+        ) VALUES (
+            #{userId}, #{tableId}, #{merchantId}, #{storeId}, #{shardId},
+            #{totalAmount}, #{totalQuantity}, #{expireTime}, #{version},
+            #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 根据ID查询购物车 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM shopping_carts WHERE id = #{id}
+    </select>
+
+    <!-- 根据用户ID和门店ID查询购物车（用户购物车） -->
+    <select id="selectByUserIdAndStoreId" resultMap="BaseResultMap">
+        SELECT * FROM shopping_carts
+        WHERE user_id = #{userId} AND store_id = #{storeId}
+        <if test="tableId != null">
+            AND table_id = #{tableId}
+        </if>
+        <if test="tableId == null">
+            AND table_id IS NULL
+        </if>
+        LIMIT 1
+    </select>
+
+    <!-- 根据桌码ID和门店ID查询购物车（桌码购物车） -->
+    <select id="selectByTableIdAndStoreId" resultMap="BaseResultMap">
+        SELECT * FROM shopping_carts
+        WHERE table_id = #{tableId} AND store_id = #{storeId}
+        LIMIT 1
+    </select>
+
+    <!-- 更新购物车（使用乐观锁） -->
+    <update id="update" parameterType="com.jiaoyi.order.entity.ShoppingCart">
+        UPDATE shopping_carts SET
+            user_id = #{userId},
+            table_id = #{tableId},
+            merchant_id = #{merchantId},
+            store_id = #{storeId},
+            shard_id = #{shardId},
+            total_amount = #{totalAmount},
+            total_quantity = #{totalQuantity},
+            expire_time = #{expireTime},
+            version = version + 1,
+            update_time = #{updateTime}
+        WHERE id = #{id} AND version = #{version}
+    </update>
+
+    <!-- 更新购物车总金额和总数量 -->
+    <update id="updateTotal">
+        UPDATE shopping_carts SET
+            total_amount = #{totalAmount},
+            total_quantity = #{totalQuantity},
+            version = version + 1,
+            update_time = NOW()
+        WHERE id = #{id} AND version = #{version}
+    </update>
+
+    <!-- 删除购物车 -->
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM shopping_carts WHERE id = #{id}
+    </delete>
+
+    <!-- 删除过期购物车 -->
+    <delete id="deleteExpiredCarts">
+        DELETE FROM shopping_carts WHERE expire_time &lt; #{expireTime}
+    </delete>
+
+    <!-- 根据用户ID查询所有购物车 -->
+    <select id="selectByUserId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM shopping_carts
+        WHERE user_id = #{userId}
+        ORDER BY create_time DESC
+    </select>
+
+</mapper>
+
+

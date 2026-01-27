@@ -12,7 +12,7 @@
         <result column="unit_price" property="unitPrice"/>
         <result column="product_image" property="productImage"/>
         <result column="category" property="category"/>
-        <result column="status" property="status"/>
+        <result column="status" property="status" typeHandler="com.jiaoyi.product.typehandler.StoreProductStatusTypeHandler"/>
         <result column="is_delete" property="isDelete"/>
         <result column="version" property="version"/>
         <result column="create_time" property="createTime"/>
@@ -70,44 +70,58 @@
 
     <!-- 根据ID查询店铺商品关联（逻辑删除过滤，兼容旧接口） -->
     <select id="selectById" parameterType="long" resultMap="StoreProductResultMap">
-        SELECT * FROM store_products WHERE id = #{id} AND is_delete = 0
+        SELECT id, store_id, product_shard_id, product_name, description, unit_price, product_image, 
+               category, status, is_delete, version, create_time, update_time
+        FROM store_products WHERE id = #{id} AND is_delete = 0
     </select>
     
     <!-- 根据店铺ID和商品ID查询（推荐，包含分片键） -->
     <select id="selectByStoreIdAndId" resultMap="StoreProductResultMap">
-        SELECT * FROM store_products WHERE store_id = #{storeId} AND id = #{id} AND is_delete = 0
+        SELECT id, store_id, product_shard_id, product_name, description, unit_price, product_image, 
+               category, status, is_delete, version, create_time, update_time
+        FROM store_products WHERE store_id = #{storeId} AND id = #{id} AND is_delete = 0
     </select>
 
     <!-- 根据店铺ID和商品名称查询（用于检查重复，逻辑删除过滤） -->
     <select id="selectByStoreIdAndProductName" resultMap="StoreProductResultMap">
-        SELECT * FROM store_products 
+        SELECT id, store_id, product_shard_id, product_name, description, unit_price, product_image, 
+               category, status, is_delete, version, create_time, update_time
+        FROM store_products 
         WHERE store_id = #{storeId} AND product_name = #{productName} AND is_delete = 0
     </select>
     
     <!-- 根据店铺ID和商品名称查询（包括已删除的，用于恢复商品） -->
     <select id="selectByStoreIdAndProductNameIncludeDeleted" resultMap="StoreProductResultMap">
-        SELECT * FROM store_products 
+        SELECT id, store_id, product_shard_id, product_name, description, unit_price, product_image, 
+               category, status, is_delete, version, create_time, update_time
+        FROM store_products 
         WHERE store_id = #{storeId} AND product_name = #{productName}
         ORDER BY id DESC LIMIT 1
     </select>
 
     <!-- 根据店铺ID查询所有商品关联（逻辑删除过滤） -->
     <select id="selectByStoreId" parameterType="long" resultMap="StoreProductResultMap">
-        SELECT * FROM store_products 
+        SELECT id, store_id, product_shard_id, product_name, description, unit_price, product_image, 
+               category, status, is_delete, version, create_time, update_time
+        FROM store_products 
         WHERE store_id = #{storeId} AND is_delete = 0
         ORDER BY create_time DESC
     </select>
 
     <!-- 根据店铺ID和状态查询商品（逻辑删除过滤） -->
     <select id="selectByStoreIdAndStatus" resultMap="StoreProductResultMap">
-        SELECT * FROM store_products 
+        SELECT id, store_id, product_shard_id, product_name, description, unit_price, product_image, 
+               category, status, is_delete, version, create_time, update_time
+        FROM store_products 
         WHERE store_id = #{storeId} AND status = #{status} AND is_delete = 0
         ORDER BY create_time DESC
     </select>
 
     <!-- 根据商品名称模糊查询（跨店铺，逻辑删除过滤） -->
     <select id="selectByProductName" parameterType="string" resultMap="StoreProductResultMap">
-        SELECT * FROM store_products 
+        SELECT id, store_id, product_shard_id, product_name, description, unit_price, product_image, 
+               category, status, is_delete, version, create_time, update_time
+        FROM store_products 
         WHERE product_name LIKE CONCAT('%', #{productName}, '%') AND is_delete = 0
         ORDER BY create_time DESC
     </select>
@@ -151,7 +165,9 @@
     <!-- 查询所有店铺商品（跨店铺，未删除的） -->
     <!-- 注意：如果数据量大，建议使用分页查询 -->
     <select id="selectAll" resultMap="StoreProductResultMap">
-        SELECT * FROM store_products 
+        SELECT id, store_id, product_shard_id, product_name, description, unit_price, product_image, 
+               category, status, is_delete, version, create_time, update_time
+        FROM store_products 
         WHERE is_delete = 0
         ORDER BY create_time DESC
     </select>

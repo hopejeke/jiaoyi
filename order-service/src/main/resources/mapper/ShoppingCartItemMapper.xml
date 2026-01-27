@@ -1,0 +1,137 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.order.mapper.ShoppingCartItemMapper">
+
+    <!-- 结果映射 -->
+    <resultMap id="BaseResultMap" type="com.jiaoyi.order.entity.ShoppingCartItem">
+        <id column="id" property="id"/>
+        <result column="cart_id" property="cartId"/>
+        <result column="product_id" property="productId"/>
+        <result column="sku_id" property="skuId"/>
+        <result column="sku_name" property="skuName"/>
+        <result column="sku_attributes" property="skuAttributes"/>
+        <result column="product_name" property="productName"/>
+        <result column="product_image" property="productImage"/>
+        <result column="unit_price" property="unitPrice"/>
+        <result column="quantity" property="quantity"/>
+        <result column="subtotal" property="subtotal"/>
+        <result column="options" property="options"/>
+        <result column="combo_detail" property="comboDetail"/>
+        <result column="version" property="version"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <!-- 插入购物车项 -->
+    <insert id="insert" parameterType="com.jiaoyi.order.entity.ShoppingCartItem" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO shopping_cart_items (
+            cart_id, product_id, sku_id, sku_name, sku_attributes,
+            product_name, product_image, unit_price, quantity, subtotal,
+            options, combo_detail, version,
+            create_time, update_time
+        ) VALUES (
+            #{cartId}, #{productId}, #{skuId}, #{skuName}, #{skuAttributes},
+            #{productName}, #{productImage}, #{unitPrice}, #{quantity}, #{subtotal},
+            #{options}, #{comboDetail}, #{version},
+            #{createTime}, #{updateTime}
+        )
+    </insert>
+
+    <!-- 批量插入购物车项 -->
+    <insert id="insertBatch" parameterType="list">
+        INSERT INTO shopping_cart_items (
+            cart_id, product_id, sku_id, sku_name, sku_attributes,
+            product_name, product_image, unit_price, quantity, subtotal,
+            options, combo_detail, version,
+            create_time, update_time
+        ) VALUES
+        <foreach collection="items" item="item" separator=",">
+            (
+                #{item.cartId}, #{item.productId}, #{item.skuId}, #{item.skuName}, #{item.skuAttributes},
+                #{item.productName}, #{item.productImage}, #{item.unitPrice}, #{item.quantity}, #{item.subtotal},
+                #{item.options}, #{item.comboDetail}, #{item.version},
+                #{item.createTime}, #{item.updateTime}
+            )
+        </foreach>
+    </insert>
+
+    <!-- 根据ID查询购物车项 -->
+    <select id="selectById" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM shopping_cart_items WHERE id = #{id}
+    </select>
+
+    <!-- 根据购物车ID查询所有购物车项 -->
+    <select id="selectByCartId" parameterType="long" resultMap="BaseResultMap">
+        SELECT * FROM shopping_cart_items
+        WHERE cart_id = #{cartId}
+        ORDER BY create_time ASC
+    </select>
+
+    <!-- 根据购物车ID和商品ID查询购物车项 -->
+    <select id="selectByCartIdAndProductId" resultMap="BaseResultMap">
+        SELECT * FROM shopping_cart_items
+        WHERE cart_id = #{cartId} AND product_id = #{productId}
+        <if test="skuId != null">
+            AND sku_id = #{skuId}
+        </if>
+        <if test="skuId == null">
+            AND sku_id IS NULL
+        </if>
+        LIMIT 1
+    </select>
+
+    <!-- 更新购物车项（使用乐观锁） -->
+    <update id="update" parameterType="com.jiaoyi.order.entity.ShoppingCartItem">
+        UPDATE shopping_cart_items SET
+            cart_id = #{cartId},
+            product_id = #{productId},
+            sku_id = #{skuId},
+            sku_name = #{skuName},
+            sku_attributes = #{skuAttributes},
+            product_name = #{productName},
+            product_image = #{productImage},
+            unit_price = #{unitPrice},
+            quantity = #{quantity},
+            subtotal = #{subtotal},
+            options = #{options},
+            combo_detail = #{comboDetail},
+            version = version + 1,
+            update_time = #{updateTime}
+        WHERE id = #{id} AND version = #{version}
+    </update>
+
+    <!-- 更新购物车项数量 -->
+    <update id="updateQuantity">
+        UPDATE shopping_cart_items SET
+            quantity = #{quantity},
+            subtotal = #{subtotal},
+            version = version + 1,
+            update_time = NOW()
+        WHERE id = #{id} AND version = #{version}
+    </update>
+
+    <!-- 删除购物车项 -->
+    <delete id="deleteById" parameterType="long">
+        DELETE FROM shopping_cart_items WHERE id = #{id}
+    </delete>
+
+    <!-- 根据购物车ID删除所有购物车项 -->
+    <delete id="deleteByCartId" parameterType="long">
+        DELETE FROM shopping_cart_items WHERE cart_id = #{cartId}
+    </delete>
+
+    <!-- 根据购物车ID和商品ID删除购物车项 -->
+    <delete id="deleteByCartIdAndProductId">
+        DELETE FROM shopping_cart_items
+        WHERE cart_id = #{cartId} AND product_id = #{productId}
+        <if test="skuId != null">
+            AND sku_id = #{skuId}
+        </if>
+        <if test="skuId == null">
+            AND sku_id IS NULL
+        </if>
+    </delete>
+
+</mapper>
+
+

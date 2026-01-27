@@ -85,3 +85,5 @@ CALL DropColumnIfExists('jiaoyi_product_2', 'merchants_2', 'encrypt_merchant_id'
 DROP PROCEDURE IF EXISTS DropIndexIfExists;
 DROP PROCEDURE IF EXISTS DropColumnIfExists;
 
+
+

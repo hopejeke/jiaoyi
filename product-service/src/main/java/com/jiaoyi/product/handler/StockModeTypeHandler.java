@@ -68,3 +68,5 @@ public class StockModeTypeHandler extends BaseTypeHandler<Inventory.StockMode> {
 
 
 
+
+

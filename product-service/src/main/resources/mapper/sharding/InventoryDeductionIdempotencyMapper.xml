@@ -1,0 +1,73 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.sharding.InventoryDeductionIdempotencyMapper">
+    
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.InventoryDeductionIdempotency">
+        <id column="id" property="id"/>
+        <result column="idempotency_key" property="idempotencyKey"/>
+        <result column="order_id" property="orderId"/>
+        <result column="product_shard_id" property="productShardId"/>
+        <result column="product_ids" property="productIds"/>
+        <result column="sku_ids" property="skuIds"/>
+        <result column="quantities" property="quantities"/>
+        <result column="status" property="status" typeHandler="org.apache.ibatis.type.EnumTypeHandler"/>
+        <result column="error_message" property="errorMessage"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+    
+    <!-- 尝试插入幂等性日志（如果 idempotencyKey 已存在则忽略） -->
+    <insert id="tryInsert">
+        INSERT IGNORE INTO inventory_deduction_idempotency (
+            idempotency_key,
+            order_id,
+            product_shard_id,
+            product_ids,
+            sku_ids,
+            quantities,
+            status,
+            created_at,
+            updated_at
+        ) VALUES (
+            #{idempotencyKey},
+            #{orderId},
+            #{productShardId},
+            #{productIds},
+            #{skuIds},
+            #{quantities},
+            'PROCESSING',
+            NOW(),
+            NOW()
+        )
+    </insert>
+    
+    <!-- 更新状态为成功 -->
+    <update id="updateStatusToSuccess">
+        UPDATE inventory_deduction_idempotency
+        SET status = 'SUCCESS',
+            updated_at = NOW()
+        WHERE idempotency_key = #{idempotencyKey}
+          AND product_shard_id = #{productShardId}
+    </update>
+    
+    <!-- 更新状态为失败 -->
+    <update id="updateStatusToFailed">
+        UPDATE inventory_deduction_idempotency
+        SET status = 'FAILED',
+            error_message = #{errorMessage},
+            updated_at = NOW()
+        WHERE idempotency_key = #{idempotencyKey}
+          AND product_shard_id = #{productShardId}
+    </update>
+    
+    <!-- 根据幂等键查询 -->
+    <select id="selectByIdempotencyKey" resultMap="BaseResultMap">
+        SELECT id, idempotency_key, order_id, product_shard_id, product_ids, sku_ids, quantities,
+               status, error_message, created_at, updated_at
+        FROM inventory_deduction_idempotency
+        WHERE idempotency_key = #{idempotencyKey}
+          AND product_shard_id = #{productShardId}
+    </select>
+    
+</mapper>
+

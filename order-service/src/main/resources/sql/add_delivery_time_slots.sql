@@ -36,3 +36,5 @@ ALTER TABLE merchant_fee_config_2 ADD COLUMN delivery_time_slots TEXT COMMENT 'é
 
 
 
+
+

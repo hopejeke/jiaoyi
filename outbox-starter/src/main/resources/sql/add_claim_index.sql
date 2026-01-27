@@ -24,3 +24,5 @@ CREATE INDEX idx_claim ON jiaoyi_2.outbox(shard_id, status, next_retry_time, loc
 -- 3. 这个索引覆盖了 claim 查询的所有条件，可以显著提高查询性能
 
 
+
+

@@ -100,3 +100,5 @@ DROP PROCEDURE IF EXISTS add_store_id_to_payments_quick;
 -- 注意：执行完此脚本后，payments 表将包含 store_id 字段
 -- 历史数据的 store_id 默认为 0，需要根据业务逻辑进行数据迁移
 
+
+

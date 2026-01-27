@@ -62,9 +62,14 @@ public interface ProductServiceClient {
     
     /**
      * 批量解锁库存（基于SKU）
+     * 
+     * 返回 OperationResult，包含操作结果状态：
+     * - SUCCESS: 第一次调用，解锁成功
+     * - IDEMPOTENT_SUCCESS: 重复调用，但库存已解锁过（幂等成功）
+     * - FAILED: 操作失败
      */
     @PostMapping("/inventory/unlock/batch")
-    ApiResponse<Void> unlockStockBatch(@RequestBody UnlockStockBatchRequest request);
+    ApiResponse<com.jiaoyi.common.OperationResult> unlockStockBatch(@RequestBody UnlockStockBatchRequest request);
     
     /**
      * 扣减库存（基于SKU）
@@ -106,6 +111,7 @@ public interface ProductServiceClient {
         private List<Long> productIds;
         private List<Long> skuIds;
         private List<Integer> quantities;
+        private Long orderId; // 订单ID（用于幂等性校验）
         
         public List<Long> getProductIds() { return productIds; }
         public void setProductIds(List<Long> productIds) { this.productIds = productIds; }
@@ -113,6 +119,8 @@ public interface ProductServiceClient {
         public void setSkuIds(List<Long> skuIds) { this.skuIds = skuIds; }
         public List<Integer> getQuantities() { return quantities; }
         public void setQuantities(List<Integer> quantities) { this.quantities = quantities; }
+        public Long getOrderId() { return orderId; }
+        public void setOrderId(Long orderId) { this.orderId = orderId; }
     }
     
     /**

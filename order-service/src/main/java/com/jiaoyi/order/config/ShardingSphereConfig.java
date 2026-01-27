@@ -17,6 +17,12 @@ import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.util.*;
 
+// 导入分片算法类（用于 IDE 识别，ShardingSphere 通过反射动态加载）
+import com.jiaoyi.order.config.StoreIdDatabaseShardingAlgorithm;
+import com.jiaoyi.order.config.StoreIdTableShardingAlgorithm;
+import com.jiaoyi.order.config.StoreIdDatabaseShardingAlgorithmV2;
+import com.jiaoyi.order.config.StoreIdTableShardingAlgorithmV2;
+
 /**
  * ShardingSphere 5.4.1 配置（Order Service）
  * 配置 orders, order_items, order_coupons, payments 表的分片规则
@@ -127,28 +133,44 @@ public class ShardingSphereConfig {
             "orders,order_items,order_coupons,payments,refunds,refund_items");
         shardingRuleConfig.getBindingTableGroups().add(bindingTableRule);
         
-        // 配置分片算法（使用 merchant_id 作为分片键，字符串类型）
-        shardingRuleConfig.getShardingAlgorithms().put("merchant_id_database", 
-            createClassBasedAlgorithm("com.jiaoyi.order.config.MerchantIdDatabaseShardingAlgorithm"));
-        shardingRuleConfig.getShardingAlgorithms().put("merchant_id_table", 
-            createClassBasedAlgorithm("com.jiaoyi.order.config.MerchantIdTableShardingAlgorithm"));
-        
         // 配置基于 store_id 的分片算法（用于 orders 和 outbox 表）
-        // 数据库路由：store_id % dsCount -> ds0/ds1/ds2
-        Properties dbShardingProps = new Properties();
-        dbShardingProps.setProperty("strategy", "STANDARD");
-        dbShardingProps.setProperty("algorithmClassName", "com.jiaoyi.order.config.StoreIdDatabaseShardingAlgorithm");
-        dbShardingProps.setProperty("ds-count", "3"); // 数据源数量：ds0, ds1, ds2
-        dbShardingProps.setProperty("ds-prefix", "ds"); // 数据源名称前缀
+        // 方案1：使用路由表（推荐，支持动态扩容）
+        Properties dbShardingPropsV2 = new Properties();
+        dbShardingPropsV2.setProperty("strategy", "STANDARD");
+        dbShardingPropsV2.setProperty("algorithmClassName", "com.jiaoyi.order.config.StoreIdDatabaseShardingAlgorithmV2");
+        dbShardingPropsV2.setProperty("use-routing-table", "true"); // 使用路由表
+        dbShardingPropsV2.setProperty("fallback-to-mod", "true"); // 路由表不可用时降级为取模
+        dbShardingPropsV2.setProperty("ds-count", "3"); // 降级时使用
+        dbShardingPropsV2.setProperty("ds-prefix", "ds"); // 降级时使用
         shardingRuleConfig.getShardingAlgorithms().put("store_id_database", 
-            new AlgorithmConfiguration("CLASS_BASED", dbShardingProps));
-        // 表路由：基于 store_id 计算 shard_id，然后 shard_id % 32 -> table_00..table_31
-        Properties tableShardingProps = new Properties();
-        tableShardingProps.setProperty("strategy", "STANDARD");
-        tableShardingProps.setProperty("algorithmClassName", "com.jiaoyi.order.config.StoreIdTableShardingAlgorithm");
-        tableShardingProps.setProperty("table.count.per.db", "32");
+            new AlgorithmConfiguration("CLASS_BASED", dbShardingPropsV2));
+        
+        // 方案2：纯函数（兼容模式，保留备用）
+        Properties dbShardingPropsOld = new Properties();
+        dbShardingPropsOld.setProperty("strategy", "STANDARD");
+        dbShardingPropsOld.setProperty("algorithmClassName", "com.jiaoyi.order.config.StoreIdDatabaseShardingAlgorithm");
+        dbShardingPropsOld.setProperty("ds-count", "3");
+        dbShardingPropsOld.setProperty("ds-prefix", "ds");
+        shardingRuleConfig.getShardingAlgorithms().put("store_id_database_old", 
+            new AlgorithmConfiguration("CLASS_BASED", dbShardingPropsOld));
+        
+        // 表路由：基于路由表查询 tbl_id
+        Properties tableShardingPropsV2 = new Properties();
+        tableShardingPropsV2.setProperty("strategy", "STANDARD");
+        tableShardingPropsV2.setProperty("algorithmClassName", "com.jiaoyi.order.config.StoreIdTableShardingAlgorithmV2");
+        tableShardingPropsV2.setProperty("use-routing-table", "true"); // 使用路由表
+        tableShardingPropsV2.setProperty("fallback-to-mod", "true"); // 路由表不可用时降级为取模
+        tableShardingPropsV2.setProperty("table.count.per.db", "32"); // 降级时使用
         shardingRuleConfig.getShardingAlgorithms().put("store_id_table", 
-            new AlgorithmConfiguration("CLASS_BASED", tableShardingProps));
+            new AlgorithmConfiguration("CLASS_BASED", tableShardingPropsV2));
+        
+        // 表路由：纯函数（兼容模式，保留备用）
+        Properties tableShardingPropsOld = new Properties();
+        tableShardingPropsOld.setProperty("strategy", "STANDARD");
+        tableShardingPropsOld.setProperty("algorithmClassName", "com.jiaoyi.order.config.StoreIdTableShardingAlgorithm");
+        tableShardingPropsOld.setProperty("table.count.per.db", "32");
+        shardingRuleConfig.getShardingAlgorithms().put("store_id_table_old", 
+            new AlgorithmConfiguration("CLASS_BASED", tableShardingPropsOld));
         
         // 配置分布式主键生成策略（雪花算法）
         shardingRuleConfig.getKeyGenerators().put("snowflake", createSnowflakeKeyGenerator());
@@ -306,12 +328,6 @@ public class ShardingSphereConfig {
         tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("store_id", "store_id_table"));
         // deliveries 表的主键是 id（VARCHAR），不是自增ID，所以不需要设置 KeyGenerateStrategy
         return tableRule;
-    }
-    
-    private AlgorithmConfiguration createInlineAlgorithm(String algorithmExpression) {
-        Properties props = new Properties();
-        props.setProperty("algorithm-expression", algorithmExpression);
-        return new AlgorithmConfiguration("INLINE", props);
     }
     
     /**

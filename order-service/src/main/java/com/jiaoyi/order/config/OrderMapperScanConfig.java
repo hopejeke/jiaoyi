@@ -19,3 +19,5 @@ public class OrderMapperScanConfig {
     // 空类，只用于 @MapperScan 配置
 }
 
+
+

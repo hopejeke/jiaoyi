@@ -129,3 +129,5 @@ DEALLOCATE PREPARE stmt;
 -- 或者查看索引：
 -- SHOW INDEX FROM outbox;
 
+
+

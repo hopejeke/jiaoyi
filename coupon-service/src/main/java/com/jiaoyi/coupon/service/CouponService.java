@@ -226,15 +226,27 @@ public class CouponService {
     
     /**
      * 退款优惠券（根据订单ID，兼容旧版本）
+     * 
+     * 注意：
+     * 1. 幂等性保护：如果优惠券已经是 REFUNDED 状态，返回 IDEMPOTENT_SUCCESS
+     * 2. 防止重复调用导致优惠券使用数量被重复减少
+     * 
+     * @return OperationResult 包含操作结果状态（SUCCESS、IDEMPOTENT_SUCCESS、FAILED）
      */
     @Transactional
-    public boolean refundCouponByOrderId(Long orderId) {
+    public com.jiaoyi.common.OperationResult refundCouponByOrderId(Long orderId) {
         log.info("退款优惠券，订单ID: {}", orderId);
         
         CouponUsage couponUsage = couponUsageMapper.selectByOrderId(orderId);
         if (couponUsage == null) {
             log.warn("未找到优惠券使用记录，订单ID: {}", orderId);
-            return false;
+            return com.jiaoyi.common.OperationResult.failed("未找到优惠券使用记录，订单ID: " + orderId);
+        }
+        
+        // 幂等性检查：如果已经是已退款状态，返回幂等成功
+        if (CouponUsage.UsageStatus.REFUNDED.equals(couponUsage.getStatus())) {
+            log.info("优惠券已退款（幂等性校验），订单ID: {}, 使用记录ID: {}", orderId, couponUsage.getId());
+            return com.jiaoyi.common.OperationResult.idempotentSuccess("优惠券已退款（幂等：重复调用），订单ID: " + orderId);
         }
         
         // 更新使用记录状态为已退款
@@ -244,7 +256,7 @@ public class CouponService {
         couponMapper.updateUsedQuantity(couponUsage.getCouponId(), -1);
         
         log.info("优惠券退款成功，使用记录ID: {}", couponUsage.getId());
-        return true;
+        return com.jiaoyi.common.OperationResult.success("优惠券退款成功，订单ID: " + orderId);
     }
     
     /**

@@ -104,3 +104,5 @@ DROP PROCEDURE IF EXISTS add_merchant_id_to_order_coupons;
 -- 注意：执行完此脚本后，order_coupons 表将包含 merchant_id 字段
 -- 然后可以执行 add_store_id_to_all_tables.sql 来添加 store_id 字段
 
+
+

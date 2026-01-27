@@ -142,3 +142,5 @@ java -Xms2g -Xmx4g -XX:+UseG1GC -jar target/load-test-1.0.0.jar ...
 3. **线程数**:
 根据CPU核心数和服务器性能调整线程数，建议不超过 CPU核心数 * 2
 
+
+

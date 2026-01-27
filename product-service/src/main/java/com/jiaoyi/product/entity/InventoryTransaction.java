@@ -22,7 +22,18 @@ public class InventoryTransaction {
     private Long productId;
     
     /**
-     * 订单ID（如果是订单相关变动）
+     * SKU ID（关联product_sku.id）
+     * 如果为null，表示商品级别的库存变动（兼容旧数据）
+     */
+    private Long skuId;
+    
+    /**
+     * 分片ID（0-1023，基于 storeId 计算，用于分库分表路由）
+     */
+    private Integer productShardId;
+    
+    /**
+     * 订单ID（订单相关变动必须有订单ID）
      */
     private Long orderId;
     

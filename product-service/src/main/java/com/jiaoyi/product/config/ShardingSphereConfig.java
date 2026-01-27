@@ -8,9 +8,6 @@ import org.apache.shardingsphere.sharding.api.config.rule.ShardingTableRuleConfi
 import org.apache.shardingsphere.sharding.api.config.rule.ShardingTableReferenceRuleConfiguration;
 import org.apache.shardingsphere.sharding.api.config.strategy.keygen.KeyGenerateStrategyConfiguration;
 import org.apache.shardingsphere.sharding.api.config.strategy.sharding.StandardShardingStrategyConfiguration;
-import com.jiaoyi.product.service.WorkerIdAllocator;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -18,63 +15,43 @@ import javax.sql.DataSource;
 import java.sql.SQLException;
 import java.util.*;
 
+// 导入分片算法类（用于 IDE 识别，ShardingSphere 通过反射动态加载）
+import com.jiaoyi.product.config.ProductShardIdDatabaseShardingAlgorithm;
+import com.jiaoyi.product.config.ProductShardIdTableShardingAlgorithm;
+
 /**
- * ShardingSphere 5.4.1 配置
- * 使用Java API配置方式，完全避免snakeyaml版本冲突
- * 这样可以保持 Spring Boot 3.2.0 + JDK 21 的兼容性
- * @author Administrator
+ * ShardingSphere 5.4.1 配置（Product Service）
+ * 配置 store_products, product_sku, inventory 表的分片规则
  */
 @Configuration
-@org.springframework.core.annotation.Order(3) // 在DatabaseInitializer、WorkerIdAllocator和ProductRouteCache之后执行
+@org.springframework.core.annotation.Order(2) // 在DatabaseInitializer之后执行
+@org.springframework.boot.autoconfigure.condition.ConditionalOnBean(name = "databaseInitializer") // 确保 DatabaseInitializer 先执行
 public class ShardingSphereConfig {
-    
-    /**
-     * Worker-ID 分配器（优先使用）
-     * 使用数据库表动态分配 worker-id
-     */
-    @Autowired(required = false)
-    private WorkerIdAllocator workerIdAllocator;
-    
-    /**
-     * 雪花算法 worker-id（工作机器ID，0-1023）
-     * 如果不配置，ShardingSphere 会自动生成
-     * 多实例部署时，建议为每个实例配置不同的 worker-id，避免ID冲突
-     * 可以通过环境变量 SNOWFLAKE_WORKER_ID 或配置文件设置
-     * 优先级：WorkerIdAllocator > 配置文件 > Pod名称 > 自动生成
-     */
-    @Value("${shardingsphere.snowflake.worker-id:}")
-    private String workerId;
-    
-    @Value("${HOSTNAME:}")
-    private String hostname;
 
     @Bean(name = "shardingSphereDataSource")
     public DataSource shardingSphereDataSource() throws SQLException {
-        // 创建数据源Map
         Map<String, DataSource> dataSourceMap = createDataSourceMap();
-        
-        // 创建分片规则配置
         ShardingRuleConfiguration shardingRuleConfig = createShardingRuleConfiguration();
         
-        // 创建属性配置
         Properties props = new Properties();
         props.setProperty("sql-show", "true");
         // 禁用元数据校验，允许表结构动态变化（开发环境）
-        // 注意：生产环境建议启用校验以确保数据一致性
         props.setProperty("check-table-metadata-enabled", "false");
+        props.setProperty("metadata-refresh-interval-seconds", "0");
         
-        // 创建ShardingSphere数据源
-        // 注意：outbox_node 和 outbox 表不在 ShardingSphere 中配置，使用普通数据源连接（见 DataSourceConfig）
-        // ShardingSphere 负责分片表（store_products, inventory）
         return ShardingSphereDataSourceFactory.createDataSource(dataSourceMap, List.of(shardingRuleConfig), props);
     }
     
-    /**
-     * 创建数据源Map（只包含分片数据库，不包含基础数据库 jiaoyi）
-     * 基础数据库 jiaoyi 使用普通数据源连接（见 DataSourceConfig）
-     */
     private Map<String, DataSource> createDataSourceMap() {
         Map<String, DataSource> dataSourceMap = new HashMap<>();
+        
+        // 基础数据库 jiaoyi（用于非分片表：stores, users, outbox_node, snowflake_worker）
+        HikariDataSource dsBase = new HikariDataSource();
+        dsBase.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        dsBase.setJdbcUrl("jdbc:mysql://localhost:3306/jiaoyi?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai");
+        dsBase.setUsername("root");
+        dsBase.setPassword("root");
+        dataSourceMap.put("ds_base", dsBase);
         
         // 商品服务专用数据库：jiaoyi_product_0/1/2
         HikariDataSource ds0 = new HikariDataSource();
@@ -101,61 +78,116 @@ public class ShardingSphereConfig {
         return dataSourceMap;
     }
     
-    /**
-     * 创建分片规则配置
-     */
     private ShardingRuleConfiguration createShardingRuleConfiguration() {
         ShardingRuleConfiguration shardingRuleConfig = new ShardingRuleConfiguration();
         
-        // 注意：不要设置默认数据源！
-        // 如果设置了默认数据源，没有分片键的查询（如 selectAll）会只查询默认数据源，而不是查询所有分片
-        // 对于 store_products 表，所有查询都应该通过 ShardingSphere 路由到正确的分片
+        try {
+            java.lang.reflect.Method setDefaultDataSourceMethod = 
+                ShardingRuleConfiguration.class.getMethod("setDefaultDataSourceName", String.class);
+            setDefaultDataSourceMethod.invoke(shardingRuleConfig, "ds0");
+        } catch (Exception e) {
+            // 忽略
+        }
         
-        // 配置分片表（只配置需要分片的表）
-        // 注意：outbox_node 和 outbox 表不在 ShardingSphere 中配置，使用普通数据源连接
+        // 配置分片表：商品事实表（store_products, product_sku, inventory, inventory_transactions）
         shardingRuleConfig.getTables().add(createStoreProductsTableRule());
         shardingRuleConfig.getTables().add(createProductSkuTableRule());
         shardingRuleConfig.getTables().add(createInventoryTableRule());
+        shardingRuleConfig.getTables().add(createInventoryTransactionsTableRule());
+        shardingRuleConfig.getTables().add(createOutboxTableRule());
         
-        // online-order-v2 相关分片表（订单相关已迁移到 order-service）
+        // 配置 online-order-v2 分片表（merchants, store_services, menu_items）
         shardingRuleConfig.getTables().add(createMerchantsTableRule());
         shardingRuleConfig.getTables().add(createStoreServicesTableRule());
         shardingRuleConfig.getTables().add(createMenuItemsTableRule());
-        // 订单表已迁移到 order-service，不再在此配置
         
-        // outbox 表（分库不分表，按 store_id 分库路由，与商品表一致）
-        shardingRuleConfig.getTables().add(createOutboxTableRule());
+        // 配置非分片表（单表，存在于基础数据库 jiaoyi 中）
+        shardingRuleConfig.getTables().add(createStoresTableRule());
+        shardingRuleConfig.getTables().add(createUsersTableRule());
+        shardingRuleConfig.getTables().add(createOutboxNodeTableRule());
+        shardingRuleConfig.getTables().add(createSnowflakeWorkerTableRule());
         
-        // 配置绑定表（store_products, product_sku, inventory 绑定，确保同一店铺的数据在同一分片）
-        // 注意：outbox 表不加入 bindingTables，因为 outbox 表只分库不分表，而商品表分库+分表
-        // 但 outbox 表使用相同的分库策略（store_id），仍然可以保证同库事务
+        // 配置库存扣减幂等性日志表（每个分片库一张表，不分片）
+        shardingRuleConfig.getTables().add(createInventoryDeductionIdempotencyTableRule());
+        
+        // 配置绑定表（store_products, product_sku, inventory, inventory_transactions 绑定，确保同一商品的数据在同一分片）
         ShardingTableReferenceRuleConfiguration bindingTableRule = new ShardingTableReferenceRuleConfiguration("product_binding", 
-            "store_products,product_sku,inventory");
+            "store_products,product_sku,inventory,inventory_transactions");
         shardingRuleConfig.getBindingTableGroups().add(bindingTableRule);
         
-        // 配置分片算法（使用 product_shard_id，纯函数计算）
-        // 数据库路由：product_shard_id % dsCount -> ds0/ds1/ds2
+        // 配置基于 product_shard_id 的分片算法（用于商品表）
+        // 方案1：使用路由表（推荐，支持动态扩容）
+        Properties dbShardingPropsV2 = new Properties();
+        dbShardingPropsV2.setProperty("strategy", "STANDARD");
+        dbShardingPropsV2.setProperty("algorithmClassName", "com.jiaoyi.product.config.ProductShardIdDatabaseShardingAlgorithmV2");
+        dbShardingPropsV2.setProperty("use-routing-table", "true"); // 使用路由表
+        dbShardingPropsV2.setProperty("fallback-to-mod", "true"); // 路由表不可用时降级为取模
+        dbShardingPropsV2.setProperty("ds-count", "3"); // 降级时使用
+        dbShardingPropsV2.setProperty("ds-prefix", "ds"); // 降级时使用
         shardingRuleConfig.getShardingAlgorithms().put("product_shard_id_database", 
-            createProductShardIdDatabaseAlgorithm());
-        // 表路由：product_shard_id % 32 -> table_00..table_31
-        Properties tableShardingProps = new Properties();
-        tableShardingProps.setProperty("strategy", "STANDARD");
-        tableShardingProps.setProperty("algorithmClassName", "com.jiaoyi.product.config.ProductShardIdTableShardingAlgorithm");
-        tableShardingProps.setProperty("table.count.per.db", "32");
-        shardingRuleConfig.getShardingAlgorithms().put("product_shard_id_table", 
-            new AlgorithmConfiguration("CLASS_BASED", tableShardingProps));
+            new AlgorithmConfiguration("CLASS_BASED", dbShardingPropsV2));
         
-        // online-order-v2 表分片算法（基于 merchant_id，使用字符串哈希）
-        // merchant_id 是字符串，使用自定义算法类进行分片
-        // 注意：INLINE 算法不支持字符串的 hashCode()，需要使用自定义算法
-        shardingRuleConfig.getShardingAlgorithms().put("merchants_database_hash", 
-            createClassBasedAlgorithm("com.jiaoyi.product.config.MerchantIdDatabaseShardingAlgorithm"));
-        shardingRuleConfig.getShardingAlgorithms().put("merchants_table_hash", 
-            createClassBasedAlgorithm("com.jiaoyi.product.config.MerchantIdTableShardingAlgorithm"));
+        // 方案2：纯函数（兼容模式，保留备用）
+        Properties dbShardingPropsOld = new Properties();
+        dbShardingPropsOld.setProperty("strategy", "STANDARD");
+        dbShardingPropsOld.setProperty("algorithmClassName", "com.jiaoyi.product.config.ProductShardIdDatabaseShardingAlgorithm");
+        dbShardingPropsOld.setProperty("ds-count", "3");
+        dbShardingPropsOld.setProperty("ds-prefix", "ds");
+        shardingRuleConfig.getShardingAlgorithms().put("product_shard_id_database_old", 
+            new AlgorithmConfiguration("CLASS_BASED", dbShardingPropsOld));
+        
+        // 表路由：基于路由表查询 tbl_id
+        Properties tableShardingPropsV2 = new Properties();
+        tableShardingPropsV2.setProperty("strategy", "STANDARD");
+        tableShardingPropsV2.setProperty("algorithmClassName", "com.jiaoyi.product.config.ProductShardIdTableShardingAlgorithmV2");
+        tableShardingPropsV2.setProperty("use-routing-table", "true"); // 使用路由表
+        tableShardingPropsV2.setProperty("fallback-to-mod", "true"); // 路由表不可用时降级为取模
+        tableShardingPropsV2.setProperty("table.count.per.db", "32"); // 降级时使用
+        shardingRuleConfig.getShardingAlgorithms().put("product_shard_id_table", 
+            new AlgorithmConfiguration("CLASS_BASED", tableShardingPropsV2));
+        
+        // 表路由：纯函数（兼容模式，保留备用）
+        Properties tableShardingPropsOld = new Properties();
+        tableShardingPropsOld.setProperty("strategy", "STANDARD");
+        tableShardingPropsOld.setProperty("algorithmClassName", "com.jiaoyi.product.config.ProductShardIdTableShardingAlgorithm");
+        tableShardingPropsOld.setProperty("table.count.per.db", "32");
+        shardingRuleConfig.getShardingAlgorithms().put("product_shard_id_table_old", 
+            new AlgorithmConfiguration("CLASS_BASED", tableShardingPropsOld));
+        
+        // 配置基于 store_id 的分片算法（用于 outbox 表）
+        // 数据库路由：从 store_id 计算 product_shard_id，然后 product_shard_id % dsCount -> ds0/ds1/ds2
+        Properties storeIdDbShardingProps = new Properties();
+        storeIdDbShardingProps.setProperty("strategy", "STANDARD");
+        storeIdDbShardingProps.setProperty("algorithmClassName", "com.jiaoyi.product.config.StoreIdDatabaseShardingAlgorithm");
+        storeIdDbShardingProps.setProperty("ds-count", "3");
+        storeIdDbShardingProps.setProperty("ds-prefix", "ds");
+        shardingRuleConfig.getShardingAlgorithms().put("store_id_database", 
+            new AlgorithmConfiguration("CLASS_BASED", storeIdDbShardingProps));
+        
+        // 表路由：从 store_id 计算 product_shard_id，然后 product_shard_id % 32 -> table_00..table_31
+        Properties storeIdTableShardingProps = new Properties();
+        storeIdTableShardingProps.setProperty("strategy", "STANDARD");
+        storeIdTableShardingProps.setProperty("algorithmClassName", "com.jiaoyi.product.config.StoreIdTableShardingAlgorithm");
+        storeIdTableShardingProps.setProperty("table.count.per.db", "32");
+        shardingRuleConfig.getShardingAlgorithms().put("store_id_table", 
+            new AlgorithmConfiguration("CLASS_BASED", storeIdTableShardingProps));
+        
+        // 配置基于 merchant_id 的分片算法（用于 merchants, store_services, menu_items 表）
+        // 数据库路由：基于 merchant_id 哈希值计算
+        Properties merchantIdDbShardingProps = new Properties();
+        merchantIdDbShardingProps.setProperty("strategy", "STANDARD");
+        merchantIdDbShardingProps.setProperty("algorithmClassName", "com.jiaoyi.product.config.MerchantIdDatabaseShardingAlgorithm");
+        shardingRuleConfig.getShardingAlgorithms().put("merchant_id_database", 
+            new AlgorithmConfiguration("CLASS_BASED", merchantIdDbShardingProps));
+        
+        // 表路由：基于 merchant_id 哈希值计算，然后 % 3 -> table_0..table_2
+        Properties merchantIdTableShardingProps = new Properties();
+        merchantIdTableShardingProps.setProperty("strategy", "STANDARD");
+        merchantIdTableShardingProps.setProperty("algorithmClassName", "com.jiaoyi.product.config.MerchantIdTableShardingAlgorithm");
+        shardingRuleConfig.getShardingAlgorithms().put("merchant_id_table", 
+            new AlgorithmConfiguration("CLASS_BASED", merchantIdTableShardingProps));
         
         // 配置分布式主键生成策略（雪花算法）
-        // 解决分库分表环境下主键重复的问题
-        // 每个分片表独立自增会导致主键重复，使用雪花算法生成全局唯一ID
         shardingRuleConfig.getKeyGenerators().put("snowflake", createSnowflakeKeyGenerator());
         
         return shardingRuleConfig;
@@ -163,31 +195,28 @@ public class ShardingSphereConfig {
     
     /**
      * 创建商品表分片规则
-     * 使用 product_shard_id 作为分片键（基于 storeId 计算，固定1024个虚拟桶）
+     * 使用 product_shard_id 作为分片键
      * 物理分表：32 张表（store_products_00..store_products_31）
      */
     private ShardingTableRuleConfiguration createStoreProductsTableRule() {
-        // 实际数据节点：ds0/1/2 每个库都有 32 张表（store_products_00..store_products_31）
-        // 注意：使用显式拼接，避免 inline expression ${00..31} 不补零的问题
         String actualDataNodes = buildActualDataNodes("store_products", 3, 32);
         ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("store_products", actualDataNodes);
-        // 使用 product_shard_id 作为分片键（数据库路由：product_shard_id % dsCount）
+        
+        // 使用 product_shard_id 作为分片键（数据库路由：基于 product_shard_id 计算）
         tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_database"));
-        // 使用 product_shard_id 作为分片键（表路由：product_shard_id % 32）
+        // 使用 product_shard_id 作为分片键（表路由：基于 product_shard_id 计算）
         tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_table"));
         tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
         return tableRule;
     }
     
     /**
-     * 创建商品SKU表分片规则
-     * 使用 product_shard_id 作为分片键，与 store_products 表保持一致
+     * 创建商品SKU表分片规则（与 store_products 绑定）
      */
     private ShardingTableRuleConfiguration createProductSkuTableRule() {
-        // 实际数据节点：ds0/1/2 每个库都有 32 张表（product_sku_00..product_sku_31）
-        // 注意：使用显式拼接，避免 inline expression ${00..31} 不补零的问题
         String actualDataNodes = buildActualDataNodes("product_sku", 3, 32);
         ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("product_sku", actualDataNodes);
+        // product_sku 表使用 product_shard_id 作为分片键，与 store_products 表保持一致
         tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_database"));
         tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_table"));
         tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
@@ -195,15 +224,12 @@ public class ShardingSphereConfig {
     }
     
     /**
-     * 创建库存表分片规则
-     * 使用 product_shard_id 作为分片键，与 store_products 表保持一致
-     * 库存按SKU级别管理，sku_id为NULL时表示商品级别库存（兼容旧数据）
+     * 创建库存表分片规则（与 store_products 绑定）
      */
     private ShardingTableRuleConfiguration createInventoryTableRule() {
-        // 实际数据节点：ds0/1/2 每个库都有 32 张表（inventory_00..inventory_31）
-        // 注意：使用显式拼接，避免 inline expression ${00..31} 不补零的问题
         String actualDataNodes = buildActualDataNodes("inventory", 3, 32);
         ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("inventory", actualDataNodes);
+        // inventory 表使用 product_shard_id 作为分片键，与 store_products 表保持一致
         tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_database"));
         tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_table"));
         tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
@@ -211,87 +237,155 @@ public class ShardingSphereConfig {
     }
     
     /**
-     * 创建内联分片算法配置
+     * 创建库存变动记录表分片规则（与 store_products 绑定）
      */
-    private AlgorithmConfiguration createInlineAlgorithm(String algorithmExpression) {
-        Properties props = new Properties();
-        props.setProperty("algorithm-expression", algorithmExpression);
-        return new AlgorithmConfiguration("INLINE", props);
-    }
-    
-    /**
-     * 创建餐馆表分片规则
-     * 基于 merchant_id（字符串）进行分片
-     */
-    private ShardingTableRuleConfiguration createMerchantsTableRule() {
-        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("merchants", 
-            "ds${0..2}.merchants_${0..2}");
-        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_database_hash"));
-        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_table_hash"));
-        // 配置主键生成策略：使用雪花算法生成全局唯一ID
+    private ShardingTableRuleConfiguration createInventoryTransactionsTableRule() {
+        String actualDataNodes = buildActualDataNodes("inventory_transactions", 3, 32);
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("inventory_transactions", actualDataNodes);
+        // inventory_transactions 表使用 product_shard_id 作为分片键，与 store_products 表保持一致
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_database"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_table"));
         tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
         return tableRule;
     }
     
     /**
-     * 创建餐馆服务表分片规则
-     * 使用与餐馆表相同的分片策略（基于 merchant_id）
-     */
-    private ShardingTableRuleConfiguration createStoreServicesTableRule() {
-        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("store_services", 
-            "ds${0..2}.store_services_${0..2}");
-        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_database_hash"));
-        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_table_hash"));
-        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
-        return tableRule;
-    }
-    
-    /**
-     * 创建菜单项信息表分片规则
-     * 使用与餐馆表相同的分片策略（基于 merchant_id）
-     */
-    private ShardingTableRuleConfiguration createMenuItemsTableRule() {
-        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("menu_items", 
-            "ds${0..2}.menu_items_${0..2}");
-        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_database_hash"));
-        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchants_table_hash"));
-        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
-        return tableRule;
-    }
-    
-    // 订单表分片规则已迁移到 order-service，不再在此配置
-    
-    /**
-     * 创建 outbox 表规则（分库+分表，32张表/库：outbox_00..outbox_31）
-     * 使用 product_shard_id 作为分片键，与商品表保持一致
-     * 
-     * 注意：
-     * 1. 分库路由：product_shard_id % dsCount -> ds0/ds1/ds2
-     * 2. 表路由：product_shard_id % 32 -> outbox_00..outbox_31
-     * 3. 业务方需要在插入时计算并设置 product_shard_id（基于 storeId）
+     * 创建 outbox 表规则（分库+分表，按 store_id 分片）
+     * 注意：outbox 表使用 store_id 作为分片键，通过 StoreIdDatabaseShardingAlgorithm 和 StoreIdTableShardingAlgorithm
+     * 内部会从 store_id 计算 product_shard_id，然后进行路由
      */
     private ShardingTableRuleConfiguration createOutboxTableRule() {
-        // 实际数据节点：ds0/1/2 每个库都有 32 张表（outbox_00..outbox_31）
-        // 注意：使用显式拼接，避免 inline expression ${00..31} 不补零的问题
         String actualDataNodes = buildActualDataNodes("outbox", 3, 32);
-        
         ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("outbox", actualDataNodes);
-        
-        // 使用 product_shard_id 作为分片键（数据库路由：product_shard_id % dsCount）
-        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_database"));
-        // 使用 product_shard_id 作为分片键（表路由：product_shard_id % 32）
-        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_table"));
+        // outbox 表使用 store_id 作为分片键，使用专门处理 store_id 的分片算法
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("store_id", "store_id_database"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("store_id", "store_id_table"));
         // 不设置 KeyGenerateStrategy，因为 outbox 表使用 AUTO_INCREMENT
         return tableRule;
     }
     
     /**
+     * 创建 merchants 表规则（分片表，基于 merchant_id 分片）
+     * 物理分表：每个库3张表（merchants_0..merchants_2）
+     */
+    private ShardingTableRuleConfiguration createMerchantsTableRule() {
+        // 实际数据节点：ds0/1/2 每个库都有 3 张表（merchants_0..merchants_2）
+        StringBuilder actualDataNodes = new StringBuilder();
+        for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
+            for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+                if (dbIndex > 0 || tableIndex > 0) {
+                    actualDataNodes.append(",");
+                }
+                actualDataNodes.append("ds").append(dbIndex).append(".merchants_").append(tableIndex);
+            }
+        }
+        
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("merchants", actualDataNodes.toString());
+        // 使用 merchant_id 作为分片键（数据库路由：基于 merchant_id 计算）
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_database"));
+        // 使用 merchant_id 作为分片键（表路由：基于 merchant_id 计算）
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_table"));
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
+        return tableRule;
+    }
+    
+    /**
+     * 创建 store_services 表规则（分片表，基于 merchant_id 分片）
+     * 物理分表：每个库3张表（store_services_0..store_services_2）
+     */
+    private ShardingTableRuleConfiguration createStoreServicesTableRule() {
+        StringBuilder actualDataNodes = new StringBuilder();
+        for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
+            for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+                if (dbIndex > 0 || tableIndex > 0) {
+                    actualDataNodes.append(",");
+                }
+                actualDataNodes.append("ds").append(dbIndex).append(".store_services_").append(tableIndex);
+            }
+        }
+        
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("store_services", actualDataNodes.toString());
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_database"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_table"));
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
+        return tableRule;
+    }
+    
+    /**
+     * 创建 menu_items 表规则（分片表，基于 merchant_id 分片）
+     * 物理分表：每个库3张表（menu_items_0..menu_items_2）
+     */
+    private ShardingTableRuleConfiguration createMenuItemsTableRule() {
+        StringBuilder actualDataNodes = new StringBuilder();
+        for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
+            for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
+                if (dbIndex > 0 || tableIndex > 0) {
+                    actualDataNodes.append(",");
+                }
+                actualDataNodes.append("ds").append(dbIndex).append(".menu_items_").append(tableIndex);
+            }
+        }
+        
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("menu_items", actualDataNodes.toString());
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_database"));
+        tableRule.setTableShardingStrategy(new StandardShardingStrategyConfiguration("merchant_id", "merchant_id_table"));
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
+        return tableRule;
+    }
+    
+    /**
+     * 创建 stores 表规则（非分片表，存在于基础数据库 jiaoyi）
+     */
+    private ShardingTableRuleConfiguration createStoresTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("stores", "ds_base.stores");
+        return tableRule;
+    }
+    
+    /**
+     * 创建 users 表规则（非分片表，存在于基础数据库 jiaoyi）
+     */
+    private ShardingTableRuleConfiguration createUsersTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("users", "ds_base.users");
+        return tableRule;
+    }
+    
+    /**
+     * 创建 outbox_node 表规则（非分片表，存在于基础数据库 jiaoyi）
+     */
+    private ShardingTableRuleConfiguration createOutboxNodeTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("outbox_node", "ds_base.outbox_node");
+        return tableRule;
+    }
+    
+    /**
+     * 创建 snowflake_worker 表规则（非分片表，存在于基础数据库 jiaoyi）
+     */
+    private ShardingTableRuleConfiguration createSnowflakeWorkerTableRule() {
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("snowflake_worker", "ds_base.snowflake_worker");
+        return tableRule;
+    }
+    
+    /**
+     * 创建库存扣减幂等性日志表规则（使用 product_shard_id 作为分片键）
+     * 物理分表：每个库一张表（inventory_deduction_idempotency）
+     */
+    private ShardingTableRuleConfiguration createInventoryDeductionIdempotencyTableRule() {
+        String actualDataNodes = "ds0.inventory_deduction_idempotency,ds1.inventory_deduction_idempotency,ds2.inventory_deduction_idempotency";
+        ShardingTableRuleConfiguration tableRule = new ShardingTableRuleConfiguration("inventory_deduction_idempotency", actualDataNodes);
+        // 使用 product_shard_id 作为分片键（数据库路由：基于 product_shard_id 计算）
+        tableRule.setDatabaseShardingStrategy(new StandardShardingStrategyConfiguration("product_shard_id", "product_shard_id_database"));
+        // 不分表（每个库只有一张表）
+        tableRule.setKeyGenerateStrategy(new KeyGenerateStrategyConfiguration("id", "snowflake"));
+        return tableRule;
+    }
+    
+    private AlgorithmConfiguration createSnowflakeKeyGenerator() {
+        Properties props = new Properties();
+        return new AlgorithmConfiguration("SNOWFLAKE", props);
+    }
+    
+    /**
      * 构建实际数据节点字符串（显式拼接，确保补零正确）
-     * 
-     * @param tableName 表名前缀（如 "outbox", "store_products"）
-     * @param dbCount 数据库数量（默认 3）
-     * @param tableCountPerDb 每个库的表数量（默认 32）
-     * @return 实际数据节点字符串，如 "ds0.outbox_00,ds0.outbox_01,...,ds2.outbox_31"
      */
     private String buildActualDataNodes(String tableName, int dbCount, int tableCountPerDb) {
         StringBuilder actualDataNodes = new StringBuilder();
@@ -307,102 +401,5 @@ public class ShardingSphereConfig {
         }
         return actualDataNodes.toString();
     }
-    
-    /**
-     * 创建商品域数据库分片算法（基于 product_shard_id，纯函数实现）
-     * 使用 product_shard_id % dsCount 计算数据库索引
-     */
-    private AlgorithmConfiguration createProductShardIdDatabaseAlgorithm() {
-        Properties props = new Properties();
-        props.setProperty("strategy", "STANDARD");
-        props.setProperty("algorithmClassName", "com.jiaoyi.product.config.ProductShardIdDatabaseShardingAlgorithm");
-        // 配置数据源数量和前缀
-        props.setProperty("ds-count", "3");
-        props.setProperty("ds-prefix", "ds");
-        return new AlgorithmConfiguration("CLASS_BASED", props);
-    }
-    
-    /**
-     * 创建基于类的分片算法配置
-     */
-    private AlgorithmConfiguration createClassBasedAlgorithm(String algorithmClassName) {
-        Properties props = new Properties();
-        props.setProperty("strategy", "STANDARD");
-        props.setProperty("algorithmClassName", algorithmClassName);
-        return new AlgorithmConfiguration("CLASS_BASED", props);
-    }
-    
-    /**
-     * 创建雪花算法主键生成器配置
-     * 雪花算法生成的ID格式：64位长整型
-     * - 1位符号位（0）
-     * - 41位时间戳（毫秒级）
-     * - 10位机器ID（5位数据中心ID + 5位机器ID）
-     * - 12位序列号
-     * 
-     * 优点：
-     * - 全局唯一
-     * - 趋势递增（按时间有序）
-     * - 性能高（本地生成，无需数据库交互）
-     * - 适合分布式环境
-     * 
-     * worker-id 配置优先级：
-     * 1. WorkerIdAllocator（数据库表动态分配，推荐）
-     * 2. 配置文件/环境变量 shardingsphere.snowflake.worker-id
-     * 3. 从 Pod 名称提取（StatefulSet）
-     * 4. ShardingSphere 自动生成
-     */
-    private AlgorithmConfiguration createSnowflakeKeyGenerator() {
-        Properties props = new Properties();
-        
-        Integer workerIdValue = null;
-        
-        // 优先级1: 从 WorkerIdAllocator 获取（数据库表动态分配）
-        if (workerIdAllocator != null) {
-            workerIdValue = workerIdAllocator.getAllocatedWorkerId();
-            if (workerIdValue != null) {
-                props.setProperty("worker-id", String.valueOf(workerIdValue));
-                System.out.println("✓ 雪花算法 worker-id 已从数据库动态分配: " + workerIdValue);
-                return new AlgorithmConfiguration("SNOWFLAKE", props);
-            }
-        }
-        
-        // 优先级2: 从配置文件或环境变量读取
-        if (workerId != null && !workerId.trim().isEmpty()) {
-            try {
-                workerIdValue = Integer.parseInt(workerId.trim());
-                if (workerIdValue < 0 || workerIdValue > 1023) {
-                    throw new IllegalArgumentException("worker-id 必须在 0-1023 之间，当前值: " + workerIdValue);
-                }
-                props.setProperty("worker-id", String.valueOf(workerIdValue));
-                System.out.println("✓ 雪花算法 worker-id 已配置: " + workerIdValue);
-                return new AlgorithmConfiguration("SNOWFLAKE", props);
-            } catch (NumberFormatException e) {
-                System.err.println("✗ 雪花算法 worker-id 配置错误，必须是 0-1023 之间的整数: " + workerId);
-            }
-        }
-        
-        // 优先级3: 从 Pod 名称提取（StatefulSet）
-        if (hostname != null && !hostname.isEmpty()) {
-            try {
-                String number = hostname.replaceAll(".*?([0-9]+)$", "$1");
-                if (!number.isEmpty() && number.matches("\\d+")) {
-                    workerIdValue = Integer.parseInt(number);
-                    if (workerIdValue >= 0 && workerIdValue <= 1023) {
-                        props.setProperty("worker-id", String.valueOf(workerIdValue));
-                        System.out.println("✓ 从 Pod 名称提取 worker-id: " + workerIdValue + " (hostname: " + hostname + ")");
-                        return new AlgorithmConfiguration("SNOWFLAKE", props);
-                    }
-                }
-            } catch (Exception e) {
-                // 忽略
-            }
-        }
-        
-        // 优先级4: ShardingSphere 自动生成
-        System.out.println("ℹ 雪花算法 worker-id 未配置，ShardingSphere 将自动生成");
-        return new AlgorithmConfiguration("SNOWFLAKE", props);
-    }
-    
 }
 

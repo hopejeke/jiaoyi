@@ -36,3 +36,5 @@ python3 load_test.py \
     --ramp-up "$RAMP_UP" \
     --type "$TEST_TYPE"
 
+
+

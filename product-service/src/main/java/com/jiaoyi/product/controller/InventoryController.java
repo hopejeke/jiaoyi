@@ -271,23 +271,7 @@ public class InventoryController {
         public void setMaxStock(Integer maxStock) { this.maxStock = maxStock; }
     }
     
-    /**
-     * 检查库存是否充足（基于SKU）
-     */
-    @PostMapping("/check")
-    public ResponseEntity<ApiResponse<Boolean>> checkStock(@RequestBody CheckStockRequest request) {
-        log.info("检查库存（SKU级别），商品ID: {}, SKU ID: {}, 数量: {}", request.getProductId(), request.getSkuId(), request.getQuantity());
-        try {
-            if (request.getSkuId() == null) {
-                return ResponseEntity.ok(ApiResponse.error(400, "SKU ID不能为空"));
-            }
-            inventoryService.checkAndLockStock(request.getProductId(), request.getSkuId(), request.getQuantity());
-            return ResponseEntity.ok(ApiResponse.success(true));
-        } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
-        }
-    }
-    
+
     /**
      * 锁定库存（基于SKU）
      */
@@ -295,10 +279,11 @@ public class InventoryController {
     public ResponseEntity<ApiResponse<Void>> lockStock(
             @PathVariable Long productId,
             @RequestParam Long skuId,
-            @RequestParam Integer quantity) {
-        log.info("锁定库存（SKU级别），商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
+            @RequestParam Integer quantity,
+            @RequestParam Long orderId) {
+        log.info("锁定库存（SKU级别），订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}", orderId, productId, skuId, quantity);
         try {
-            inventoryService.checkAndLockStock(productId, skuId, quantity);
+            inventoryService.checkAndLockStock(productId, skuId, quantity, orderId);
             return ResponseEntity.ok(ApiResponse.success("锁定成功", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -344,9 +329,12 @@ public class InventoryController {
      */
     @PostMapping("/lock/batch")
     public ResponseEntity<ApiResponse<Void>> lockStockBatch(@RequestBody LockStockBatchRequest request) {
-        log.info("批量锁定库存（SKU级别），商品数量: {}", request.getProductIds().size());
+        log.info("批量锁定库存（SKU级别），订单ID: {}, 商品数量: {}", request.getOrderId(), request.getProductIds().size());
         try {
-            inventoryService.checkAndLockStockBatch(request.getProductIds(), request.getSkuIds(), request.getQuantities());
+            if (request.getOrderId() == null) {
+                return ResponseEntity.ok(ApiResponse.error(400, "订单ID不能为空（用于幂等性校验）"));
+            }
+            inventoryService.checkAndLockStockBatch(request.getProductIds(), request.getSkuIds(), request.getQuantities(), request.getOrderId());
             return ResponseEntity.ok(ApiResponse.success("批量锁定成功", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -355,15 +343,30 @@ public class InventoryController {
     
     /**
      * 批量解锁库存（基于SKU）
+     * 
+     * 返回码说明：
+     * - 200: 操作成功（SUCCESS 或 IDEMPOTENT_SUCCESS）
+     *   - SUCCESS: 第一次调用，解锁成功
+     *   - IDEMPOTENT_SUCCESS: 重复调用，但库存已解锁过（幂等成功）
+     * - 400: 操作失败
      */
     @PostMapping("/unlock/batch")
-    public ResponseEntity<ApiResponse<Void>> unlockStockBatch(@RequestBody UnlockStockBatchRequest request) {
+    public ResponseEntity<ApiResponse<com.jiaoyi.common.OperationResult>> unlockStockBatch(@RequestBody UnlockStockBatchRequest request) {
         log.info("批量解锁库存（SKU级别），订单ID: {}, 商品数量: {}", request.getOrderId(), request.getProductIds().size());
         try {
-            inventoryService.unlockStockBatch(request.getProductIds(), request.getSkuIds(), request.getQuantities(), request.getOrderId());
-            return ResponseEntity.ok(ApiResponse.success("批量解锁成功", null));
+            com.jiaoyi.common.OperationResult result = inventoryService.unlockStockBatch(
+                    request.getProductIds(), request.getSkuIds(), request.getQuantities(), request.getOrderId());
+            
+            // 根据结果状态返回对应的HTTP状态码
+            if (com.jiaoyi.common.OperationResult.ResultStatus.FAILED.equals(result.getStatus())) {
+                return ResponseEntity.ok(ApiResponse.error(400, result.getMessage()));
+            } else {
+                // SUCCESS 或 IDEMPOTENT_SUCCESS 都返回 200，但通过 result 中的 status 区分
+                return ResponseEntity.ok(ApiResponse.success(result.getMessage(), result));
+            }
         } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
+            log.error("批量解锁库存异常", e);
+            return ResponseEntity.ok(ApiResponse.error(400, "批量解锁库存失败: " + e.getMessage()));
         }
     }
     
@@ -372,9 +375,15 @@ public class InventoryController {
      */
     @PostMapping("/deduct/batch")
     public ResponseEntity<ApiResponse<Void>> deductStockBatch(@RequestBody DeductStockBatchRequest request) {
-        log.info("批量扣减库存（SKU级别），订单ID: {}, 商品数量: {}", request.getOrderId(), request.getProductIds().size());
+        log.info("批量扣减库存（SKU级别），订单ID: {}, idempotencyKey: {}, 商品数量: {}", 
+                request.getOrderId(), request.getIdempotencyKey(), request.getProductIds().size());
         try {
-            inventoryService.deductStockBatch(request.getProductIds(), request.getSkuIds(), request.getQuantities(), request.getOrderId());
+            inventoryService.deductStockBatch(
+                    request.getProductIds(), 
+                    request.getSkuIds(), 
+                    request.getQuantities(), 
+                    request.getOrderId(),
+                    request.getIdempotencyKey());
             return ResponseEntity.ok(ApiResponse.success("批量扣减成功", null));
         } catch (Exception e) {
             return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
@@ -421,6 +430,7 @@ public class InventoryController {
         private List<Long> productIds;
         private List<Long> skuIds;
         private List<Integer> quantities;
+        private Long orderId; // 订单ID（用于幂等性校验）
     }
     
     /**
@@ -443,6 +453,7 @@ public class InventoryController {
         private List<Long> skuIds;
         private List<Integer> quantities;
         private Long orderId;
+        private String idempotencyKey; // 幂等键（可选，格式：orderId + "-DEDUCT"）
     }
     
     /**

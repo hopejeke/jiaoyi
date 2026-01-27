@@ -53,7 +53,8 @@ public class DataSourceConfig {
     
     /**
      * 普通数据源的 SqlSessionFactory
-     * 用于 OutboxNodeMapper 和 OutboxMapper（非分片表）
+     * 用于 OutboxNodeMapper（非分片表）
+     * 注意：OutboxMapper 已删除，outbox 现在使用 JdbcTemplate 实现
      * 只加载 primary 目录下的 Mapper XML
      */
     @Bean(name = "primarySqlSessionFactory")

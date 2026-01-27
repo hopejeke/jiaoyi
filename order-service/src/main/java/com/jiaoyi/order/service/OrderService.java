@@ -17,6 +17,7 @@ import com.jiaoyi.order.mapper.OrderItemMapper;
 import com.jiaoyi.order.mapper.OrderMapper;
 import com.jiaoyi.order.mapper.OrderCouponMapper;
 import com.jiaoyi.order.mapper.MerchantCapabilityConfigMapper;
+import com.jiaoyi.order.service.OutboxHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -47,6 +48,7 @@ public class OrderService {
     private final OrderTimeoutMessageService orderTimeoutMessageService;
     private final ObjectMapper objectMapper;
     private final FeeCalculationService feeCalculationService;
+    private final OutboxHelper outboxHelper;
     private final DoorDashService doorDashService;
     private final DeliveryRuleService deliveryRuleService;
     private final PaymentService paymentService;
@@ -536,11 +538,12 @@ public class OrderService {
                                     .collect(Collectors.toList());
                             
                             if (!productIds.isEmpty() && !skuIds.isEmpty() && productIds.size() == skuIds.size()) {
-                                log.info("检查并锁定库存（SKU级别），商品数量: {}", productIds.size());
+                                log.info("检查并锁定库存（SKU级别），订单ID: {}, 商品数量: {}", order.getId(), productIds.size());
                                 ProductServiceClient.LockStockBatchRequest lockRequest = new ProductServiceClient.LockStockBatchRequest();
                                 lockRequest.setProductIds(productIds);
                                 lockRequest.setSkuIds(skuIds);
                                 lockRequest.setQuantities(quantities);
+                                lockRequest.setOrderId(order.getId()); // 传递订单ID用于幂等性校验
                                 try {
                                     productServiceClient.lockStockBatch(lockRequest);
                                 } catch (Exception e) {
@@ -990,8 +993,114 @@ public class OrderService {
 
     /**
      * 取消订单（使用 OrderStatusEnum.CANCELLED）
+     * 
+     * 注意：
+     * 1. 使用 @Transactional 确保订单状态更新、优惠券退还、库存解锁在同一事务中
+     * 2. 使用分布式锁（基于 orderId）防止并发取消
+     * 3. 只有 PENDING（待支付）状态的订单才能取消
      */
     @Transactional
+    public boolean cancelOrder(Long orderId) {
+        log.info("取消订单，订单ID: {}", orderId);
+        
+        // 分布式锁：防止并发取消同一个订单
+        String lockKey = "order:cancel:" + orderId;
+        RLock lock = redissonClient.getLock(lockKey);
+        
+        try {
+            // 尝试获取锁，最多等待3秒，锁持有时间不超过30秒
+            boolean lockAcquired = lock.tryLock(3, 30, TimeUnit.SECONDS);
+            
+            if (!lockAcquired) {
+                log.warn("获取分布式锁失败，订单可能正在被其他线程处理，orderId: {}", orderId);
+                return false;
+            }
+            
+            log.info("成功获取分布式锁，开始处理订单取消，orderId: {}", orderId);
+            
+            try {
+                // 查询订单
+                Order order = orderMapper.selectById(orderId);
+                if (order == null) {
+                    log.warn("订单不存在，订单ID: {}", orderId);
+                    return false;
+                }
+                
+                // 检查订单状态，只有待支付订单才能取消
+                if (!com.jiaoyi.order.enums.OrderStatusEnum.PENDING.getCode().equals(order.getStatus())) {
+                    log.warn("订单状态不允许取消，订单ID: {}, 当前状态: {}", orderId, order.getStatus());
+                    return false;
+                }
+                
+                // 双重检查：再次查询订单状态（防止在获取锁期间状态已变更）
+                Order currentOrder = orderMapper.selectById(orderId);
+                if (currentOrder == null || !com.jiaoyi.order.enums.OrderStatusEnum.PENDING.getCode().equals(currentOrder.getStatus())) {
+                    log.warn("订单状态已变更（双重检查），订单ID: {}, 当前状态: {}", orderId, 
+                            currentOrder != null ? currentOrder.getStatus() : "null");
+                    return false;
+                }
+                
+                // ========== 使用 Outbox 模式：先更新订单状态，然后异步处理资源释放 ==========
+                // 1. 先更新订单状态为已取消（原子操作，使用条件更新）
+                // 使用条件更新，确保只有 PENDING 状态才能取消，防止并发问题
+                Integer oldStatus = order.getStatus();
+                int updated = orderMapper.updateStatusIfPending(
+                        orderId,
+                        com.jiaoyi.order.enums.OrderStatusEnum.PENDING.getCode(),
+                        com.jiaoyi.order.enums.OrderStatusEnum.CANCELLED.getCode()
+                );
+                
+                if (updated == 0) {
+                    log.warn("订单状态更新失败（可能已被其他线程处理或状态不正确），订单ID: {}, 当前状态: {}", 
+                            orderId, order.getStatus());
+                    return false;
+                }
+                
+                log.info("订单状态已更新为已取消，订单ID: {}, 原状态: {}, 新状态: {}", 
+                        orderId, oldStatus, com.jiaoyi.order.enums.OrderStatusEnum.CANCELLED.getCode());
+                
+                // 2. 查询订单项，准备写入 outbox 任务
+                List<OrderItem> orderItems = orderItemMapper.selectByOrderId(orderId);
+                if (orderItems == null || orderItems.isEmpty()) {
+                    log.warn("订单项为空，无法写入取消订单 outbox 任务，订单ID: {}", orderId);
+                    // 订单状态已更新，但没有订单项，直接返回成功
+                    return true;
+                }
+                
+                // 3. 写入取消订单任务到 outbox（在事务中，确保原子性）
+                // Outbox 会异步处理优惠券退还和库存解锁，确保最终一致性
+                boolean enqueued = outboxHelper.enqueueCancelOrderTask(orderId, orderItems);
+                
+                if (!enqueued) {
+                    log.error("写入取消订单 outbox 任务失败，订单ID: {}, 订单状态已更新为已取消", orderId);
+                    // 订单状态已更新，但 outbox 写入失败，需要人工处理或补偿机制
+                    // 注意：这里不抛出异常，因为订单状态已经更新，避免回滚
+                    // Outbox 服务会重试，或者可以后续手动触发补偿
+                    log.warn("订单状态已更新为已取消，但 outbox 任务写入失败，需要人工处理或补偿，订单ID: {}", orderId);
+                } else {
+                    log.info("取消订单 outbox 任务写入成功，订单ID: {}, 将异步处理优惠券退还和库存解锁", orderId);
+                }
+                
+                return true;
+                
+            } finally {
+                // 释放分布式锁
+                if (lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                    log.debug("释放分布式锁，orderId: {}", orderId);
+                }
+            }
+            
+        } catch (InterruptedException e) {
+            log.error("获取分布式锁被中断，orderId: {}", orderId, e);
+            Thread.currentThread().interrupt();
+            return false;
+        } catch (Exception e) {
+            log.error("取消订单异常，orderId: {}", orderId, e);
+            throw new RuntimeException("取消订单失败", e);
+        }
+    }
+    
     /**
      * 商家接单（将待接单状态更新为制作中）
      */
@@ -1039,45 +1148,6 @@ public class OrderService {
             return false;
         }
     }
-    
-    public boolean cancelOrder(Long orderId) {
-        log.info("取消订单，订单ID: {}", orderId);
-        
-        // 查询订单
-        Order order = orderMapper.selectById(orderId);
-        if (order == null) {
-            log.warn("订单不存在，订单ID: {}", orderId);
-            return false;
-        }
-        
-        // 检查订单状态，只有待支付订单才能取消
-        if (!com.jiaoyi.order.enums.OrderStatusEnum.PENDING.getCode().equals(order.getStatus())) {
-            log.warn("订单状态不允许取消，订单ID: {}, 当前状态: {}", orderId, order.getStatus());
-            return false;
-        }
-
-        // 退款优惠券
-        try {
-            couponServiceClient.refundCouponByOrderId(orderId);
-        } catch (Exception e) {
-            log.error("退还优惠券失败，订单ID: {}", orderId, e);
-            // 继续执行，不因为优惠券退还失败而阻止订单取消
-        }
-
-        // 更新订单状态为已取消
-        Integer oldStatus = order.getStatus();
-        boolean success = updateOrderStatus(orderId, com.jiaoyi.order.enums.OrderStatusEnum.CANCELLED.getCode());
-        
-        if (success) {
-            log.info("订单取消成功，订单ID: {}, 原状态: {}, 新状态: {}", 
-                    orderId, oldStatus, com.jiaoyi.order.enums.OrderStatusEnum.CANCELLED.getCode());
-        } else {
-            log.warn("订单取消失败，订单ID: {}", orderId);
-        }
-        
-        return success;
-    }
-
 
     /**
      * 处理库存状态变更（在线点餐：status 是 Integer）

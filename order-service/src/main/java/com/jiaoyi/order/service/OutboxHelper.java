@@ -1,6 +1,7 @@
 package com.jiaoyi.order.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.jiaoyi.order.dto.CancelOrderCommand;
 import com.jiaoyi.order.dto.DeductStockCommand;
 import com.jiaoyi.order.entity.OrderItem;
 import lombok.RequiredArgsConstructor;
@@ -115,6 +116,99 @@ public class OutboxHelper {
             
         } catch (Exception e) {
             log.error("【OutboxHelper】✗ 写入库存扣减 outbox 失败，orderId: {}, merchantId: {}, 错误: {}", 
+                    orderId, merchantId, e.getMessage(), e);
+            return false;
+        }
+    }
+    
+    /**
+     * 创建并写入取消订单任务到 outbox
+     * 包含优惠券退还和库存解锁两个操作
+     * 
+     * @param orderId 订单ID
+     * @param orderItems 订单项列表（必须包含 storeId）
+     * @return 是否成功写入
+     */
+    public boolean enqueueCancelOrderTask(Long orderId, List<OrderItem> orderItems) {
+        if (orderItems == null || orderItems.isEmpty()) {
+            log.warn("订单项为空，无法写入取消订单 outbox，orderId: {}", orderId);
+            return false;
+        }
+        
+        // 从订单项中获取 storeId（用于分库路由）
+        Long storeId = orderItems.stream()
+                .filter(item -> item.getStoreId() != null)
+                .map(OrderItem::getStoreId)
+                .findFirst()
+                .orElse(null);
+        
+        if (storeId == null) {
+            log.warn("订单项缺少 storeId，无法写入取消订单 outbox，orderId: {}", orderId);
+            return false;
+        }
+        
+        // 从订单项中获取 merchantId（用于日志记录）
+        String merchantId = orderItems.stream()
+                .filter(item -> item.getMerchantId() != null && !item.getMerchantId().isEmpty())
+                .map(OrderItem::getMerchantId)
+                .findFirst()
+                .orElse(null);
+        
+        List<Long> productIds = orderItems.stream()
+                .filter(item -> item.getProductId() != null)
+                .map(OrderItem::getProductId)
+                .collect(Collectors.toList());
+        List<Long> skuIds = orderItems.stream()
+                .filter(item -> item.getSkuId() != null)
+                .map(OrderItem::getSkuId)
+                .collect(Collectors.toList());
+        List<Integer> quantities = orderItems.stream()
+                .map(OrderItem::getQuantity)
+                .collect(Collectors.toList());
+        
+        if (productIds.isEmpty() || skuIds.isEmpty() || productIds.size() != skuIds.size()) {
+            log.warn("订单项缺少productId或skuId，无法写入取消订单 outbox，orderId: {}", orderId);
+            return false;
+        }
+        
+        try {
+            // 幂等键：orderId + "-CANCEL"
+            String idempotencyKey = orderId + "-CANCEL";
+            
+            CancelOrderCommand cancelCommand = CancelOrderCommand.builder()
+                    .orderId(orderId)
+                    .productIds(productIds)
+                    .skuIds(skuIds)
+                    .quantities(quantities)
+                    .build();
+            
+            String payload = objectMapper.writeValueAsString(cancelCommand);
+            
+            log.info("【OutboxHelper】准备写入取消订单任务，orderId: {}, merchantId: {}, productIds: {}, skuIds: {}, quantities: {}", 
+                    orderId, merchantId, productIds, skuIds, quantities);
+            
+            // 计算 shard_id（基于 storeId）
+            int shardId = com.jiaoyi.order.util.ShardUtil.calculateShardId(storeId);
+            
+            // 写入 outbox
+            com.jiaoyi.outbox.entity.Outbox outbox = outboxService.enqueue(
+                    "CANCEL_ORDER_HTTP",  // type
+                    String.valueOf(orderId),  // bizKey（用于唯一约束）
+                    payload,  // payload
+                    null,  // topic（HTTP 类型不需要）
+                    null,  // tag（HTTP 类型不需要）
+                    null,  // messageKey（HTTP 类型不需要）
+                    String.valueOf(storeId),  // shardingKey（通用分片键字段，存 storeId 的字符串形式）
+                    shardId  // shardId（0-1023，用于扫描优化）
+            );
+            
+            log.info("【OutboxHelper】✓ 取消订单任务已写入 outbox，outboxId: {}, orderId: {}, merchantId: {}, idempotencyKey: {}, 商品数量: {}", 
+                    outbox != null ? outbox.getId() : "null", orderId, merchantId, idempotencyKey, productIds.size());
+            
+            return true;
+            
+        } catch (Exception e) {
+            log.error("【OutboxHelper】✗ 写入取消订单 outbox 失败，orderId: {}, merchantId: {}, 错误: {}", 
                     orderId, merchantId, e.getMessage(), e);
             return false;
         }

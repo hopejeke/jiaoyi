@@ -60,3 +60,5 @@ ALTER TABLE product_sku_2 ADD INDEX IF NOT EXISTS idx_is_delete (is_delete);
 
 
 
+
+

@@ -29,39 +29,6 @@ import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Outbox Mapper 扫描配置（可选，仅当业务方提供 MyBatis 实现时使用）
- * 默认使用 JdbcTemplate，业务方可以提供 MyBatis 实现作为覆盖
- */
-@org.springframework.context.annotation.Configuration
-@org.mybatis.spring.annotation.MapperScan(
-    basePackages = "com.jiaoyi.outbox.mapper",
-    sqlSessionFactoryRef = "primarySqlSessionFactory"
-)
-@ConditionalOnProperty(prefix = "outbox", name = "table")
-@ConditionalOnBean(name = "primarySqlSessionFactory")
-@ConditionalOnClass(name = "org.mybatis.spring.annotation.MapperScan")
-class OutboxMapperScanWithPrimaryConfiguration {
-    // 空类，只用于 @MapperScan 配置（可选）
-}
-
-/**
- * Outbox Mapper 扫描配置（可选，仅当业务方提供 MyBatis 实现时使用）
- * 当 primarySqlSessionFactory 不存在时使用默认 sqlSessionFactory
- */
-@org.springframework.context.annotation.Configuration
-@org.mybatis.spring.annotation.MapperScan(
-    basePackages = "com.jiaoyi.outbox.mapper",
-    sqlSessionFactoryRef = "sqlSessionFactory"
-)
-@ConditionalOnProperty(prefix = "outbox", name = "table")
-@ConditionalOnMissingBean(name = "primarySqlSessionFactory")
-@ConditionalOnBean(name = "sqlSessionFactory")
-@ConditionalOnClass(name = "org.mybatis.spring.annotation.MapperScan")
-class OutboxMapperScanWithDefaultConfiguration {
-    // 空类，只用于 @MapperScan 配置（可选）
-}
-
-/**
  * Outbox 自动配置类
  * 使用者只需要：
  * 1. 引入 outbox-starter 依赖

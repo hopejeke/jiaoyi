@@ -29,3 +29,5 @@ ALTER TABLE product_sku_2 DROP COLUMN price;
 
 
 
+
+

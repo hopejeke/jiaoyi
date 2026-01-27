@@ -19,13 +19,17 @@ import com.stripe.model.PaymentIntent;
 import com.stripe.net.Webhook;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.*;
 
 import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Stripe Webhook 控制器
@@ -45,6 +49,7 @@ public class StripeWebhookController {
     private final StripeConfig stripeConfig;
     private final WebhookEventLogService webhookEventLogService;
     private final OutboxHelper outboxHelper;
+    private final RedissonClient redissonClient;
     
     /**
      * 处理 GET 请求（用于测试和验证）
@@ -165,9 +170,15 @@ public class StripeWebhookController {
     
     /**
      * 处理 Payment Intent 成功事件
-     * 【回调链路】：事件幂等 + 更新支付/订单状态 + 写库存扣减 outbox，立即返回 200
+     * 【回调链路】：事件幂等 + 分布式锁 + 更新支付/订单状态 + 写库存扣减 outbox，立即返回 200
      * OutboxService 异步发送消息或调用库存服务扣库存
+     * 
+     * 注意：
+     * 1. 使用 @Transactional 确保数据库操作的原子性
+     * 2. 使用分布式锁（基于 orderId）防止并发处理同一个订单的支付回调
+     * 3. 事件幂等性通过 webhookEventLogService.tryInsert 保证
      */
+    @Transactional
     private void handlePaymentIntentSucceeded(Event event) {
         String eventId = event.getId();
         String eventType = event.getType();
@@ -202,54 +213,102 @@ public class StripeWebhookController {
             return; // 重复事件，直接返回（幂等成功）
         }
         
+        // 3. 分布式锁：防止并发处理同一个订单的支付回调
+        String lockKey = "stripe:webhook:payment:success:" + orderId;
+        RLock lock = redissonClient.getLock(lockKey);
+        
         try {
-            // 3. 直接更新支付和订单状态（在事务中）
-            String orderIdStr = String.valueOf(orderId);
-            log.info("【StripeWebhook】开始处理支付成功，orderId: {}, eventId: {}, paymentIntentId: {}", 
-                    orderId, eventId, paymentIntentId);
+            // 尝试获取锁，最多等待3秒，锁持有时间不超过30秒
+            boolean lockAcquired = lock.tryLock(3, 30, TimeUnit.SECONDS);
             
-            boolean paymentProcessed = paymentService.handlePaymentSuccess(orderIdStr, paymentIntentId);
-            
-            if (!paymentProcessed) {
-                log.warn("【StripeWebhook】支付处理失败或订单已超时退款，orderId: {}, eventId: {}", orderId, eventId);
-                webhookEventLogService.markFailed(eventId, "支付处理失败或订单已超时退款");
+            if (!lockAcquired) {
+                log.warn("【StripeWebhook】获取分布式锁失败，订单可能正在被其他线程处理，orderId: {}, eventId: {}", orderId, eventId);
+                // 等待一小段时间后，再次检查事件是否已处理
+                Thread.sleep(500);
+                boolean isProcessed = webhookEventLogService.isProcessed(eventId);
+                if (isProcessed) {
+                    log.info("【StripeWebhook】事件已被其他线程处理完成，orderId: {}, eventId: {}", orderId, eventId);
+                    return;
+                }
+                // 如果仍未处理，标记为失败（避免无限重试）
+                webhookEventLogService.markFailed(eventId, "获取分布式锁失败，可能并发处理");
                 return;
             }
             
-            log.info("【StripeWebhook】支付处理成功，开始写入库存扣减任务，orderId: {}, eventId: {}", orderId, eventId);
+            log.info("【StripeWebhook】成功获取分布式锁，开始处理支付成功，orderId: {}, eventId: {}", orderId, eventId);
             
-            // 4. 查询订单项，写入库存扣减任务到 outbox
-            List<OrderItem> orderItems = orderItemMapper.selectByOrderId(orderId);
-            log.info("【StripeWebhook】查询到订单项数量: {}, orderId: {}", 
-                    orderItems != null ? orderItems.size() : 0, orderId);
-            
-            if (orderItems == null || orderItems.isEmpty()) {
-                log.warn("【StripeWebhook】订单项为空，无法写入库存扣减任务，orderId: {}, eventId: {}", orderId, eventId);
+            try {
+                // 4. 再次检查事件是否已处理（双重检查，防止在获取锁期间被其他线程处理）
+                boolean isProcessed = webhookEventLogService.isProcessed(eventId);
+                if (isProcessed) {
+                    log.info("【StripeWebhook】事件已被其他线程处理完成（双重检查），orderId: {}, eventId: {}", orderId, eventId);
+                    return;
+                }
+                
+                // 5. 直接更新支付和订单状态（在事务中）
+                String orderIdStr = String.valueOf(orderId);
+                log.info("【StripeWebhook】开始处理支付成功，orderId: {}, eventId: {}, paymentIntentId: {}", 
+                        orderId, eventId, paymentIntentId);
+                
+                boolean paymentProcessed = paymentService.handlePaymentSuccess(orderIdStr, paymentIntentId);
+                
+                if (!paymentProcessed) {
+                    log.warn("【StripeWebhook】支付处理失败或订单已超时退款，orderId: {}, eventId: {}", orderId, eventId);
+                    webhookEventLogService.markFailed(eventId, "支付处理失败或订单已超时退款");
+                    return;
+                }
+                
+                log.info("【StripeWebhook】支付处理成功，开始写入库存扣减任务，orderId: {}, eventId: {}", orderId, eventId);
+                
+                // 6. 查询订单项，写入库存扣减任务到 outbox
+                List<OrderItem> orderItems = orderItemMapper.selectByOrderId(orderId);
+                log.info("【StripeWebhook】查询到订单项数量: {}, orderId: {}", 
+                        orderItems != null ? orderItems.size() : 0, orderId);
+                
+                if (orderItems == null || orderItems.isEmpty()) {
+                    log.warn("【StripeWebhook】订单项为空，无法写入库存扣减任务，orderId: {}, eventId: {}", orderId, eventId);
+                    webhookEventLogService.markProcessed(eventId);
+                    return;
+                }
+                
+                boolean enqueued = outboxHelper.enqueueDeductStockTask(orderId, orderItems);
+                
+                if (!enqueued) {
+                    log.error("【StripeWebhook】✗ 写入库存扣减 outbox 失败，orderId: {}, eventId: {}", orderId, eventId);
+                    webhookEventLogService.markProcessed(eventId);
+                    return;
+                }
+                
+                log.info("【StripeWebhook】✓ 库存扣减任务写入成功，orderId: {}, eventId: {}", orderId, eventId);
+                
+                // 7. 标记事件为已处理
                 webhookEventLogService.markProcessed(eventId);
-                return;
+                
+            } catch (Exception e) {
+                log.error("处理支付成功失败，eventId: {}, orderId: {}, paymentIntentId: {}", 
+                        eventId, orderId, paymentIntentId, e);
+                webhookEventLogService.markFailed(eventId, "处理异常: " + e.getMessage());
+                throw new RuntimeException("处理支付成功失败", e);
+            } finally {
+                // 释放分布式锁
+                if (lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                    log.debug("【StripeWebhook】释放分布式锁，orderId: {}, eventId: {}", orderId, eventId);
+                }
             }
             
-            boolean enqueued = outboxHelper.enqueueDeductStockTask(orderId, orderItems);
-            
-            if (!enqueued) {
-                log.error("【StripeWebhook】✗ 写入库存扣减 outbox 失败，orderId: {}, eventId: {}", orderId, eventId);
-                webhookEventLogService.markProcessed(eventId);
-                return;
-            }
-            
-            log.info("【StripeWebhook】✓ 库存扣减任务写入成功，orderId: {}, eventId: {}", orderId, eventId);
-            
-            // 6. 标记事件为已处理
-            webhookEventLogService.markProcessed(eventId);
-            
+        } catch (InterruptedException e) {
+            log.error("获取分布式锁被中断，orderId: {}, eventId: {}", orderId, eventId, e);
+            Thread.currentThread().interrupt();
+            webhookEventLogService.markFailed(eventId, "获取分布式锁被中断");
+            throw new RuntimeException("处理支付成功失败", e);
         } catch (Exception e) {
-            log.error("处理支付成功失败，eventId: {}, orderId: {}, paymentIntentId: {}", 
-                    eventId, orderId, paymentIntentId, e);
+            log.error("处理支付成功异常，orderId: {}, eventId: {}", orderId, eventId, e);
             webhookEventLogService.markFailed(eventId, "处理异常: " + e.getMessage());
             throw new RuntimeException("处理支付成功失败", e);
         }
         
-        // 7. 立即返回 200（回调链路结束）
+        // 8. 立即返回 200（回调链路结束）
         log.info("Payment Intent 成功事件处理完成，eventId: {}, orderId: {}", eventId, orderId);
     }
     

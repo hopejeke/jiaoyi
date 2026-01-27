@@ -6,6 +6,8 @@
     <resultMap id="InventoryTransactionResultMap" type="com.jiaoyi.product.entity.InventoryTransaction">
         <id column="id" property="id"/>
         <result column="product_id" property="productId"/>
+        <result column="sku_id" property="skuId"/>
+        <result column="product_shard_id" property="productShardId"/>
         <result column="order_id" property="orderId"/>
         <result column="transaction_type" property="transactionType"/>
         <result column="quantity" property="quantity"/>
@@ -20,26 +22,62 @@
     <!-- 插入库存变动记录 -->
     <insert id="insert" parameterType="com.jiaoyi.product.entity.InventoryTransaction" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO inventory_transactions (
-            product_id, order_id, transaction_type, quantity, before_stock, after_stock,
+            product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, before_stock, after_stock,
             before_locked, after_locked, remark, create_time
         ) VALUES (
-            #{productId}, #{orderId}, #{transactionType}, #{quantity}, #{beforeStock}, #{afterStock},
+            #{productId}, #{skuId}, #{productShardId}, #{orderId}, #{transactionType}, #{quantity}, #{beforeStock}, #{afterStock},
+            #{beforeLocked}, #{afterLocked}, #{remark}, #{createTime}
+        )
+    </insert>
+
+    <!-- 尝试插入库存变动记录（用于幂等性校验） -->
+    <insert id="tryInsert" parameterType="com.jiaoyi.product.entity.InventoryTransaction" useGeneratedKeys="true" keyProperty="id">
+        INSERT IGNORE INTO inventory_transactions (
+            product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, before_stock, after_stock,
+            before_locked, after_locked, remark, create_time
+        ) VALUES (
+            #{productId}, #{skuId}, #{productShardId}, #{orderId}, #{transactionType}, #{quantity}, #{beforeStock}, #{afterStock},
             #{beforeLocked}, #{afterLocked}, #{remark}, #{createTime}
         )
     </insert>
 
     <!-- 根据商品ID查询变动记录 -->
     <select id="selectByProductId" parameterType="long" resultMap="InventoryTransactionResultMap">
-        SELECT * FROM inventory_transactions 
+        SELECT id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, 
+               before_stock, after_stock, before_locked, after_locked, remark, create_time
+        FROM inventory_transactions 
         WHERE product_id = #{productId} 
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 根据商品ID和SKU ID查询变动记录 -->
+    <select id="selectByProductIdAndSkuId" resultMap="InventoryTransactionResultMap">
+        SELECT id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, 
+               before_stock, after_stock, before_locked, after_locked, remark, create_time
+        FROM inventory_transactions 
+        WHERE product_id = #{productId} AND sku_id = #{skuId}
         ORDER BY create_time DESC
     </select>
 
     <!-- 根据订单ID查询变动记录 -->
     <select id="selectByOrderId" parameterType="long" resultMap="InventoryTransactionResultMap">
-        SELECT * FROM inventory_transactions 
+        SELECT id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, 
+               before_stock, after_stock, before_locked, after_locked, remark, create_time
+        FROM inventory_transactions 
         WHERE order_id = #{orderId} 
         ORDER BY create_time DESC
+    </select>
+    
+    <!-- 根据订单ID、SKU ID和操作类型查询变动记录 -->
+    <select id="selectByOrderIdAndSkuIdAndType" resultMap="InventoryTransactionResultMap">
+        SELECT id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, 
+               before_stock, after_stock, before_locked, after_locked, remark, create_time
+        FROM inventory_transactions 
+        WHERE order_id = #{orderId} 
+          AND sku_id = #{skuId}
+          AND transaction_type = #{transactionType}
+        ORDER BY create_time DESC
+        LIMIT 1
     </select>
 
     <!-- 统计商品总入库数量 -->
@@ -55,4 +93,6 @@
     </select>
 
 </mapper>
+
+
 

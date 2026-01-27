@@ -21,6 +21,8 @@ import com.jiaoyi.order.service.StripeService;
 import com.jiaoyi.order.client.ProductServiceClient;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.redisson.api.RLock;
+import org.redisson.api.RedissonClient;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -32,6 +34,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 /**
@@ -84,12 +87,18 @@ public class PaymentService {
     private final StripeConfig stripeConfig;
     private final ProductServiceClient productServiceClient;
     private final DoorDashRetryService doorDashRetryService;
+    private final RedissonClient redissonClient;
     
     @Value("${order.timeout.minutes:40}")
     private int orderTimeoutMinutes;
     
     /**
      * 处理支付（参照 OO 项目的支付流程）
+     * 
+     * 并发控制：
+     * 1. 使用分布式锁（基于 orderId）防止并发创建支付记录
+     * 2. 双重检查：获取锁后再次检查是否已有待支付记录
+     * 3. 数据库唯一索引 uk_order_type_pending 作为最后一道防线
      */
     @Transactional
     public PaymentResponse processPayment(Long orderId, PaymentRequest request) {
@@ -117,72 +126,101 @@ public class PaymentService {
             throw new RuntimeException("支付金额不匹配");
         }
         
-        // 4. 检查是否已有支付记录（幂等性检查）
-        Payment existingPayment = paymentMapper.selectByOrderId(orderId).stream()
-                .filter(p -> p.getType() != null && p.getType().equals(PaymentTypeEnum.CHARGE.getCode()) && 
-                             p.getStatus() != null && p.getStatus().equals(PaymentStatusEnum.PENDING.getCode()))
-                .findFirst()
-                .orElse(null);
+        // ========== 并发控制：分布式锁 ==========
+        String lockKey = "payment:create:" + orderId;
+        RLock lock = redissonClient.getLock(lockKey);
         
-        if (existingPayment != null) {
-            log.info("订单已有待支付记录，返回已有支付信息，订单ID: {}, 支付ID: {}", orderId, existingPayment.getId());
-            return convertPaymentToResponse(existingPayment);
-        }
-        
-        // 5. 创建支付记录
-        Payment payment = createPaymentRecord(order, request, expectedAmount);
-        
-        // 6. 调用第三方支付平台
-        PaymentResponse paymentResponse = callThirdPartyPayment(order, request, payment);
-        
-        // 8. 更新支付记录
-        if (paymentResponse.getThirdPartyTradeNo() != null) {
-            payment.setThirdPartyTradeNo(paymentResponse.getThirdPartyTradeNo());
-        }
-        if (paymentResponse.getQrCode() != null) {
+        try {
+            // 尝试获取锁，最多等待3秒，锁持有时间不超过30秒
+            boolean lockAcquired = lock.tryLock(3, 30, TimeUnit.SECONDS);
+            
+            if (!lockAcquired) {
+                log.warn("获取支付创建锁失败，订单可能正在被其他请求处理，订单ID: {}", orderId);
+                throw new BusinessException("支付请求正在处理中，请勿重复提交");
+            }
+            
             try {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> extra = Map.of("qrCode", paymentResponse.getQrCode());
-                payment.setExtra(objectMapper.writeValueAsString(extra));
-            } catch (Exception e) {
-                log.warn("保存二维码信息失败", e);
+                // ========== 双重检查：获取锁后再次检查是否已有待支付记录 ==========
+                Payment existingPayment = paymentMapper.selectByOrderId(orderId).stream()
+                        .filter(p -> p.getType() != null && p.getType().equals(PaymentTypeEnum.CHARGE.getCode()) && 
+                                     p.getStatus() != null && p.getStatus().equals(PaymentStatusEnum.PENDING.getCode()))
+                        .findFirst()
+                        .orElse(null);
+                
+                if (existingPayment != null) {
+                    log.info("订单已有待支付记录（双重检查），返回已有支付信息，订单ID: {}, 支付ID: {}", 
+                            orderId, existingPayment.getId());
+                    return convertPaymentToResponse(existingPayment);
+                }
+                
+                // 5. 创建支付记录
+                Payment payment = createPaymentRecord(order, request, expectedAmount);
+                
+                // 6. 调用第三方支付平台
+                PaymentResponse paymentResponse = callThirdPartyPayment(order, request, payment);
+                
+                // 8. 更新支付记录
+                if (paymentResponse.getThirdPartyTradeNo() != null) {
+                    payment.setThirdPartyTradeNo(paymentResponse.getThirdPartyTradeNo());
+                }
+                if (paymentResponse.getQrCode() != null) {
+                    try {
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> extra = Map.of("qrCode", paymentResponse.getQrCode());
+                        payment.setExtra(objectMapper.writeValueAsString(extra));
+                    } catch (Exception e) {
+                        log.warn("保存二维码信息失败", e);
+                    }
+                }
+                
+                // 更新支付状态和第三方交易号
+                paymentMapper.updateStatus(payment.getId(), payment.getStatus(), payment.getThirdPartyTradeNo());
+                
+                // 如果是信用卡支付，更新 Payment Intent ID
+                if ("CREDIT_CARD".equalsIgnoreCase(request.getPaymentMethod()) ||
+                    "CARD".equalsIgnoreCase(request.getPaymentMethod()) ||
+                    "STRIPE".equalsIgnoreCase(request.getPaymentMethod())) {
+                    if (payment.getStripePaymentIntentId() != null && !payment.getStripePaymentIntentId().isEmpty()) {
+                        paymentMapper.updatePaymentIntentId(payment.getId(), payment.getStripePaymentIntentId());
+                        log.info("已更新 Payment Intent ID，支付ID: {}, Payment Intent ID: {}", 
+                                payment.getId(), payment.getStripePaymentIntentId());
+                    } else {
+                        log.warn("Payment Intent ID 为空，无法更新，支付ID: {}", payment.getId());
+                    }
+                }
+                
+                // 9. 对于同步支付（现金），立即更新订单状态
+                // 对于异步支付（Stripe、支付宝），订单状态在 Webhook 回调中更新
+                if ("CASH".equalsIgnoreCase(request.getPaymentMethod())) {
+                    // 现金支付是同步的，立即更新订单状态
+                    int orderUpdated = orderMapper.updateStatusIfPending(
+                            orderId, 
+                            OrderStatusEnum.PENDING.getCode(), 
+                            OrderStatusEnum.PAID.getCode()
+                    );
+                    if (orderUpdated > 0) {
+                        log.info("现金支付成功，已更新订单状态为已支付，订单ID: {}", orderId);
+                    } else {
+                        log.warn("现金支付成功，但订单状态更新失败（可能已被其他线程处理），订单ID: {}", orderId);
+                    }
+                }
+                // 注意：Stripe 和支付宝是异步支付，订单状态在 Webhook 回调中更新（handlePaymentSuccess 方法）
+                
+                return paymentResponse;
+                
+            } finally {
+                // 释放锁
+                if (lock.isHeldByCurrentThread()) {
+                    lock.unlock();
+                    log.debug("释放支付创建锁，订单ID: {}", orderId);
+                }
             }
+            
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("获取支付创建锁被中断，订单ID: {}", orderId, e);
+            throw new BusinessException("系统繁忙，请稍后重试");
         }
-        
-        // 更新支付状态和第三方交易号
-        paymentMapper.updateStatus(payment.getId(), payment.getStatus(), payment.getThirdPartyTradeNo());
-        
-        // 如果是信用卡支付，更新 Payment Intent ID
-        if ("CREDIT_CARD".equalsIgnoreCase(request.getPaymentMethod()) ||
-            "CARD".equalsIgnoreCase(request.getPaymentMethod()) ||
-            "STRIPE".equalsIgnoreCase(request.getPaymentMethod())) {
-            if (payment.getStripePaymentIntentId() != null && !payment.getStripePaymentIntentId().isEmpty()) {
-                paymentMapper.updatePaymentIntentId(payment.getId(), payment.getStripePaymentIntentId());
-                log.info("已更新 Payment Intent ID，支付ID: {}, Payment Intent ID: {}", 
-                        payment.getId(), payment.getStripePaymentIntentId());
-            } else {
-                log.warn("Payment Intent ID 为空，无法更新，支付ID: {}", payment.getId());
-            }
-        }
-        
-        // 9. 对于同步支付（现金），立即更新订单状态
-        // 对于异步支付（Stripe、支付宝），订单状态在 Webhook 回调中更新
-        if ("CASH".equalsIgnoreCase(request.getPaymentMethod())) {
-            // 现金支付是同步的，立即更新订单状态
-            int orderUpdated = orderMapper.updateStatusIfPending(
-                    orderId, 
-                    OrderStatusEnum.PENDING.getCode(), 
-                    OrderStatusEnum.PAID.getCode()
-            );
-            if (orderUpdated > 0) {
-                log.info("现金支付成功，已更新订单状态为已支付，订单ID: {}", orderId);
-            } else {
-                log.warn("现金支付成功，但订单状态更新失败（可能已被其他线程处理），订单ID: {}", orderId);
-            }
-        }
-        // 注意：Stripe 和支付宝是异步支付，订单状态在 Webhook 回调中更新（handlePaymentSuccess 方法）
-        
-        return paymentResponse;
     }
     
     /**

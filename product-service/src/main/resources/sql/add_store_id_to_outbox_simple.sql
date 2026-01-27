@@ -51,3 +51,5 @@ ALTER TABLE outbox ADD INDEX idx_store_id_status (store_id, status);
 -- 查看索引：
 -- SHOW INDEX FROM outbox;
 
+
+

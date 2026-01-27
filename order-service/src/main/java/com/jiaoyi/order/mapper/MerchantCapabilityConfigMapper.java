@@ -41,3 +41,5 @@ public interface MerchantCapabilityConfigMapper {
 
 
 
+
+

@@ -73,3 +73,5 @@ CREATE TABLE IF NOT EXISTS merchant_capability_config_2 (
 
 
 
+
+

@@ -156,4 +156,32 @@ public class CouponController {
             return ResponseEntity.ok(ApiResponse.error(404, "未找到使用记录"));
         }
     }
+    
+    /**
+     * 退款优惠券（根据订单ID）
+     * 
+     * 返回码说明：
+     * - 200: 操作成功（SUCCESS 或 IDEMPOTENT_SUCCESS）
+     *   - SUCCESS: 第一次调用，退款成功
+     *   - IDEMPOTENT_SUCCESS: 重复调用，但优惠券已退款过（幂等成功）
+     * - 400: 操作失败
+     */
+    @PostMapping("/refund/order/{orderId}")
+    public ResponseEntity<ApiResponse<com.jiaoyi.common.OperationResult>> refundCouponByOrderId(@PathVariable Long orderId) {
+        log.info("退款优惠券，订单ID: {}", orderId);
+        try {
+            com.jiaoyi.common.OperationResult result = couponService.refundCouponByOrderId(orderId);
+            
+            // 根据结果状态返回对应的HTTP状态码
+            if (com.jiaoyi.common.OperationResult.ResultStatus.FAILED.equals(result.getStatus())) {
+                return ResponseEntity.ok(ApiResponse.error(400, result.getMessage()));
+            } else {
+                // SUCCESS 或 IDEMPOTENT_SUCCESS 都返回 200，但通过 result 中的 status 区分
+                return ResponseEntity.ok(ApiResponse.success(result.getMessage(), result));
+            }
+        } catch (Exception e) {
+            log.error("退款优惠券异常", e);
+            return ResponseEntity.ok(ApiResponse.error(400, "退款优惠券失败: " + e.getMessage()));
+        }
+    }
 }

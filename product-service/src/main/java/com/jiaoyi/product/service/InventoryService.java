@@ -1,8 +1,11 @@
 package com.jiaoyi.product.service;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jiaoyi.common.exception.InsufficientStockException;
 import com.jiaoyi.product.entity.Inventory;
+import com.jiaoyi.product.entity.InventoryDeductionIdempotency;
 import com.jiaoyi.product.entity.InventoryTransaction;
+import com.jiaoyi.product.mapper.sharding.InventoryDeductionIdempotencyMapper;
 import com.jiaoyi.product.mapper.sharding.InventoryMapper;
 import com.jiaoyi.product.mapper.sharding.InventoryTransactionMapper;
 import lombok.RequiredArgsConstructor;
@@ -25,6 +28,8 @@ public class InventoryService {
     private final InventoryMapper inventoryMapper;
     private final InventoryTransactionMapper transactionMapper;
     private final InventoryCacheService inventoryCacheService;
+    private final InventoryDeductionIdempotencyMapper idempotencyMapper;
+    private final ObjectMapper objectMapper;
     
     /**
      * 创建库存记录（商品创建时调用，商品级别库存）
@@ -169,9 +174,14 @@ public class InventoryService {
     
     /**
      * 检查并锁定库存（下单时调用，基于SKU）
+     * 
+     * @param productId 商品ID
+     * @param skuId SKU ID
+     * @param quantity 数量
+     * @param orderId 订单ID（用于幂等性校验）
      */
     @Transactional
-    public void checkAndLockStock(Long productId, Long skuId, Integer quantity) {
+    public void checkAndLockStock(Long productId, Long skuId, Integer quantity, Long orderId) {
         log.info("检查并锁定库存，商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
         
         if (skuId == null) {
@@ -213,7 +223,35 @@ public class InventoryService {
             );
         }
         
+        // 幂等性校验：先尝试插入库存变动记录（LOCK 操作）
+        // 唯一索引：(order_id, sku_id, transaction_type)，防止同一订单对同一SKU重复锁定
+        if (orderId == null) {
+            throw new IllegalArgumentException("锁定库存时必须提供订单ID（用于幂等性校验）");
+        }
+        
+        InventoryTransaction lockTransaction = new InventoryTransaction();
+        lockTransaction.setProductId(productId);
+        lockTransaction.setSkuId(skuId);
+        lockTransaction.setProductShardId(inventory.getProductShardId());
+        lockTransaction.setOrderId(orderId);
+        lockTransaction.setTransactionType(InventoryTransaction.TransactionType.LOCK);
+        lockTransaction.setQuantity(quantity);
+        lockTransaction.setBeforeStock(inventory.getCurrentStock());
+        lockTransaction.setAfterStock(inventory.getCurrentStock());
+        lockTransaction.setBeforeLocked(inventory.getLockedStock());
+        lockTransaction.setAfterLocked(inventory.getLockedStock() + quantity);
+        lockTransaction.setRemark("下单锁定库存（SKU级别，SKU ID: " + skuId + "）");
+        lockTransaction.setCreateTime(java.time.LocalDateTime.now());
+        
+        // 尝试插入记录（如果已存在则返回 0，说明已经锁定过）
+        int inserted = transactionMapper.tryInsert(lockTransaction);
+        if (inserted == 0) {
+            log.warn("库存锁定操作已执行过（幂等性校验），订单ID: {}, 商品ID: {}, SKU ID: {}", orderId, productId, skuId);
+            return; // 幂等：已锁定过，直接返回
+        }
+        
         // 锁定库存（SKU级别，仅在 LIMITED 模式下执行）
+        // 注意：SQL 条件包含 (current_stock - locked_stock) >= quantity，确保可用库存充足
         int updatedRows = inventoryMapper.lockStockBySku(productId, skuId, quantity);
         if (updatedRows == 0) {
             // 锁定失败，重新查询最新库存状态
@@ -230,18 +268,7 @@ public class InventoryService {
             );
         }
         
-        // 记录库存变动
-        recordInventoryTransaction(
-            productId, 
-            null, // orderId，下单时还没有订单ID
-            InventoryTransaction.TransactionType.LOCK, 
-            quantity, 
-            inventory.getCurrentStock(), 
-            inventory.getCurrentStock(),
-            inventory.getLockedStock(),
-            inventory.getLockedStock() + quantity,
-            "下单锁定库存（SKU级别，SKU ID: " + skuId + "）"
-        );
+        // 记录已成功插入，无需再次插入
         
         // 更新缓存
         inventory.setLockedStock(inventory.getLockedStock() + quantity);
@@ -281,6 +308,47 @@ public class InventoryService {
             return;
         }
         
+        if (orderId == null) {
+            throw new IllegalArgumentException("扣减库存时必须提供订单ID（用于幂等性校验）");
+        }
+        
+        // ========== 关键修复：防止"已解锁的库存又被扣减" ==========
+        // 检查是否已经解锁过（UNLOCK操作），如果已解锁，不允许扣减
+        // 原因：支付成功扣减（DEDUCT）和取消解锁（UNLOCK）可能并发执行
+        // 如果已解锁，说明订单已取消，不应该再扣减
+        List<InventoryTransaction> existingUnlockTransactions = transactionMapper.selectByOrderIdAndSkuIdAndType(
+                orderId, skuId, InventoryTransaction.TransactionType.UNLOCK.name());
+        if (existingUnlockTransactions != null && !existingUnlockTransactions.isEmpty()) {
+            log.warn("订单已解锁库存，不允许扣减，订单ID: {}, 商品ID: {}, SKU ID: {}", 
+                    orderId, productId, skuId);
+            throw new RuntimeException("订单已解锁库存，不允许扣减，订单ID: " + orderId + ", SKU ID: " + skuId);
+        }
+        
+        // 幂等性校验：先尝试插入库存变动记录（OUT 操作）
+        // 唯一索引：(order_id, sku_id, transaction_type)，防止同一订单对同一SKU重复扣减
+        
+        InventoryTransaction outTransaction = new InventoryTransaction();
+        outTransaction.setProductId(productId);
+        outTransaction.setSkuId(skuId);
+        outTransaction.setProductShardId(inventory.getProductShardId());
+        outTransaction.setOrderId(orderId);
+        outTransaction.setTransactionType(InventoryTransaction.TransactionType.OUT);
+        outTransaction.setQuantity(quantity);
+        outTransaction.setBeforeStock(inventory.getCurrentStock() + quantity);
+        outTransaction.setAfterStock(inventory.getCurrentStock());
+        outTransaction.setBeforeLocked(inventory.getLockedStock());
+        outTransaction.setAfterLocked(inventory.getLockedStock() - quantity);
+        outTransaction.setRemark("支付成功扣减库存（SKU级别，SKU ID: " + skuId + "）");
+        outTransaction.setCreateTime(java.time.LocalDateTime.now());
+        
+        // 尝试插入记录（如果已存在则返回 0，说明已经扣减过）
+        int inserted = transactionMapper.tryInsert(outTransaction);
+        if (inserted == 0) {
+            log.warn("库存扣减操作已执行过（幂等性校验），订单ID: {}, 商品ID: {}, SKU ID: {}", 
+                    orderId, productId, skuId);
+            return; // 幂等：已扣减过，直接返回
+        }
+        
         // LIMITED 模式：扣减库存（SKU级别）
         int updatedRows = inventoryMapper.deductStockBySku(productId, skuId, quantity);
         if (updatedRows == 0) {
@@ -288,18 +356,7 @@ public class InventoryService {
             throw new RuntimeException("库存扣减失败");
         }
         
-        // 记录库存变动
-        recordInventoryTransaction(
-            productId, 
-            orderId, 
-            InventoryTransaction.TransactionType.OUT, 
-            quantity, 
-            inventory.getCurrentStock() + quantity, 
-            inventory.getCurrentStock(),
-            inventory.getLockedStock(),
-            inventory.getLockedStock() - quantity,
-            "支付成功扣减库存（SKU级别，SKU ID: " + skuId + "）"
-        );
+        // 记录已成功插入，无需再次插入
         
         // 更新缓存
         inventory.setCurrentStock(inventory.getCurrentStock());
@@ -311,114 +368,290 @@ public class InventoryService {
     
     /**
      * 解锁库存（订单取消时调用，基于SKU）
+     * 
+     * 注意：
+     * 1. 使用幂等性校验：先尝试插入 inventory_transactions 记录（UNLOCK 类型）
+     * 2. 唯一索引：(order_id, sku_id) 防止重复解锁
+     * 3. 如果插入失败（唯一索引冲突），说明已经解锁过，返回 IDEMPOTENT_SUCCESS
+     * 
+     * @return OperationResult 包含操作结果状态（SUCCESS、IDEMPOTENT_SUCCESS、FAILED）
      */
     @Transactional
-    public void unlockStock(Long productId, Long skuId, Integer quantity, Long orderId) {
+    public com.jiaoyi.common.OperationResult unlockStock(Long productId, Long skuId, Integer quantity, Long orderId) {
         log.info("解锁库存，商品ID: {}, SKU ID: {}, 数量: {}, 订单ID: {}", productId, skuId, quantity, orderId);
         
         if (skuId == null) {
-            throw new IllegalArgumentException("SKU ID不能为空");
+            return com.jiaoyi.common.OperationResult.failed("SKU ID不能为空");
+        }
+        
+        if (orderId == null) {
+            return com.jiaoyi.common.OperationResult.failed("解锁库存时必须提供订单ID（用于幂等性校验）");
         }
         
         // 查询SKU库存
         Inventory productInventory = inventoryMapper.selectByProductId(productId);
         if (productInventory == null) {
             log.error("商品不存在，商品ID: {}", productId);
-            throw new RuntimeException("商品不存在");
+            return com.jiaoyi.common.OperationResult.failed("商品不存在，商品ID: " + productId);
         }
         
         Inventory inventory = inventoryMapper.selectByStoreIdAndProductIdAndSkuId(
             productInventory.getStoreId(), productId, skuId);
         if (inventory == null) {
             log.error("SKU库存不存在，商品ID: {}, SKU ID: {}", productId, skuId);
-            throw new RuntimeException("SKU库存不存在");
+            return com.jiaoyi.common.OperationResult.failed("SKU库存不存在，商品ID: " + productId + ", SKU ID: " + skuId);
         }
         
-        // 如果库存模式是 UNLIMITED（无限库存），不解锁库存，直接返回
+        // 如果库存模式是 UNLIMITED（无限库存），不解锁库存，直接返回成功
         if (inventory.getStockMode() == Inventory.StockMode.UNLIMITED) {
             log.info("库存模式为 UNLIMITED（无限库存），跳过解锁操作，商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
-            return;
+            return com.jiaoyi.common.OperationResult.success("库存模式为 UNLIMITED（无限库存），无需解锁");
+        }
+        
+        // ========== 关键修复：防止"已扣减的库存又被解锁回去" ==========
+        // 检查是否已经扣减过（OUT操作），如果已扣减，不允许解锁
+        // 原因：支付成功扣减（DEDUCT）和取消解锁（UNLOCK）可能并发执行
+        // 如果已扣减，说明订单已支付，不应该再解锁
+        List<InventoryTransaction> existingTransactions = transactionMapper.selectByOrderIdAndSkuIdAndType(
+                orderId, skuId, InventoryTransaction.TransactionType.OUT.name());
+        if (existingTransactions != null && !existingTransactions.isEmpty()) {
+            log.warn("订单已扣减库存，不允许解锁，订单ID: {}, 商品ID: {}, SKU ID: {}", 
+                    orderId, productId, skuId);
+            return com.jiaoyi.common.OperationResult.failed("订单已扣减库存，不允许解锁，订单ID: " + orderId + ", SKU ID: " + skuId);
+        }
+        
+        // 幂等性校验：先尝试插入库存变动记录（UNLOCK 操作）
+        // 唯一索引：(order_id, sku_id, transaction_type)，防止同一订单对同一SKU重复解锁
+        InventoryTransaction unlockTransaction = new InventoryTransaction();
+        unlockTransaction.setProductId(productId);
+        unlockTransaction.setSkuId(skuId);
+        unlockTransaction.setProductShardId(inventory.getProductShardId());
+        unlockTransaction.setOrderId(orderId);
+        unlockTransaction.setTransactionType(InventoryTransaction.TransactionType.UNLOCK);
+        unlockTransaction.setQuantity(quantity);
+        unlockTransaction.setBeforeStock(inventory.getCurrentStock());
+        unlockTransaction.setAfterStock(inventory.getCurrentStock());
+        unlockTransaction.setBeforeLocked(inventory.getLockedStock());
+        unlockTransaction.setAfterLocked(inventory.getLockedStock() - quantity);
+        unlockTransaction.setRemark("订单取消解锁库存（SKU级别，SKU ID: " + skuId + "）");
+        unlockTransaction.setCreateTime(java.time.LocalDateTime.now());
+        
+        // 尝试插入记录（如果已存在则返回 0，说明已经解锁过）
+        int inserted = transactionMapper.tryInsert(unlockTransaction);
+        if (inserted == 0) {
+            log.warn("库存解锁操作已执行过（幂等性校验），订单ID: {}, 商品ID: {}, SKU ID: {}", 
+                    orderId, productId, skuId);
+            return com.jiaoyi.common.OperationResult.idempotentSuccess("库存解锁操作已执行过（幂等：重复调用），订单ID: " + orderId + ", SKU ID: " + skuId);
         }
         
         // LIMITED 模式：解锁库存（SKU级别）
+        // 注意：SQL 条件包含 locked_stock >= quantity，防止解锁把 locked 扣成负数
         int updatedRows = inventoryMapper.unlockStockBySku(productId, skuId, quantity);
         if (updatedRows == 0) {
-            log.error("库存解锁失败，商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
-            throw new RuntimeException("库存解锁失败");
+            log.error("库存解锁失败，商品ID: {}, SKU ID: {}, 数量: {}，可能原因：locked_stock < quantity 或库存记录不存在", 
+                    productId, skuId, quantity);
+            // 关键修复：抛异常让事务回滚，防止幂等记录已插入但库存未解锁，导致后续无法重试
+            throw new RuntimeException("库存解锁失败，商品ID: " + productId + ", SKU ID: " + skuId + 
+                    "，可能原因：locked_stock < quantity 或库存记录不存在，触发事务回滚以允许重试");
         }
         
-        // 记录库存变动
-        recordInventoryTransaction(
-            productId, 
-            orderId, 
-            InventoryTransaction.TransactionType.UNLOCK, 
-            quantity, 
-            inventory.getCurrentStock(), 
-            inventory.getCurrentStock(),
-            inventory.getLockedStock(),
-            inventory.getLockedStock() - quantity,
-            "订单取消解锁库存（SKU级别，SKU ID: " + skuId + "）"
-        );
+        // 记录已成功插入，无需再次插入
         
         // 更新缓存
         inventory.setLockedStock(inventory.getLockedStock() - quantity);
         inventoryCacheService.updateInventoryCache(inventory);
         
         log.info("库存解锁成功，商品ID: {}, SKU ID: {}, 解锁数量: {}", productId, skuId, quantity);
+        return com.jiaoyi.common.OperationResult.success("库存解锁成功，商品ID: " + productId + ", SKU ID: " + skuId);
     }
     
     /**
      * 批量检查并锁定库存（基于SKU）
+     * 
+     * @param productIds 商品ID列表
+     * @param skuIds SKU ID列表
+     * @param quantities 数量列表
+     * @param orderId 订单ID（用于幂等性校验）
      */
     @Transactional
-    public void checkAndLockStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities) {
-        log.info("批量检查并锁定库存，商品数量: {}", productIds.size());
+    public void checkAndLockStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities, Long orderId) {
+        log.info("批量检查并锁定库存，订单ID: {}, 商品数量: {}", orderId, productIds.size());
         
         if (productIds.size() != skuIds.size() || productIds.size() != quantities.size()) {
             throw new IllegalArgumentException("商品ID、SKU ID和数量列表长度必须一致");
         }
         
+        if (orderId == null) {
+            throw new IllegalArgumentException("批量锁定库存时必须提供订单ID（用于幂等性校验）");
+        }
+        
         for (int i = 0; i < productIds.size(); i++) {
-            checkAndLockStock(productIds.get(i), skuIds.get(i), quantities.get(i));
+            checkAndLockStock(productIds.get(i), skuIds.get(i), quantities.get(i), orderId);
         }
         
         log.info("批量库存锁定完成");
     }
     
     /**
-     * 批量扣减库存（基于SKU）
+     * 批量检查并锁定库存（兼容旧接口，需要传入 orderId）
      */
     @Transactional
-    public void deductStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities, Long orderId) {
-        log.info("批量扣减库存，订单ID: {}, 商品数量: {}", orderId, productIds.size());
+    public void checkAndLockStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities) {
+        throw new IllegalArgumentException("批量锁定库存时必须提供订单ID（用于幂等性校验），请使用 checkAndLockStockBatch(productIds, skuIds, quantities, orderId)");
+    }
+    
+    /**
+     * 批量扣减库存（基于SKU）
+     * 
+     * @param productIds 商品ID列表
+     * @param skuIds SKU ID列表
+     * @param quantities 数量列表
+     * @param orderId 订单ID
+     * @param idempotencyKey 幂等键（可选，格式：orderId + "-DEDUCT"）
+     */
+    @Transactional
+    public void deductStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities, Long orderId, String idempotencyKey) {
+        log.info("批量扣减库存，订单ID: {}, idempotencyKey: {}, 商品数量: {}", orderId, idempotencyKey, productIds.size());
         
         if (productIds.size() != skuIds.size() || productIds.size() != quantities.size()) {
             throw new IllegalArgumentException("商品ID、SKU ID和数量列表长度必须一致");
         }
         
-        for (int i = 0; i < productIds.size(); i++) {
-            deductStock(productIds.get(i), skuIds.get(i), quantities.get(i), orderId);
+        // 计算 product_shard_id（从第一个商品查询 storeId）
+        Integer productShardId = null;
+        if (!productIds.isEmpty()) {
+            try {
+                Inventory productInventory = inventoryMapper.selectByProductId(productIds.get(0));
+                if (productInventory != null && productInventory.getStoreId() != null) {
+                    productShardId = com.jiaoyi.product.util.ProductShardUtil.calculateProductShardId(productInventory.getStoreId());
+                }
+            } catch (Exception e) {
+                log.warn("查询商品信息获取 product_shard_id 失败，商品ID: {}", productIds.get(0), e);
+            }
         }
         
-        log.info("批量库存扣减完成");
+        if (productShardId == null) {
+            throw new RuntimeException("无法确定 product_shard_id，请确保商品ID有效");
+        }
+        
+        // 幂等性检查：如果提供了 idempotencyKey，先检查是否已处理过
+        if (idempotencyKey != null && !idempotencyKey.isEmpty()) {
+            // 查询是否已存在幂等性日志
+            InventoryDeductionIdempotency existing = idempotencyMapper.selectByIdempotencyKey(idempotencyKey, productShardId);
+            
+            if (existing != null) {
+                // 已存在幂等性日志
+                if (existing.getStatus() == InventoryDeductionIdempotency.Status.SUCCESS) {
+                    log.warn("重复请求（幂等性检查），订单 {} 已经成功扣过库存，idempotencyKey: {}", orderId, idempotencyKey);
+                    return; // 幂等：已成功处理过，直接返回
+                } else if (existing.getStatus() == InventoryDeductionIdempotency.Status.PROCESSING) {
+                    log.warn("重复请求（幂等性检查），订单 {} 正在处理中，idempotencyKey: {}", orderId, idempotencyKey);
+                    throw new RuntimeException("库存扣减请求正在处理中，请勿重复提交");
+                } else if (existing.getStatus() == InventoryDeductionIdempotency.Status.FAILED) {
+                    log.info("订单 {} 之前的扣库存请求失败，允许重试，idempotencyKey: {}", orderId, idempotencyKey);
+                    // 失败状态允许重试，继续执行
+                }
+            } else {
+                // 不存在，尝试插入幂等性日志（使用 INSERT IGNORE 实现原子性）
+                try {
+                    String productIdsJson = objectMapper.writeValueAsString(productIds);
+                    String skuIdsJson = objectMapper.writeValueAsString(skuIds);
+                    String quantitiesJson = objectMapper.writeValueAsString(quantities);
+                    
+                    int inserted = idempotencyMapper.tryInsert(idempotencyKey, orderId, productShardId, productIdsJson, skuIdsJson, quantitiesJson);
+                    
+                    if (inserted == 0) {
+                        // 插入失败（可能并发插入），再次查询
+                        existing = idempotencyMapper.selectByIdempotencyKey(idempotencyKey, productShardId);
+                        if (existing != null && existing.getStatus() == InventoryDeductionIdempotency.Status.SUCCESS) {
+                            log.warn("并发请求（幂等性检查），订单 {} 已经成功扣过库存，idempotencyKey: {}", orderId, idempotencyKey);
+                            return; // 幂等：已成功处理过，直接返回
+                        }
+                    }
+                } catch (Exception e) {
+                    log.error("插入幂等性日志失败，idempotencyKey: {}", idempotencyKey, e);
+                    // 幂等性日志插入失败不影响主流程，继续执行（但会有重复扣库存的风险）
+                }
+            }
+        }
+        
+        // 执行扣减
+        try {
+            for (int i = 0; i < productIds.size(); i++) {
+                deductStock(productIds.get(i), skuIds.get(i), quantities.get(i), orderId);
+            }
+            
+            // 更新幂等性日志为成功
+            if (idempotencyKey != null && !idempotencyKey.isEmpty() && productShardId != null) {
+                idempotencyMapper.updateStatusToSuccess(idempotencyKey, productShardId);
+            }
+            
+            log.info("批量库存扣减完成，订单ID: {}", orderId);
+        } catch (Exception e) {
+            // 更新幂等性日志为失败
+            if (idempotencyKey != null && !idempotencyKey.isEmpty() && productShardId != null) {
+                idempotencyMapper.updateStatusToFailed(idempotencyKey, productShardId, e.getMessage());
+            }
+            throw e;
+        }
+    }
+    
+    /**
+     * 批量扣减库存（基于SKU，兼容旧接口，不传 idempotencyKey）
+     */
+    @Transactional
+    public void deductStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities, Long orderId) {
+        // 如果没有提供 idempotencyKey，使用 orderId + "-DEDUCT" 作为默认值
+        String idempotencyKey = orderId != null ? orderId + "-DEDUCT" : null;
+        deductStockBatch(productIds, skuIds, quantities, orderId, idempotencyKey);
     }
     
     /**
      * 批量解锁库存（基于SKU）
+     * 
+     * @return OperationResult 包含操作结果状态（SUCCESS、IDEMPOTENT_SUCCESS、FAILED）
+     *         如果所有SKU都成功或幂等成功，返回 SUCCESS
+     *         如果部分SKU幂等成功，返回 IDEMPOTENT_SUCCESS（表示部分或全部已处理过）
+     *         如果有SKU失败，返回 FAILED
      */
     @Transactional
-    public void unlockStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities, Long orderId) {
+    public com.jiaoyi.common.OperationResult unlockStockBatch(List<Long> productIds, List<Long> skuIds, List<Integer> quantities, Long orderId) {
         log.info("批量解锁库存，订单ID: {}, 商品数量: {}", orderId, productIds.size());
         
         if (productIds.size() != skuIds.size() || productIds.size() != quantities.size()) {
-            throw new IllegalArgumentException("商品ID、SKU ID和数量列表长度必须一致");
+            return com.jiaoyi.common.OperationResult.failed("商品ID、SKU ID和数量列表长度必须一致");
         }
+        
+        int successCount = 0;
+        int idempotentCount = 0;
+        int failedCount = 0;
         
         for (int i = 0; i < productIds.size(); i++) {
-            unlockStock(productIds.get(i), skuIds.get(i), quantities.get(i), orderId);
+            com.jiaoyi.common.OperationResult result = unlockStock(productIds.get(i), skuIds.get(i), quantities.get(i), orderId);
+            if (com.jiaoyi.common.OperationResult.ResultStatus.SUCCESS.equals(result.getStatus())) {
+                successCount++;
+            } else if (com.jiaoyi.common.OperationResult.ResultStatus.IDEMPOTENT_SUCCESS.equals(result.getStatus())) {
+                idempotentCount++;
+            } else {
+                failedCount++;
+            }
         }
         
-        log.info("批量库存解锁完成");
+        log.info("批量库存解锁完成，订单ID: {}, 成功: {}, 幂等成功: {}, 失败: {}", 
+                orderId, successCount, idempotentCount, failedCount);
+        
+        if (failedCount > 0) {
+            return com.jiaoyi.common.OperationResult.failed(
+                    String.format("批量解锁库存失败，订单ID: %s, 成功: %d, 幂等成功: %d, 失败: %d", 
+                            orderId, successCount, idempotentCount, failedCount));
+        } else if (idempotentCount > 0) {
+            return com.jiaoyi.common.OperationResult.idempotentSuccess(
+                    String.format("批量解锁库存完成（部分或全部已处理过），订单ID: %s, 成功: %d, 幂等成功: %d", 
+                            orderId, successCount, idempotentCount));
+        } else {
+            return com.jiaoyi.common.OperationResult.success(
+                    String.format("批量解锁库存成功，订单ID: %s, 成功数量: %d", orderId, successCount));
+        }
     }
     
     /**
@@ -602,14 +835,27 @@ public class InventoryService {
     }
     
     /**
-     * 记录库存变动
+     * 记录库存变动（使用 Inventory 对象，自动获取 product_shard_id）
      */
-    private void recordInventoryTransaction(Long productId, Long orderId, 
+    private void recordInventoryTransaction(Inventory inventory, Long orderId, 
                                          InventoryTransaction.TransactionType transactionType,
                                          Integer quantity, Integer beforeStock, Integer afterStock,
                                          Integer beforeLocked, Integer afterLocked, String remark) {
         InventoryTransaction transaction = new InventoryTransaction();
-        transaction.setProductId(productId);
+        transaction.setProductId(inventory.getProductId());
+        transaction.setSkuId(inventory.getSkuId()); // 添加 SKU ID
+        
+        // 获取 product_shard_id，如果为 null 则根据 storeId 计算（兜底逻辑）
+        Integer productShardId = inventory.getProductShardId();
+        if (productShardId == null && inventory.getStoreId() != null) {
+            productShardId = com.jiaoyi.product.util.ProductShardUtil.calculateProductShardId(inventory.getStoreId());
+            log.warn("库存记录的 product_shard_id 为空，根据 storeId {} 计算得到: {}", inventory.getStoreId(), productShardId);
+        }
+        if (productShardId == null) {
+            throw new RuntimeException("无法确定 product_shard_id：inventory.getProductShardId() 为 null 且 inventory.getStoreId() 也为 null");
+        }
+        
+        transaction.setProductShardId(productShardId);
         transaction.setOrderId(orderId);
         transaction.setTransactionType(transactionType);
         transaction.setQuantity(quantity);

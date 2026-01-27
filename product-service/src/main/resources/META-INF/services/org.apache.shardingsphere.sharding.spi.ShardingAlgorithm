@@ -1,0 +1,4 @@
+com.jiaoyi.product.config.ProductShardIdDatabaseShardingAlgorithmV2
+com.jiaoyi.product.config.ProductShardIdTableShardingAlgorithmV2
+
+

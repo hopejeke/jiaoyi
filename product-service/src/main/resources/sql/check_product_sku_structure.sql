@@ -34,3 +34,5 @@ SHOW COLUMNS FROM product_sku_2;
 
 
 
+
+

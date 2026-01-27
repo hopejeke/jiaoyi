@@ -1,5 +1,6 @@
 package com.jiaoyi.product.config;
 
+import com.jiaoyi.product.interceptor.BucketIdAutoFillInterceptor;
 import com.zaxxer.hikari.HikariDataSource;
 import org.apache.ibatis.session.SqlSessionFactory;
 import org.mybatis.spring.SqlSessionFactoryBean;
@@ -56,14 +57,17 @@ public class DataSourceConfig {
     
     /**
      * 普通数据源的 SqlSessionFactory
-     * 用于 OutboxNodeMapper 和 OutboxMapper
+     * 用于 OutboxNodeMapper
      * 注意：不要使用 @Primary，避免与 ShardingSphere 数据源冲突
-     * 只加载 primary 目录下的 Mapper XML（OutboxMapper.xml, OutboxNodeMapper.xml）
+     * 注意：OutboxMapper 已删除，outbox 现在使用 JdbcTemplate 实现
+     * 只加载 primary 目录下的 Mapper XML（OutboxNodeMapper.xml）
      */
     @Bean(name = "primarySqlSessionFactory")
     public SqlSessionFactory primarySqlSessionFactory(@Qualifier("primaryDataSource") DataSource dataSource) throws Exception {
         SqlSessionFactoryBean sessionFactory = new SqlSessionFactoryBean();
         sessionFactory.setDataSource(dataSource);
+        // 注册拦截器
+        sessionFactory.setPlugins(new BucketIdAutoFillInterceptor());
         // 只加载 primary 目录下的 Mapper XML（非分片表）
         PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
         org.springframework.core.io.Resource[] resources = resolver.getResources("classpath:mapper/primary/*.xml");
@@ -102,6 +106,8 @@ public class DataSourceConfig {
             @Qualifier("shardingSphereDataSource") DataSource dataSource) throws Exception {
         SqlSessionFactoryBean sessionFactory = new SqlSessionFactoryBean();
         sessionFactory.setDataSource(dataSource);
+        // 注册拦截器
+        sessionFactory.setPlugins(new BucketIdAutoFillInterceptor());
         // 只加载 sharding 目录下的 Mapper XML（分片表）
         PathMatchingResourcePatternResolver resolver = new PathMatchingResourcePatternResolver();
         org.springframework.core.io.Resource[] resources;
@@ -185,7 +191,8 @@ public class DataSourceConfig {
     
     /**
      * 配置非分片表相关的 Mapper 使用普通数据源
-     * 扫描 primary 子包下的 Mapper（StoreMapper、OutboxMapper、OutboxNodeMapper）
+     * 扫描 primary 子包下的 Mapper（StoreMapper、OutboxNodeMapper）
+     * 注意：OutboxMapper 已删除，outbox 现在使用 JdbcTemplate 实现
      * 这些表都存储在主库（jiaoyi）中，不分库
      * 使用 @Order(2) 确保在 ShardingMapperScanConfig 之后加载
      */

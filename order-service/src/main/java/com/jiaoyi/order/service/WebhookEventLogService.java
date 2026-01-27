@@ -81,5 +81,20 @@ public class WebhookEventLogService {
         webhookEventLogMapper.updateStatusToFailed(eventId, errorMessage, LocalDateTime.now());
         log.warn("事件标记为失败，eventId: {}, error: {}", eventId, errorMessage);
     }
+    
+    /**
+     * 检查事件是否已处理（PROCESSED 状态）
+     * 
+     * @param eventId 事件ID
+     * @return true 如果事件已处理，false 如果未处理或不存在
+     */
+    public boolean isProcessed(String eventId) {
+        WebhookEventLog eventLog = webhookEventLogMapper.selectByEventId(eventId);
+        if (eventLog == null) {
+            return false;
+        }
+        // 检查状态是否为已处理（PROCESSED）
+        return eventLog.getStatus() == WebhookEventLog.EventStatus.PROCESSED;
+    }
 }
 

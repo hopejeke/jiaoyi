@@ -1,0 +1,4 @@
+com.jiaoyi.order.config.StoreIdDatabaseShardingAlgorithmV2
+com.jiaoyi.order.config.StoreIdTableShardingAlgorithmV2
+
+

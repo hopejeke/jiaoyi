@@ -202,6 +202,9 @@ public class DatabaseInitializer {
             // 创建 outbox 表（分库不分表，每个库一张 outbox 表）
             createOutboxTable(stmt, dbIndex);
             
+            // 创建库存扣减幂等性日志表（每个库一张表）
+            createInventoryDeductionIdempotencyTable(stmt, dbIndex);
+            
             log.info("✓ 数据库 {} 的所有分片表创建完成", dbName);
             
         } catch (Exception e) {
@@ -624,6 +627,37 @@ public class DatabaseInitializer {
             stmt.executeUpdate(createTableSql);
         }
         log.info("  ✓ 库存表分片创建完成（32个分片表：inventory_00..inventory_31）");
+        
+        // 创建库存变动记录表分片（32个分片表）
+        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
+            String tableName = "inventory_transactions_" + String.format("%02d", tableIndex);
+            String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
+                    "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                    "product_id BIGINT NOT NULL COMMENT '商品ID（关联store_products.id）', " +
+                    "sku_id BIGINT COMMENT 'SKU ID（关联product_sku.id），NULL表示商品级别库存变动', " +
+                    "product_shard_id INT NOT NULL COMMENT '分片ID（0-1023，基于storeId计算，用于分库分表路由）', " +
+                    "order_id BIGINT COMMENT '订单ID（订单相关变动必须有订单ID）', " +
+                    "transaction_type VARCHAR(20) NOT NULL COMMENT '变动类型：IN-入库，OUT-出库，LOCK-锁定，UNLOCK-解锁，ADJUST-调整', " +
+                    "quantity INT NOT NULL COMMENT '变动数量（正数为增加，负数为减少）', " +
+                    "before_stock INT COMMENT '变动前库存', " +
+                    "after_stock INT COMMENT '变动后库存', " +
+                    "before_locked INT DEFAULT 0 COMMENT '变动前锁定库存', " +
+                    "after_locked INT DEFAULT 0 COMMENT '变动后锁定库存', " +
+                    "remark VARCHAR(500) COMMENT '备注', " +
+                    "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
+                    "INDEX idx_product_id (product_id), " +
+                    "INDEX idx_sku_id (sku_id), " +
+                    "INDEX idx_product_shard_id (product_shard_id), " +
+                    "INDEX idx_order_id (order_id), " +
+                    "INDEX idx_transaction_type (transaction_type), " +
+                    "INDEX idx_create_time (create_time), " +
+                    "INDEX idx_product_type (product_id, transaction_type), " +
+                    "INDEX idx_product_sku (product_id, sku_id), " +
+                    "UNIQUE KEY uk_order_sku_type (order_id, sku_id, transaction_type) COMMENT '幂等性唯一索引：同一订单同一SKU同一操作类型只能执行一次'" +
+                    ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存变动记录表_库" + dbIndex + "_分片" + String.format("%02d", tableIndex) + "'";
+            stmt.executeUpdate(createTableSql);
+        }
+        log.info("  ✓ 库存变动记录表分片创建完成（32个分片表：inventory_transactions_00..inventory_transactions_31）");
     }
     
     /**
@@ -896,6 +930,33 @@ public class DatabaseInitializer {
         }
         
         log.info("  ✓ outbox 表创建完成（数据库 jiaoyi_product_{}，共32张表：outbox_00..outbox_31）", dbIndex);
+    }
+    
+    /**
+     * 创建库存扣减幂等性日志表（每个库一张表，不分片）
+     * 用于记录库存扣减请求的幂等性信息，防止重复处理
+     */
+    private void createInventoryDeductionIdempotencyTable(Statement stmt, int dbIndex) throws Exception {
+        String tableName = "inventory_deduction_idempotency";
+        String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID', " +
+                "idempotency_key VARCHAR(255) NOT NULL UNIQUE COMMENT '幂等键（唯一标识，格式：orderId + \"-DEDUCT\"）', " +
+                "order_id BIGINT NOT NULL COMMENT '订单ID', " +
+                "product_shard_id INT NOT NULL COMMENT '分片ID（0-1023，基于storeId计算，用于分库分表路由）', " +
+                "product_ids TEXT NOT NULL COMMENT '商品ID列表（JSON格式）', " +
+                "sku_ids TEXT NOT NULL COMMENT 'SKU ID列表（JSON格式）', " +
+                "quantities TEXT NOT NULL COMMENT '数量列表（JSON格式）', " +
+                "status VARCHAR(20) NOT NULL DEFAULT 'PROCESSING' COMMENT '状态：PROCESSING-处理中，SUCCESS-成功，FAILED-失败', " +
+                "error_message TEXT COMMENT '错误信息（如果失败）', " +
+                "created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
+                "updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
+                "UNIQUE KEY uk_idempotency_key_shard (idempotency_key, product_shard_id) COMMENT '幂等键+分片ID唯一索引', " +
+                "INDEX idx_order_id (order_id), " +
+                "INDEX idx_status (status), " +
+                "INDEX idx_product_shard_id (product_shard_id)" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存扣减幂等性日志表_库" + dbIndex + "'";
+        stmt.executeUpdate(createTableSql);
+        log.info("  ✓ 库存扣减幂等性日志表创建完成（库" + dbIndex + "）");
     }
     
     /**
