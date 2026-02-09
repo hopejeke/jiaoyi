@@ -4,6 +4,7 @@ import com.jiaoyi.product.entity.Inventory;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -110,8 +111,44 @@ public interface InventoryMapper {
      * 根据ID更新库存数量
      */
     int updateStockById(@Param("id") Long id,
-                        @Param("currentStock") Integer currentStock, 
-                        @Param("minStock") Integer minStock, 
+                        @Param("currentStock") Integer currentStock,
+                        @Param("minStock") Integer minStock,
                         @Param("maxStock") Integer maxStock);
+
+    /**
+     * 查询需要次日恢复的库存
+     * 条件：restore_enabled = true AND restore_mode = 'TOMORROW'
+     */
+    List<Inventory> selectForTomorrowRestore();
+
+    /**
+     * 查询需要在指定时间恢复的库存
+     * 条件：restore_enabled = true AND restore_mode = 'SCHEDULED' AND restore_time <= now
+     */
+    List<Inventory> selectForScheduledRestore(@Param("now") LocalDateTime now);
+
+    /**
+     * 恢复库存（更新库存状态）
+     */
+    int restoreInventory(@Param("id") Long id,
+                         @Param("stockMode") Inventory.StockMode stockMode,
+                         @Param("currentStock") Integer currentStock,
+                         @Param("lastRestoreTime") LocalDateTime lastRestoreTime);
+
+    /**
+     * 更新库存恢复配置
+     */
+    int updateRestoreConfig(@Param("id") Long id,
+                            @Param("restoreMode") Inventory.RestoreMode restoreMode,
+                            @Param("restoreTime") LocalDateTime restoreTime,
+                            @Param("restoreStock") Integer restoreStock,
+                            @Param("restoreEnabled") Boolean restoreEnabled);
+
+    /**
+     * 禁用过期的恢复配置
+     * 将 restore_time < cutoffTime 且 last_restore_time IS NOT NULL 的记录
+     * 设置为 restore_enabled = false
+     */
+    int disableExpiredRestoreConfig(@Param("cutoffTime") LocalDateTime cutoffTime);
 }
 

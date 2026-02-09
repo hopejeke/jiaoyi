@@ -130,27 +130,51 @@ public class OutboxService {
                     outbox != null ? outbox.getId() : "null", type, bizKey, shardingKey);
             
             // 事务提交后自动处理任务（异步执行，不阻塞主事务）
+            // 优化：直接传递完整的 outbox 对象，避免广播查询
             // 流程：claim → handler.handle() → markSent/markFailed
             if (outbox != null && TransactionSynchronizationManager.isActualTransactionActive()) {
-                Long outboxId = outbox.getId();
+                final Outbox finalOutbox = outbox;  // 用于 lambda 表达式捕获
                 TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
                     @Override
                     public void afterCommit() {
                         // 异步执行，避免阻塞主事务
                         if (taskExecutor != null) {
-                            taskExecutor.execute(() -> processTask(outboxId));
+                            try {
+                                // ✅ 优化：直接传递 outbox 对象，不需要查询数据库
+                                taskExecutor.execute(() -> processTaskWithOutbox(finalOutbox));
+                            } catch (java.util.concurrent.RejectedExecutionException e) {
+                                // 队列满，记录日志，由定时扫表处理
+                                log.warn("【OutboxService】异步任务队列满，outboxId: {} 将由定时扫表任务处理", finalOutbox.getId());
+                                // TODO: 增加监控指标
+                                // metricsService.incrementCounter("outbox.queue.rejected");
+                            } catch (Exception e) {
+                                // 其他异常也记录，不影响主流程
+                                log.error("【OutboxService】提交异步任务失败，outboxId: {} 将由定时扫表任务处理", finalOutbox.getId(), e);
+                            }
                         } else {
                             // 如果没有 TaskExecutor，直接同步执行（afterCommit 本身不会阻塞主事务）
-                            processTask(outboxId);
+                            try {
+                                processTaskWithOutbox(finalOutbox);
+                            } catch (Exception e) {
+                                log.error("【OutboxService】同步处理任务失败，outboxId: {}，将由定时扫表任务重试", finalOutbox.getId(), e);
+                            }
+                        }
+                    }
+
+                    @Override
+                    public void afterCompletion(int status) {
+                        if (status == STATUS_ROLLED_BACK) {
+                            // 事务回滚，记录日志（Outbox也会回滚）
+                            log.info("【OutboxService】业务事务回滚，Outbox记录已回滚，outboxId: {}", finalOutbox.getId());
                         }
                     }
                 });
             } else if (outbox != null) {
                 // 如果没有事务上下文，直接处理（非事务场景）
                 if (taskExecutor != null) {
-                    taskExecutor.execute(() -> processTask(outbox.getId()));
+                    taskExecutor.execute(() -> processTaskWithOutbox(outbox));
                 } else {
-                    processTask(outbox.getId());
+                    processTaskWithOutbox(outbox);
                 }
             }
             
@@ -174,15 +198,152 @@ public class OutboxService {
     }
     
     /**
-     * 处理单个任务（事务提交后执行）
+     * 处理任务（使用完整的 Outbox 对象，不需要查询数据库）
+     * 用于事务提交后立即执行，性能最优
+     *
      * 流程：claim → handler.handle() → markSent/markFailed
-     * 
-     * 1. claim 为 PROCESSING
-     * 2. 执行 handler
-     * 3. 成功：markSent
-     * 4. 失败：markFailed（由兜底任务执行重试）
+     *
+     * @param outbox 完整的 Outbox 对象（包含 id、shardId、type、payload 等所有字段）
      */
-    private void processTask(Long outboxId) {
+    private void processTaskWithOutbox(Outbox outbox) {
+        if (outbox == null) {
+            log.warn("【OutboxService】outbox 对象为 null，无法处理");
+            return;
+        }
+
+        Long outboxId = outbox.getId();
+        Integer shardId = outbox.getShardId();
+
+        if (shardId == null) {
+            log.warn("【OutboxService】任务缺少 shardId，无法处理，outboxId: {}", outboxId);
+            return;
+        }
+
+        log.debug("【OutboxService】开始处理任务（使用 outbox 对象），outboxId: {}, type: {}, shardId: {}",
+                outboxId, outbox.getType(), shardId);
+
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            LocalDateTime lockUntil = now.plus(LOCK_TIMEOUT);
+
+            // 1. Claim 任务（带 shardId，精准路由，不会触发广播查询）
+            List<Long> ids = Collections.singletonList(outboxId);
+            int claimed = outboxRepository.claimByIds(table, shardId, ids, instanceId, lockUntil, now);
+
+            if (claimed == 0) {
+                // claim 失败（可能已被其他实例处理，或状态不对）
+                log.debug("【OutboxService】任务已被其他实例处理或状态不对，outboxId: {}, shardId: {}", outboxId, shardId);
+                return;
+            }
+
+            // 2. 查找对应的 handler
+            List<OutboxHandler> handlers = getHandlers();
+            if (handlers == null || handlers.isEmpty()) {
+                log.warn("【OutboxService】未找到 handlers，释放锁，outboxId: {}, type: {}", outboxId, outbox.getType());
+                outboxRepository.releaseLock(table, outboxId, instanceId);
+                return;
+            }
+
+            OutboxHandler handler = handlers.stream()
+                    .filter(h -> h.supports(outbox.getType()))
+                    .findFirst()
+                    .orElse(null);
+
+            if (handler == null) {
+                log.warn("【OutboxService】未找到对应的 handler，释放锁，outboxId: {}, type: {}", outboxId, outbox.getType());
+                outboxRepository.releaseLock(table, outboxId, instanceId);
+                return;
+            }
+
+            // 3. 执行 handler（直接使用传入的 outbox 对象，无需查询数据库）
+            try {
+                handler.handle(outbox);
+
+                // 4. 成功：标记为 SENT
+                int updated = outboxRepository.markSent(table, outboxId, instanceId);
+                if (updated > 0) {
+                    log.info("【OutboxService】✓ 任务处理成功，outboxId: {}, type: {}, bizKey: {}",
+                            outboxId, outbox.getType(), outbox.getBizKey());
+                } else {
+                    log.warn("【OutboxService】标记已发送失败，可能锁已失效，outboxId: {}", outboxId);
+                }
+
+            } catch (Exception e) {
+                log.error("【OutboxService】✗ 处理任务失败，outboxId: {}, type: {}, bizKey: {}, 错误: {}",
+                        outboxId, outbox.getType(), outbox.getBizKey(), e.getMessage(), e);
+
+                // 5. 失败：标记为 FAILED，由兜底任务执行重试
+                int retryCount = (outbox.getRetryCount() != null ? outbox.getRetryCount() : 0) + 1;
+                long backoffSeconds = Math.min((long) Math.pow(2, retryCount), 300); // 上限300秒（5分钟）
+                LocalDateTime nextRetryTime = now.plusSeconds(backoffSeconds);
+                String errorMessage = truncate(e.getMessage());
+
+                if (retryCount >= MAX_RETRY_COUNT) {
+                    // 超过最大重试次数，标记为死信
+                    int updated = outboxRepository.markDead(table, outboxId, instanceId, errorMessage);
+                    if (updated > 0) {
+                        log.error("【OutboxService】任务标记为死信，outboxId: {}, retryCount: {}, 错误: {}",
+                                outboxId, retryCount, errorMessage);
+                    }
+                } else {
+                    // 标记为失败，等待兜底任务重试
+                    int updated = outboxRepository.markFailed(
+                            table, outboxId, instanceId, retryCount, nextRetryTime, errorMessage);
+                    if (updated > 0) {
+                        log.warn("【OutboxService】任务标记为失败，等待兜底任务重试，outboxId: {}, retryCount: {}, nextRetryTime: {}",
+                                outboxId, retryCount, nextRetryTime);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.error("【OutboxService】处理任务异常，outboxId: {}", outboxId, e);
+            // 不抛出异常，失败的任务会由兜底扫表处理
+        }
+    }
+
+    /**
+     * 处理Outbox任务（带 shardId 参数，用于定时重试扫表）
+     *
+     * 注意：此方法供定时扫表任务调用，因为扫表时已经知道 shardId
+     * 事务提交后立即执行请使用 processTaskWithOutbox(Outbox outbox)
+     *
+     * @param outboxId Outbox任务ID
+     * @param shardId 分片ID（必须传入，用于精准路由）
+     */
+    public void processTask(Long outboxId, Integer shardId) {
+        if (shardId == null) {
+            log.error("【OutboxService】shardId 为 null，无法处理任务，outboxId: {}", outboxId);
+            return;
+        }
+
+        try {
+            // 1. 查询任务详情（带 shardId，精准路由）
+            List<Long> ids = Collections.singletonList(outboxId);
+            List<Outbox> tasks = outboxRepository.selectByIds(table, shardId, ids);
+
+            if (tasks.isEmpty()) {
+                log.warn("【OutboxService】任务不存在，outboxId: {}, shardId: {}", outboxId, shardId);
+                return;
+            }
+
+            Outbox outbox = tasks.getFirst();
+
+            // 2. 调用核心处理方法（复用逻辑）
+            processTaskWithOutbox(outbox);
+
+        } catch (Exception e) {
+            log.error("【OutboxService】处理任务异常，outboxId: {}, shardId: {}", outboxId, shardId, e);
+        }
+    }
+
+    /**
+     * 处理Outbox任务（旧方法，已废弃）
+     *
+     * @deprecated 此方法会触发广播查询，性能差。定时扫表请使用 processTask(Long outboxId, Integer shardId)
+     * @param outboxId Outbox任务ID
+     */
+    @Deprecated
+    public void processTask(Long outboxId) {
         try {
             // 1. 先查询任务详情，获取 merchantId 和 shardId
             Outbox outbox = outboxRepository.selectById(table, outboxId);

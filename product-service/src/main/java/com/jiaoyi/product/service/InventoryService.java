@@ -940,17 +940,157 @@ public class InventoryService {
             log.debug("从缓存获取所有库存信息");
             return cachedInventories.get();
         }
-        
+
         // 缓存未命中，从数据库查询
         log.debug("缓存未命中，从数据库查询所有库存信息");
         List<Inventory> inventories = inventoryMapper.selectAll();
-        
+
         // 将查询结果缓存
         if (inventories != null && !inventories.isEmpty()) {
             inventoryCacheService.cacheAllInventories(inventories);
         }
-        
+
         return inventories != null ? inventories : List.of();
+    }
+
+    /**
+     * 恢复库存（由定时任务调用）
+     *
+     * 功能：
+     * 1. 查询库存记录
+     * 2. 根据 restore_stock 恢复库存
+     * 3. 更新 stock_mode 和 current_stock
+     * 4. 记录 last_restore_time
+     *
+     * @param inventoryId 库存ID
+     */
+    @Transactional
+    public void restoreInventory(Long inventoryId) {
+        log.info("开始恢复库存，库存ID: {}", inventoryId);
+
+        // 查询库存记录
+        // 由于 inventory 表是分片表，需要先通过 selectAll 查询到记录
+        List<Inventory> allInventories = inventoryMapper.selectAll();
+        Inventory inventory = null;
+
+        for (Inventory inv : allInventories) {
+            if (inv.getId().equals(inventoryId)) {
+                inventory = inv;
+                break;
+            }
+        }
+
+        if (inventory == null) {
+            throw new RuntimeException("库存记录不存在，ID: " + inventoryId);
+        }
+
+        // 检查是否启用自动恢复
+        if (inventory.getRestoreEnabled() == null || !inventory.getRestoreEnabled()) {
+            log.warn("库存自动恢复未启用，跳过恢复，库存ID: {}", inventoryId);
+            return;
+        }
+
+        // 根据 restore_stock 恢复库存
+        Inventory.StockMode newStockMode;
+        Integer newCurrentStock;
+
+        if (inventory.getRestoreStock() == null) {
+            // restore_stock 为 null，恢复为无限库存模式
+            newStockMode = Inventory.StockMode.UNLIMITED;
+            newCurrentStock = 0; // UNLIMITED 模式下库存数量不生效
+            log.info("恢复为无限库存模式，库存ID: {}", inventoryId);
+        } else {
+            // restore_stock 不为 null，恢复为有限库存模式，并设置库存数量
+            newStockMode = Inventory.StockMode.LIMITED;
+            newCurrentStock = inventory.getRestoreStock();
+            log.info("恢复为有限库存模式，库存ID: {}, 恢复库存数量: {}", inventoryId, newCurrentStock);
+        }
+
+        // 更新库存状态（使用CAS更新，防止并发重复恢复）
+        java.time.LocalDateTime now = java.time.LocalDateTime.now();
+        int updated = inventoryMapper.restoreInventory(
+                inventoryId,
+                newStockMode,
+                newCurrentStock,
+                now
+        );
+
+        // 并发安全：如果 updated == 0，说明CAS失败（已被其他线程/实例恢复过）
+        // 这是正常的并发场景，不抛异常，直接返回
+        if (updated == 0) {
+            log.warn("库存恢复CAS失败（可能已被其他线程恢复），库存ID: {}", inventoryId);
+            return;
+        }
+
+        log.info("库存恢复成功，库存ID: {}, 新模式: {}, 新库存: {}, 恢复时间: {}",
+                inventoryId, newStockMode, newCurrentStock, now);
+
+        // 更新缓存
+        // 重新查询更新后的库存
+        if (inventory.getSkuId() != null) {
+            inventory = inventoryMapper.selectByStoreIdAndProductIdAndSkuId(
+                    inventory.getStoreId(),
+                    inventory.getProductId(),
+                    inventory.getSkuId()
+            );
+        } else {
+            inventory = inventoryMapper.selectByStoreIdAndProductId(
+                    inventory.getStoreId(),
+                    inventory.getProductId()
+            );
+        }
+
+        if (inventory != null) {
+            inventoryCacheService.updateInventoryCache(inventory);
+        }
+    }
+
+    /**
+     * 更新库存恢复配置
+     *
+     * @param inventoryId 库存ID
+     * @param restoreMode 恢复模式
+     * @param restoreTime 恢复时间（仅在 SCHEDULED 模式下有效）
+     * @param restoreStock 恢复后的库存数量（null表示恢复为无限库存）
+     * @param restoreEnabled 是否启用自动恢复
+     */
+    @Transactional
+    public void updateRestoreConfig(Long inventoryId, Inventory.RestoreMode restoreMode,
+                                   java.time.LocalDateTime restoreTime, Integer restoreStock,
+                                   Boolean restoreEnabled) {
+        log.info("更新库存恢复配置，库存ID: {}, 模式: {}, 恢复时间: {}, 恢复库存: {}, 启用: {}",
+                inventoryId, restoreMode, restoreTime, restoreStock, restoreEnabled);
+
+        // 参数校验
+        if (restoreMode == null) {
+            throw new IllegalArgumentException("恢复模式不能为空");
+        }
+
+        if (restoreMode == Inventory.RestoreMode.SCHEDULED && restoreTime == null) {
+            throw new IllegalArgumentException("指定时间恢复模式下，恢复时间不能为空");
+        }
+
+        if (restoreEnabled == null) {
+            restoreEnabled = false;
+        }
+
+        // 更新配置
+        int updated = inventoryMapper.updateRestoreConfig(
+                inventoryId,
+                restoreMode,
+                restoreTime,
+                restoreStock,
+                restoreEnabled
+        );
+
+        if (updated == 0) {
+            throw new RuntimeException("更新库存恢复配置失败，库存ID: " + inventoryId);
+        }
+
+        log.info("库存恢复配置更新成功，库存ID: {}", inventoryId);
+
+        // 清除缓存
+        inventoryCacheService.evictAllInventoriesCache();
     }
 }
 

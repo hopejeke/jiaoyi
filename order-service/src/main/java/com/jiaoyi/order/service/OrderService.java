@@ -17,6 +17,8 @@ import com.jiaoyi.order.mapper.OrderItemMapper;
 import com.jiaoyi.order.mapper.OrderMapper;
 import com.jiaoyi.order.mapper.OrderCouponMapper;
 import com.jiaoyi.order.mapper.MerchantCapabilityConfigMapper;
+import com.jiaoyi.order.mapper.UserOrderIndexMapper;
+import com.jiaoyi.order.entity.UserOrderIndex;
 import com.jiaoyi.order.service.OutboxHelper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -42,6 +44,7 @@ public class OrderService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final OrderCouponMapper orderCouponMapper;
+    private final UserOrderIndexMapper userOrderIndexMapper;
     private final ProductServiceClient productServiceClient;
     private final CouponServiceClient couponServiceClient;
     private final RedissonClient redissonClient;
@@ -471,19 +474,23 @@ public class OrderService {
         }
         
         // 用户级别的锁：确保同一用户同一时间只能处理一个下单请求
-        String userLockKey = "order:create:user:" + order.getUserId();
+        String userLockKey = com.jiaoyi.order.constants.OrderConstants.ORDER_CREATE_USER_LOCK_PREFIX + order.getUserId();
         RLock userLock = redissonClient.getLock(userLockKey);
-        
+
         try {
-            // 尝试获取用户级别的锁，最多等待5秒，锁持有时间不超过60秒
-            boolean userLockAcquired = userLock.tryLock(5, 60, TimeUnit.SECONDS);
-            
+            // 尝试获取用户级别的锁，使用配置的等待时间和持有时间
+            // 注意：Redisson的WatchDog机制会自动续期（每10秒续期一次）
+            boolean userLockAcquired = userLock.tryLock(
+                com.jiaoyi.order.constants.OrderConstants.USER_LOCK_WAIT_SECONDS,
+                com.jiaoyi.order.constants.OrderConstants.USER_LOCK_LEASE_SECONDS,
+                TimeUnit.SECONDS);
+
             if (!userLockAcquired) {
                 log.warn("获取用户级别锁失败，用户正在处理其他下单请求，用户ID: {}", order.getUserId());
                 throw new BusinessException("您有订单正在处理中，请稍后再试");
             }
-            
-            log.info("成功获取用户级别锁，用户ID: {}, 开始处理订单创建", order.getUserId());
+
+            log.info("成功获取用户级别锁，用户ID: {}, 开始处理订单创建（锁将自动续期）", order.getUserId());
             
             // 基于订单内容生成锁 key（防重复提交相同订单）
             // 注意：Controller 层已经有 @PreventDuplicateSubmission 注解，这里作为双重保护
@@ -502,21 +509,26 @@ public class OrderService {
                 lockContent.append(String.join(",", itemKeys));
             }
             int hashCode = lockContent.toString().hashCode();
-            String contentLockKey = String.format("order:create:content:%s:%d:%d", 
+            String contentLockKey = String.format("%s%s:%d:%d",
+                com.jiaoyi.order.constants.OrderConstants.ORDER_CREATE_CONTENT_LOCK_PREFIX,
                 order.getMerchantId(), order.getUserId(), hashCode);
             RLock contentLock = redissonClient.getLock(contentLockKey);
-            
+
             try {
-                    // 尝试获取订单内容级别的锁，最多等待3秒，锁持有时间不超过30秒
-                    boolean contentLockAcquired = contentLock.tryLock(3, 30, TimeUnit.SECONDS);
-                    
+                    // 尝试获取订单内容级别的锁，使用配置的等待时间和持有时间
+                    // 注意：Redisson的WatchDog机制会自动续期（每10秒续期一次）
+                    boolean contentLockAcquired = contentLock.tryLock(
+                        com.jiaoyi.order.constants.OrderConstants.CONTENT_LOCK_WAIT_SECONDS,
+                        com.jiaoyi.order.constants.OrderConstants.CONTENT_LOCK_LEASE_SECONDS,
+                        TimeUnit.SECONDS);
+
                     if (!contentLockAcquired) {
-                        log.warn("获取订单内容锁失败，可能存在重复提交，商户ID: {}, 用户ID: {}", 
+                        log.warn("获取订单内容锁失败，可能存在重复提交，商户ID: {}, 用户ID: {}",
                             order.getMerchantId(), order.getUserId());
                         throw new BusinessException("请勿重复提交相同订单");
                     }
-                    
-                    log.info("成功获取订单内容锁，开始处理在线点餐订单创建，内容锁key: {}", contentLockKey);
+
+                    log.info("成功获取订单内容锁，开始处理在线点餐订单创建（锁将自动续期），内容锁key: {}", contentLockKey);
                     
                     // 1. 检查并锁定库存（基于SKU）
                     List<Long> productIds = null;
@@ -557,15 +569,15 @@ public class OrderService {
                         
                         // 2. 设置订单默认值
                         if (order.getStatus() == null) {
-                            order.setStatus(1); // 默认已下单
+                            order.setStatus(com.jiaoyi.order.constants.OrderConstants.DEFAULT_ORDER_STATUS);
                         }
                         if (order.getLocalStatus() == null) {
-                            order.setLocalStatus(1); // 默认已下单
+                            order.setLocalStatus(com.jiaoyi.order.constants.OrderConstants.DEFAULT_LOCAL_STATUS);
                         }
                         if (order.getKitchenStatus() == null) {
-                            order.setKitchenStatus(1); // 默认待送厨
+                            order.setKitchenStatus(com.jiaoyi.order.constants.OrderConstants.DEFAULT_KITCHEN_STATUS);
                         }
-                        order.setVersion(1L);
+                        order.setVersion(com.jiaoyi.order.constants.OrderConstants.DEFAULT_VERSION);
                         order.setCreateTime(LocalDateTime.now());
                         order.setUpdateTime(LocalDateTime.now());
                         
@@ -605,7 +617,36 @@ public class OrderService {
                         // 6. 保存订单
                         orderMapper.insert(order);
                         log.info("订单插入成功，ID: {}", order.getId());
-                        
+
+                        // 6.4 记录订单到Redis（用于高峰拒单统计）
+                        try {
+                            peakHourRejectionService.recordOrder(
+                                    order.getMerchantId(),
+                                order.getId()
+                            );
+                        } catch (Exception e) {
+                            log.error("记录订单到Redis失败，不影响订单创建: orderId={}", order.getId(), e);
+                        }
+
+                        // 6.5 写入用户订单索引表（用于按 userId 查询订单，避免广播查询）
+                        try {
+                            UserOrderIndex index = UserOrderIndex.builder()
+                                    .userId(order.getUserId())
+                                    .orderId(order.getId())
+                                    .storeId(order.getStoreId())
+                                    .merchantId(order.getMerchantId())
+                                    .orderStatus(order.getStatus())
+                                    .orderType(order.getOrderType() != null ? order.getOrderType().getCode() : null)
+                                    .totalAmount(extractTotalAmount(order))
+                                    .createdAt(LocalDateTime.now())
+                                    .build();
+                            userOrderIndexMapper.insert(index);
+                            log.info("用户订单索引插入成功，userId: {}, orderId: {}", order.getUserId(), order.getId());
+                        } catch (Exception e) {
+                            log.error("写入用户订单索引失败，orderId: {}, userId: {}", order.getId(), order.getUserId(), e);
+                            // 索引表写入失败不影响订单创建，记录日志即可（可以通过补偿任务修复）
+                        }
+
                         // 7. 创建并保存订单项
                         if (orderItems != null && !orderItems.isEmpty()) {
                             int itemIndex = 0;
@@ -689,25 +730,71 @@ public class OrderService {
                                 insertedOrder.getId(), insertedOrder.getMerchantId(), insertedOrder.getUserId(),
                                 orderSubtotal, totalDiscountAmount);
                         
-                        // 11. 发送订单超时延迟消息（30分钟后自动取消）
-                        orderTimeoutMessageService.sendOrderTimeoutMessage(insertedOrder.getId(), order.getUserId(), 30);
-                        log.info("订单超时延迟消息已发送，订单将在30分钟后自动取消（如果未支付）");
+                        // 11. 发送订单超时延迟消息（配置的超时时间后自动取消）
+                        orderTimeoutMessageService.sendOrderTimeoutMessage(
+                            insertedOrder.getId(),
+                            order.getUserId(),
+                            com.jiaoyi.order.constants.OrderConstants.ORDER_TIMEOUT_MINUTES);
+                        log.info("订单超时延迟消息已发送，订单将在{}分钟后自动取消（如果未支付）",
+                            com.jiaoyi.order.constants.OrderConstants.ORDER_TIMEOUT_MINUTES);
                         
                         return insertedOrder;
                         
                     } catch (Exception e) {
                         // 如果订单创建失败，解锁已锁定的库存
-                        log.error("在线点餐订单创建失败，解锁库存", e);
+                        log.error("在线点餐订单创建失败，尝试解锁库存", e);
                         if (productIds != null && skuIds != null && quantities != null && !productIds.isEmpty()) {
-                            try {
-                                ProductServiceClient.UnlockStockBatchRequest unlockRequest = new ProductServiceClient.UnlockStockBatchRequest();
-                                unlockRequest.setProductIds(productIds);
-                                unlockRequest.setSkuIds(skuIds);
-                                unlockRequest.setQuantities(quantities);
-                                unlockRequest.setOrderId(null);
-                                productServiceClient.unlockStockBatch(unlockRequest);
-                            } catch (Exception unlockException) {
-                                log.error("解锁库存失败", unlockException);
+                            boolean unlockSuccess = false;
+                            int maxRetries = com.jiaoyi.order.constants.OrderConstants.STOCK_UNLOCK_MAX_RETRIES;
+
+                            for (int retryCount = 0; retryCount < maxRetries; retryCount++) {
+                                try {
+                                    if (retryCount > 0) {
+                                        log.info("重试解锁库存，第 {} 次", retryCount);
+                                        // 指数退避
+                                        Thread.sleep(1000L * retryCount);
+                                    }
+
+                                    ProductServiceClient.UnlockStockBatchRequest unlockRequest =
+                                        new ProductServiceClient.UnlockStockBatchRequest();
+                                    unlockRequest.setProductIds(productIds);
+                                    unlockRequest.setSkuIds(skuIds);
+                                    unlockRequest.setQuantities(quantities);
+                                    unlockRequest.setOrderId(null);
+
+                                    productServiceClient.unlockStockBatch(unlockRequest);
+                                    unlockSuccess = true;
+                                    log.info("库存解锁成功，商品数量: {}", productIds.size());
+                                    break;
+
+                                } catch (Exception unlockException) {
+                                    log.error("解锁库存失败，重试次数: {}/{}", retryCount + 1, maxRetries, unlockException);
+
+                                    if (retryCount == maxRetries - 1) {
+                                        // 最后一次重试也失败，记录库存泄漏
+                                        String leakageInfo = String.format(
+                                            "库存泄漏告警 - 订单创建失败但库存解锁失败，" +
+                                            "用户ID: %d, 商品ID: %s, SKU ID: %s, 数量: %s",
+                                            order.getUserId(),
+                                            productIds.toString(),
+                                            skuIds.toString(),
+                                            quantities.toString()
+                                        );
+
+                                        log.error("【库存泄漏警告】{}", leakageInfo);
+
+                                        // TODO: 发送告警通知
+                                        // alertService.sendAlert("库存泄漏", leakageInfo);
+
+                                        // TODO: 写入补偿任务表，供定时任务处理
+                                        // compensationTaskService.createUnlockStockTask(
+                                        //     productIds, skuIds, quantities, null, leakageInfo);
+                                    }
+                                }
+                            }
+
+                            if (!unlockSuccess) {
+                                log.error("库存解锁失败，已达最大重试次数: {}，需要人工介入", maxRetries);
                             }
                         }
                         throw e;
@@ -773,7 +860,7 @@ public class OrderService {
             String paymentMethod = paymentRequest.getPaymentMethod().toUpperCase();
             
             // 从订单中获取支付金额
-            java.math.BigDecimal amount = parseOrderPrice(createdOrder);
+            java.math.BigDecimal amount = com.jiaoyi.order.util.OrderPriceUtil.parseOrderTotal(createdOrder);
             paymentRequest.setAmount(amount);
             
             // 处理支付（注意：对于信用卡支付，不在创建订单时创建 Payment Intent）
@@ -797,28 +884,7 @@ public class OrderService {
         return response;
     }
     
-    /**
-     * 从订单价格JSON中解析总金额
-     */
-    private java.math.BigDecimal parseOrderPrice(Order order) {
-        if (order.getOrderPrice() == null) {
-            return java.math.BigDecimal.ZERO;
-        }
-        try {
-            String orderPriceStr = order.getOrderPrice();
-            if (orderPriceStr.startsWith("{")) {
-                @SuppressWarnings("unchecked")
-                java.util.Map<String, Object> orderPrice = objectMapper.readValue(orderPriceStr, java.util.Map.class);
-                Object totalObj = orderPrice.get("total");
-                if (totalObj != null) {
-                    return new java.math.BigDecimal(totalObj.toString());
-                }
-            }
-        } catch (Exception e) {
-            log.error("解析订单价格失败，订单ID: {}", order.getId(), e);
-        }
-        return java.math.BigDecimal.ZERO;
-    }
+    // 已删除parseOrderPrice方法，使用OrderPriceUtil工具类替代
 
     /**
      * 根据订单ID查询订单
@@ -867,10 +933,9 @@ public class OrderService {
         log.info("查询餐馆的所有订单，merchantId: {}", merchantId);
         List<Order> orders = orderMapper.selectByMerchantId(merchantId);
         return orders.stream()
-                .map(order -> {
+                .peek(order -> {
                     List<OrderItem> orderItems = orderItemMapper.selectByMerchantIdAndOrderId(merchantId, order.getId());
                     order.setOrderItems(orderItems);
-                    return order;
                 })
                 .collect(Collectors.toList());
     }
@@ -891,17 +956,84 @@ public class OrderService {
     }
 
     /**
-     * 根据用户ID查询订单列表
+     * 从订单的 orderPrice JSON 中提取总金额
+     */
+    private BigDecimal extractTotalAmount(Order order) {
+        try {
+            if (order.getOrderPrice() != null && !order.getOrderPrice().isEmpty()) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> priceMap = objectMapper.readValue(order.getOrderPrice(), Map.class);
+                Object totalObj = priceMap.get("total");
+                if (totalObj != null) {
+                    if (totalObj instanceof BigDecimal) {
+                        return (BigDecimal) totalObj;
+                    } else if (totalObj instanceof Number) {
+                        return new BigDecimal(totalObj.toString());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("解析订单总金额失败，orderId: {}", order.getId(), e);
+        }
+        return BigDecimal.ZERO;
+    }
+
+    /**
+     * 根据用户ID查询订单列表（优化版：使用索引表，避免广播查询）
+     *
+     * 优化前：直接查询订单表，按 userId 查询会触发广播查询（96 张表）
+     * 优化后：先查索引表（精准路由），再按 store_id 批量查询订单详情（精准路由）
      */
     public List<Order> getOrdersByUserId(Long userId) {
         log.info("查询用户订单列表，用户ID: {}", userId);
-        List<Order> orders = orderMapper.selectByUserId(userId);
-        return orders.stream()
-                .peek(order -> {
-                    List<OrderItem> orderItems = orderItemMapper.selectByOrderId(order.getId());
-                    order.setOrderItems(orderItems);
-                })
-                .collect(Collectors.toList());
+
+        // 1. 从索引表查询用户的订单ID列表（按 user_id 分片，精准路由，只查 1 张表）
+        List<UserOrderIndex> indexes = userOrderIndexMapper.selectByUserId(userId);
+
+        if (indexes == null || indexes.isEmpty()) {
+            log.info("用户没有订单，用户ID: {}", userId);
+            return Collections.emptyList();
+        }
+
+        log.info("从索引表查询到 {} 个订单，用户ID: {}", indexes.size(), userId);
+
+        // 2. 按 store_id 分组（同一个 store 的订单可以一次性查询）
+        Map<Long, List<Long>> orderIdsByStore = indexes.stream()
+                .collect(Collectors.groupingBy(
+                        UserOrderIndex::getStoreId,
+                        Collectors.mapping(UserOrderIndex::getOrderId, Collectors.toList())
+                ));
+
+        log.info("订单分布在 {} 个商户，用户ID: {}", orderIdsByStore.size(), userId);
+
+        // 3. 批量查询订单详情（每个 store 的订单精准路由到对应分片）
+        List<Order> allOrders = new ArrayList<>();
+        for (Map.Entry<Long, List<Long>> entry : orderIdsByStore.entrySet()) {
+            Long storeId = entry.getKey();
+            List<Long> orderIds = entry.getValue();
+
+            // 查询订单（带 store_id，精准路由）
+            List<Order> orders = orderMapper.selectByStoreIdAndOrderIds(storeId, orderIds);
+
+            // 填充订单项
+            for (Order order : orders) {
+                List<OrderItem> orderItems = orderItemMapper.selectByOrderId(order.getId());
+                order.setOrderItems(orderItems);
+            }
+
+            allOrders.addAll(orders);
+        }
+
+        // 4. 按创建时间倒序排序（因为索引表已经按创建时间排序，这里可以省略）
+        allOrders.sort((o1, o2) -> {
+            if (o1.getCreateTime() == null && o2.getCreateTime() == null) return 0;
+            if (o1.getCreateTime() == null) return 1;
+            if (o2.getCreateTime() == null) return -1;
+            return o2.getCreateTime().compareTo(o1.getCreateTime());
+        });
+
+        log.info("查询用户订单列表完成，用户ID: {}, 订单数量: {}", userId, allOrders.size());
+        return allOrders;
     }
 
     /**
@@ -1056,9 +1188,19 @@ public class OrderService {
                     return false;
                 }
                 
-                log.info("订单状态已更新为已取消，订单ID: {}, 原状态: {}, 新状态: {}", 
+                log.info("订单状态已更新为已取消，订单ID: {}, 原状态: {}, 新状态: {}",
                         orderId, oldStatus, com.jiaoyi.order.enums.OrderStatusEnum.CANCELLED.getCode());
-                
+
+                // 1.5 从Redis移除订单（用于高峰拒单统计）
+                try {
+                    peakHourRejectionService.removeOrder(
+                        order.getMerchantId().toString(),
+                        orderId
+                    );
+                } catch (Exception e) {
+                    log.error("从Redis移除订单失败，不影响订单取消: orderId={}", orderId, e);
+                }
+
                 // 2. 查询订单项，准备写入 outbox 任务
                 List<OrderItem> orderItems = orderItemMapper.selectByOrderId(orderId);
                 if (orderItems == null || orderItems.isEmpty()) {
@@ -1198,19 +1340,24 @@ public class OrderService {
     
     /**
      * 计算订单小计（所有订单项的总价）
+     * 使用PriceUtil统一处理精度
      */
     private BigDecimal calculateOrderSubtotal(List<OrderItem> orderItems) {
         if (orderItems == null || orderItems.isEmpty()) {
             return BigDecimal.ZERO;
         }
-        
-        return orderItems.stream()
+
+        BigDecimal subtotal = orderItems.stream()
                 .map(item -> {
                     BigDecimal itemPrice = item.getItemPrice() != null ? item.getItemPrice() : BigDecimal.ZERO;
                     Integer quantity = item.getQuantity() != null ? item.getQuantity() : 0;
-                    return itemPrice.multiply(BigDecimal.valueOf(quantity));
+                    // 使用PriceUtil统一精度
+                    return com.jiaoyi.order.util.PriceUtil.multiply(itemPrice, quantity);
                 })
                 .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        // 最终结果也统一精度
+        return com.jiaoyi.order.util.PriceUtil.roundPrice(subtotal);
     }
     
     /**
@@ -1335,13 +1482,26 @@ public class OrderService {
             BigDecimal taxTotal = feeCalculationService.calculateTax(order, subtotal, discountAmount);
             BigDecimal tips = BigDecimal.ZERO; // 小费通常由用户在前端选择，但这里暂时设为0
             BigDecimal charge = feeCalculationService.calculateOnlineServiceFee(order, subtotal); // 在线服务费
-            
+
+            // 使用PriceUtil统一精度
+            subtotal = com.jiaoyi.order.util.PriceUtil.roundPrice(subtotal);
+            discountAmount = com.jiaoyi.order.util.PriceUtil.roundPrice(discountAmount);
+            deliveryFee = com.jiaoyi.order.util.PriceUtil.roundPrice(deliveryFee);
+            taxTotal = com.jiaoyi.order.util.PriceUtil.roundPrice(taxTotal);
+            tips = com.jiaoyi.order.util.PriceUtil.roundPrice(tips);
+            charge = com.jiaoyi.order.util.PriceUtil.roundPrice(charge);
+
             // 计算总金额（小计 + 配送费 + 税费 + 小费 + 其他费用 - 优惠金额）
-            BigDecimal total = subtotal.add(deliveryFee).add(taxTotal).add(tips).add(charge).subtract(discountAmount);
+            BigDecimal total = com.jiaoyi.order.util.PriceUtil.add(subtotal, deliveryFee, taxTotal, tips, charge);
+            total = com.jiaoyi.order.util.PriceUtil.subtract(total, discountAmount);
             if (total.compareTo(BigDecimal.ZERO) < 0) {
                 total = BigDecimal.ZERO; // 确保总金额不为负数
             }
-            
+
+            // 生成价格签名（防篡改）
+            String priceSignature = com.jiaoyi.order.util.PriceSignatureUtil.generateSignature(
+                    subtotal, discountAmount, deliveryFee, taxTotal, tips, total);
+
             // 构建订单价格JSON（所有值都由后端计算）
             Map<String, Object> orderPrice = new HashMap<>();
             orderPrice.put("subtotal", subtotal);
@@ -1351,12 +1511,13 @@ public class OrderService {
             orderPrice.put("tips", tips);
             orderPrice.put("charge", charge);
             orderPrice.put("total", total);
-            
+            orderPrice.put("priceSignature", priceSignature); // 添加价格签名
+
             order.setOrderPrice(objectMapper.writeValueAsString(orderPrice));
-            
-            log.info("订单价格更新完成，小计: {}, 配送费: {}, 税费: {}, 在线服务费: {}, 优惠: {}, 总金额: {}", 
-                    subtotal, deliveryFee, taxTotal, charge, discountAmount, total);
-            
+
+            log.info("订单价格更新完成，小计: {}, 配送费: {}, 税费: {}, 在线服务费: {}, 优惠: {}, 总金额: {}, 签名: {}",
+                    subtotal, deliveryFee, taxTotal, charge, discountAmount, total, priceSignature);
+
         } catch (Exception e) {
             log.error("更新订单价格失败，订单ID: {}", order.getId(), e);
         }

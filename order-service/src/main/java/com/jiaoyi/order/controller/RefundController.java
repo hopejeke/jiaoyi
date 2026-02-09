@@ -1,8 +1,11 @@
 package com.jiaoyi.order.controller;
 
 import com.jiaoyi.common.ApiResponse;
+import com.jiaoyi.order.annotation.RequireAuth;
+import com.jiaoyi.order.annotation.RequirePermission;
 import com.jiaoyi.order.dto.RefundRequest;
 import com.jiaoyi.order.dto.RefundResponse;
+import com.jiaoyi.order.security.Permissions;
 import com.jiaoyi.order.service.RefundService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -13,20 +16,24 @@ import java.util.List;
 
 /**
  * 退款控制器
+ * 所有接口都需要认证
  */
 @RestController
 @RequestMapping("/api/refunds")
 @RequiredArgsConstructor
 @Slf4j
+@RequireAuth  // ← 类级别认证，所有方法都需要登录
 public class RefundController {
     
     private final RefundService refundService;
     
     /**
      * 创建退款
+     * 权限：用户可以申请退款自己的订单，商家和管理员可以处理退款
      */
     @PostMapping
     @com.jiaoyi.order.annotation.RateLimit
+    @RequirePermission({Permissions.REFUND_APPLY, Permissions.REFUND_PROCESS, Permissions.REFUND_ADMIN})
     public ResponseEntity<ApiResponse<RefundResponse>> createRefund(@RequestBody RefundRequest request) {
         log.info("创建退款请求，订单ID: {}, 退款类型: {}, 请求号: {}", 
             request.getOrderId(), request.getRefundType(), request.getRequestNo());
@@ -53,8 +60,10 @@ public class RefundController {
     
     /**
      * 查询退款单详情
+     * 权限：需要有查看退款的权限
      */
     @GetMapping("/{refundId}")
+    @RequirePermission(Permissions.REFUND_VIEW)
     public ResponseEntity<ApiResponse<RefundResponse>> getRefundDetail(@PathVariable Long refundId) {
         log.info("查询退款单详情，退款ID: {}", refundId);
         
@@ -69,8 +78,10 @@ public class RefundController {
     
     /**
      * 查询订单的退款列表
+     * 权限：需要有查看退款的权限
      */
     @GetMapping("/order/{orderId}")
+    @RequirePermission(Permissions.REFUND_VIEW)
     public ResponseEntity<ApiResponse<List<RefundResponse>>> getRefundsByOrderId(@PathVariable Long orderId) {
         log.info("查询订单退款列表，订单ID: {}", orderId);
         

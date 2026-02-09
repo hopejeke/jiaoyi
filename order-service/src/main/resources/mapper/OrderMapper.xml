@@ -78,7 +78,18 @@
     <select id="selectByMerchantId" parameterType="string" resultMap="BaseResultMap">
         SELECT * FROM orders WHERE merchant_id = #{merchantId} ORDER BY create_time DESC
     </select>
-    
+
+    <!-- 根据 storeId 和订单ID列表批量查询订单（用于用户订单查询优化） -->
+    <select id="selectByStoreIdAndOrderIds" resultMap="BaseResultMap">
+        SELECT * FROM orders
+        WHERE store_id = #{storeId}
+        AND id IN
+        <foreach collection="orderIds" item="orderId" open="(" separator="," close=")">
+            #{orderId}
+        </foreach>
+        ORDER BY create_time DESC
+    </select>
+
     <!-- 根据merchantId和status查询订单 -->
     <select id="selectByMerchantIdAndStatus" resultMap="BaseResultMap">
         SELECT * FROM orders 

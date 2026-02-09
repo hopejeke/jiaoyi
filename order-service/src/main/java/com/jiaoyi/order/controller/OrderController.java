@@ -3,6 +3,9 @@ package com.jiaoyi.order.controller;
 import com.jiaoyi.common.annotation.PreventDuplicateSubmission;
 import com.jiaoyi.common.ApiResponse;
 import com.jiaoyi.common.exception.BusinessException;
+import com.jiaoyi.order.annotation.RequireAuth;
+import com.jiaoyi.order.annotation.RequirePermission;
+import com.jiaoyi.order.security.Permissions;
 import com.jiaoyi.order.dto.*;
 import com.jiaoyi.order.entity.Order;
 import com.jiaoyi.order.entity.Delivery;
@@ -12,6 +15,7 @@ import com.jiaoyi.order.service.PaymentService;
 import com.jiaoyi.order.service.DoorDashService;
 import com.jiaoyi.order.client.ProductServiceClient;
 import com.jiaoyi.order.mapper.DeliveryMapper;
+import com.jiaoyi.order.util.PriceUtil;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -26,12 +30,14 @@ import java.util.Optional;
 
 /**
  * 订单控制器
+ * 所有接口都需要认证
  */
 @RestController
 @RequestMapping("/api/orders")
 @RequiredArgsConstructor
 @Slf4j
 @Validated
+@RequireAuth  // 类级别认证，所有方法都需要登录
 public class OrderController {
     
     private final OrderService orderService;
@@ -46,6 +52,7 @@ public class OrderController {
      * 前端在提交订单前调用此接口获取价格预览
      */
     @PostMapping("/calculate-price")
+    @RequirePermission(Permissions.ORDER_CREATE)
     public ResponseEntity<ApiResponse<CalculatePriceResponse>> calculatePrice(@RequestBody CalculatePriceRequest request) {
         log.info("计算订单价格，商户ID: {}, 订单类型: {}", request.getMerchantId(), request.getOrderType());
         
@@ -61,17 +68,18 @@ public class OrderController {
     /**
      * 创建订单（在线点餐，保留库存锁定、优惠券等功能）
      * 支持在创建订单时一起处理支付（在同一事务中）
-     * 
+     *
      * 防重复提交：基于订单内容（merchantId + userId + orderItems哈希）生成锁 key
      * 相同订单内容的重复提交会被拦截，不同订单内容可以并发创建
      */
     @PostMapping
     @PreventDuplicateSubmission(
-        key = "T(com.jiaoyi.order.controller.OrderController).generateOrderLockKey(#request)", 
+        key = "T(com.jiaoyi.order.controller.OrderController).generateOrderLockKey(#request)",
         expireTime = 5,
         message = "请勿重复提交相同订单"
     )
     @com.jiaoyi.order.annotation.RateLimit
+    @RequirePermission(Permissions.ORDER_CREATE)
     public ResponseEntity<ApiResponse<CreateOrderResponse>> createOrder(@RequestBody CreateOrderRequest request) {
         log.info("创建在线点餐订单请求，userId: {}, paymentMethod: {}, payOnline: {}", 
                 request.getUserId(), request.getPaymentMethod(), request.getPayOnline());
@@ -238,7 +246,8 @@ public class OrderController {
                         if (skuIdObj != null && skuIdObj.toString().equals(itemRequest.getSkuId().toString())) {
                             Object skuPriceObj = sku.get("skuPrice");
                             if (skuPriceObj != null) {
-                                unitPrice = new java.math.BigDecimal(skuPriceObj.toString());
+                                // 使用PriceUtil统一处理精度
+                                unitPrice = PriceUtil.parse(skuPriceObj);
                             }
                             if (sku.get("skuName") != null) {
                                 skuName = sku.get("skuName").toString();
@@ -255,7 +264,8 @@ public class OrderController {
                 // 2. 如果SKU没有价格，使用商品价格
                 if (unitPrice == null) {
                     if (productMap.get("unitPrice") != null) {
-                        unitPrice = new java.math.BigDecimal(productMap.get("unitPrice").toString());
+                        // 使用PriceUtil统一处理精度
+                        unitPrice = PriceUtil.parse(productMap.get("unitPrice"));
                         log.debug("使用商品价格，商品ID: {}, 价格: {}", itemRequest.getProductId(), unitPrice);
                     }
                 }
@@ -287,18 +297,17 @@ public class OrderController {
                 item.setSkuAttributes(skuAttributes);
                 item.setItemName(productName != null ? productName : "商品");
                 item.setProductImage(productImage);
-                item.setItemPrice(unitPrice); // 使用SKU价格或商品价格
+                item.setItemPrice(PriceUtil.roundPrice(unitPrice)); // 统一精度
                 item.setQuantity(itemRequest.getQuantity());
-                
+
                 // 设置 saleItemId：如果没有，使用 productId 作为默认值
                 item.setSaleItemId(itemRequest.getProductId());
-                
+
                 // 设置 orderItemId：使用索引+1
                 item.setOrderItemId((long) (index + 1));
-                
-                // 计算小计（使用SKU价格或商品价格）
-                item.setItemPriceTotal(unitPrice.multiply(
-                        java.math.BigDecimal.valueOf(itemRequest.getQuantity())));
+
+                // 计算小计（使用PriceUtil统一处理精度）
+                item.setItemPriceTotal(PriceUtil.multiply(unitPrice, itemRequest.getQuantity()));
                 
                 items.add(item);
                 index++;
@@ -323,6 +332,7 @@ public class OrderController {
      * 查询订单配送状态（包含 DoorDash 详细信息：tracking_url、ETA、距离、骑手信息等）
      */
     @GetMapping("/{orderId}/delivery-status")
+    @RequirePermission(Permissions.ORDER_VIEW)
     public ResponseEntity<ApiResponse<Map<String, Object>>> getDeliveryStatus(@PathVariable Long orderId) {
         log.info("查询订单配送状态，订单ID: {}", orderId);
         
@@ -390,6 +400,7 @@ public class OrderController {
     }
     
     @GetMapping("/{orderId}")
+    @RequirePermission(Permissions.ORDER_VIEW)
     public ResponseEntity<ApiResponse<Order>> getOrderById(@PathVariable Long orderId) {
         log.info("查询订单，订单ID: {}", orderId);
         Optional<Order> order = orderService.getOrderById(orderId);
@@ -404,6 +415,7 @@ public class OrderController {
      * 根据merchantId和id查询订单（推荐，包含分片键）
      */
     @GetMapping("/merchant/{merchantId}/{id}")
+    @RequirePermission(Permissions.MERCHANT_MANAGE_ORDERS)
     public ResponseEntity<ApiResponse<Order>> getOrderByMerchantIdAndId(
             @PathVariable String merchantId,
             @PathVariable Long id) {
@@ -420,6 +432,7 @@ public class OrderController {
      * 根据merchantId查询所有订单
      */
     @GetMapping("/merchant/{merchantId}")
+    @RequirePermission(Permissions.MERCHANT_MANAGE_ORDERS)
     public ResponseEntity<ApiResponse<List<Order>>> getOrdersByMerchantId(@PathVariable String merchantId) {
         log.info("查询餐馆的所有订单，merchantId: {}", merchantId);
         List<Order> orders = orderService.getOrdersByMerchantId(merchantId);
@@ -430,6 +443,7 @@ public class OrderController {
      * 根据userId查询所有订单
      */
     @GetMapping("/user/{userId}")
+    @RequirePermission(Permissions.ORDER_VIEW)
     public ResponseEntity<ApiResponse<List<Order>>> getOrdersByUserId(@PathVariable Long userId) {
         log.info("查询用户的所有订单，userId: {}", userId);
         List<Order> orders = orderService.getOrdersByUserId(userId);
@@ -440,6 +454,7 @@ public class OrderController {
      * 根据merchantId和status查询订单
      */
     @GetMapping("/merchant/{merchantId}/status/{status}")
+    @RequirePermission(Permissions.MERCHANT_MANAGE_ORDERS)
     public ResponseEntity<ApiResponse<List<Order>>> getOrdersByMerchantIdAndStatus(
             @PathVariable String merchantId,
             @PathVariable Integer status) {
@@ -452,6 +467,7 @@ public class OrderController {
      * 更新订单
      */
     @PutMapping("/merchant/{merchantId}/{id}")
+    @RequirePermission(Permissions.MERCHANT_MANAGE_ORDERS)
     public ResponseEntity<ApiResponse<Order>> updateOrder(
             @PathVariable String merchantId,
             @PathVariable Long id,

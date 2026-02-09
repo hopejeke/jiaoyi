@@ -47,6 +47,17 @@ public interface OrderMapper {
      * 根据merchantId查询所有订单
      */
     List<Order> selectByMerchantId(@Param("merchantId") String merchantId);
+
+    /**
+     * 根据 storeId 和订单ID列表批量查询订单（用于用户订单查询优化）
+     * ShardingSphere 会根据 store_id 精准路由到对应的分片
+     *
+     * @param storeId  商户ID（分片键，精准路由）
+     * @param orderIds 订单ID列表
+     * @return 订单列表
+     */
+    List<Order> selectByStoreIdAndOrderIds(@Param("storeId") Long storeId,
+                                           @Param("orderIds") List<Long> orderIds);
     
     /**
      * 根据merchantId和status查询订单

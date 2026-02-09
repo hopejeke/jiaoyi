@@ -19,6 +19,7 @@ import com.jiaoyi.order.mapper.MerchantStripeConfigMapper;
 import com.jiaoyi.order.service.AlipayService;
 import com.jiaoyi.order.service.StripeService;
 import com.jiaoyi.order.client.ProductServiceClient;
+import com.jiaoyi.order.util.OrderPriceUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.redisson.api.RLock;
@@ -120,19 +121,52 @@ public class PaymentService {
         }
         
         // 3. 验证支付金额（从 orderPrice JSON 中解析）
-        BigDecimal expectedAmount = parseOrderPrice(order);
+        BigDecimal expectedAmount = com.jiaoyi.order.util.OrderPriceUtil.parseOrderTotal(order);
         if (expectedAmount.compareTo(request.getAmount()) != 0) {
             log.error("支付金额不匹配，订单ID: {}, 期望金额: {}, 实际金额: {}", orderId, expectedAmount, request.getAmount());
             throw new RuntimeException("支付金额不匹配");
         }
+
+        // 4. 验证价格签名（防篡改）
+        if (order.getOrderPrice() != null && !order.getOrderPrice().isEmpty()) {
+            try {
+                com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+                @SuppressWarnings("unchecked")
+                java.util.Map<String, Object> priceMap = mapper.readValue(order.getOrderPrice(), java.util.Map.class);
+
+                String signature = priceMap.get("priceSignature") != null ?
+                        priceMap.get("priceSignature").toString() : null;
+
+                if (signature != null && !signature.isEmpty()) {
+                    boolean verified = com.jiaoyi.order.util.PriceSignatureUtil.verifySignature(
+                            order.getOrderPrice(), signature);
+
+                    if (!verified) {
+                        log.error("价格签名验证失败，订单ID: {}, 价格可能被篡改", orderId);
+                        throw new RuntimeException("价格签名验证失败，请重新下单");
+                    }
+                    log.info("价格签名验证通过，订单ID: {}", orderId);
+                } else {
+                    log.warn("订单价格缺少签名，订单ID: {} (可能是旧订单)", orderId);
+                }
+            } catch (RuntimeException e) {
+                throw e; // 重新抛出业务异常
+            } catch (Exception e) {
+                log.error("验证价格签名时发生异常，订单ID: {}", orderId, e);
+                // 签名验证异常不阻塞支付流程（向后兼容）
+            }
+        }
         
         // ========== 并发控制：分布式锁 ==========
-        String lockKey = "payment:create:" + orderId;
+        String lockKey = com.jiaoyi.order.constants.OrderConstants.PAYMENT_CREATE_LOCK_PREFIX + orderId;
         RLock lock = redissonClient.getLock(lockKey);
-        
+
         try {
-            // 尝试获取锁，最多等待3秒，锁持有时间不超过30秒
-            boolean lockAcquired = lock.tryLock(3, 30, TimeUnit.SECONDS);
+            // 尝试获取锁，使用配置的等待时间和持有时间
+            boolean lockAcquired = lock.tryLock(
+                com.jiaoyi.order.constants.OrderConstants.PAYMENT_LOCK_WAIT_SECONDS,
+                com.jiaoyi.order.constants.OrderConstants.PAYMENT_LOCK_LEASE_SECONDS,
+                TimeUnit.SECONDS);
             
             if (!lockAcquired) {
                 log.warn("获取支付创建锁失败，订单可能正在被其他请求处理，订单ID: {}", orderId);
@@ -896,53 +930,8 @@ public class PaymentService {
     /**
      * 从订单价格JSON中解析总金额
      */
-    private BigDecimal parseOrderPrice(Order order) {
-        if (order.getOrderPrice() == null) {
-            return BigDecimal.ZERO;
-        }
-        try {
-            String orderPriceStr = order.getOrderPrice();
-            if (orderPriceStr.startsWith("{")) {
-                Map<String, Object> orderPrice = objectMapper.readValue(orderPriceStr, Map.class);
-                Object totalObj = orderPrice.get("total");
-                if (totalObj != null) {
-                    return new BigDecimal(totalObj.toString());
-                }
-            }
-        } catch (Exception e) {
-            log.error("解析订单价格失败，订单ID: {}", order.getId(), e);
-        }
-        return BigDecimal.ZERO;
-    }
-    
-    /**
-     * 解析订单小计（从 orderPrice JSON 中）
-     * 用于重新获取 DoorDash 报价
-     */
-    private BigDecimal parseSubtotalFromOrder(Order order) {
-        if (order.getOrderPrice() == null) {
-            return BigDecimal.ZERO;
-        }
-        try {
-            String orderPriceStr = order.getOrderPrice();
-            if (orderPriceStr.startsWith("{")) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> orderPrice = objectMapper.readValue(orderPriceStr, Map.class);
-                Object subtotalObj = orderPrice.get("subtotal");
-                if (subtotalObj != null) {
-                    return new BigDecimal(subtotalObj.toString());
-                }
-                // 如果没有 subtotal，尝试使用 total（作为后备）
-                Object totalObj = orderPrice.get("total");
-                if (totalObj != null) {
-                    return new BigDecimal(totalObj.toString());
-                }
-            }
-        } catch (Exception e) {
-            log.error("解析订单小计失败，订单ID: {}", order.getId(), e);
-        }
-        return BigDecimal.ZERO;
-    }
+    // 已删除parseOrderPrice和parseSubtotalFromOrder方法
+    // 使用OrderPriceUtil工具类替代，避免代码重复
     
     /**
      * 将 Payment 实体转换为 PaymentResponse
@@ -1077,7 +1066,7 @@ public class PaymentService {
         
         try {
             // 解析订单金额
-            BigDecimal refundAmount = parseOrderPrice(order);
+            BigDecimal refundAmount = OrderPriceUtil.parseOrderTotal(order);
             if (refundAmount.compareTo(BigDecimal.ZERO) <= 0) {
                 log.warn("订单金额为0或无效，无法退款，订单ID: {}", order.getId());
                 return;
@@ -1208,7 +1197,7 @@ public class PaymentService {
                 log.info("重新获取 DoorDash 报价，订单ID: {}", order.getId());
                 
                 // 解析订单小计（用于报价）
-                BigDecimal subtotal = parseSubtotalFromOrder(order);
+                BigDecimal subtotal = com.jiaoyi.order.util.OrderPriceUtil.parseOrderSubtotal(order.getOrderPrice());
                 if (subtotal == null || subtotal.compareTo(BigDecimal.ZERO) <= 0) {
                     log.warn("订单小计无效，无法重新报价，订单ID: {}", order.getId());
                     // 如果无法重新报价，使用原报价继续（可能费用会有差异，但至少能创建配送）

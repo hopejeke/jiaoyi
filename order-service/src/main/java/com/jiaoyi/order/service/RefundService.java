@@ -6,6 +6,9 @@ import com.jiaoyi.order.dto.*;
 import com.jiaoyi.order.entity.*;
 import com.jiaoyi.order.enums.*;
 import com.jiaoyi.order.mapper.*;
+import com.jiaoyi.order.security.UserContext;
+import com.jiaoyi.order.security.UserContextHolder;
+import com.jiaoyi.order.security.UserType;
 import java.security.MessageDigest;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -140,11 +143,14 @@ public class RefundService {
             
             // 4. 检查订单状态：允许已支付(2)和已完成(4)的订单退款
             Integer orderStatus = order.getStatus();
-            if (!OrderStatusEnum.PAID.getCode().equals(orderStatus) && 
+            if (!OrderStatusEnum.PAID.getCode().equals(orderStatus) &&
                 !OrderStatusEnum.COMPLETED.getCode().equals(orderStatus)) {
                 throw new RuntimeException("只有已支付或已完成的订单才能申请退款");
             }
-            
+
+            // 业务权限校验：确保用户只能退款自己有权限的订单
+            validateOrderPermission(order, "申请退款");
+
             // 5. 查询支付记录
             List<Payment> payments = paymentMapper.selectByOrderId(request.getOrderId());
             Payment payment = payments.stream()
@@ -519,6 +525,13 @@ public class RefundService {
         if (refund == null) {
             throw new RuntimeException("退款单不存在");
         }
+
+        // 业务权限校验：查询订单信息以验证权限
+        Order order = orderMapper.selectById(refund.getOrderId());
+        if (order != null) {
+            validateOrderPermission(order, "查看退款单");
+        }
+
         return convertToResponse(refund);
     }
     
@@ -526,6 +539,13 @@ public class RefundService {
      * 查询订单的退款列表
      */
     public List<RefundResponse> getRefundsByOrderId(Long orderId) {
+        // 业务权限校验：查询订单信息以验证权限
+        Order order = orderMapper.selectById(orderId);
+        if (order == null) {
+            throw new RuntimeException("订单不存在");
+        }
+        validateOrderPermission(order, "查看退款列表");
+
         List<Refund> refunds = refundMapper.selectByOrderId(orderId);
         return refunds.stream()
             .map(this::convertToResponse)
@@ -565,8 +585,73 @@ public class RefundService {
             })
             .collect(Collectors.toList());
         response.setRefundItems(itemResponses);
-        
+
         return response;
+    }
+
+    /**
+     * 业务权限校验：确保用户只能操作自己有权限的订单
+     *
+     * @param order 订单信息
+     * @param operation 操作描述（用于日志）
+     * @throws BusinessException 如果用户无权限操作该订单
+     */
+    private void validateOrderPermission(Order order, String operation) {
+        UserContext currentUser = UserContextHolder.getContext();
+
+        // 如果用户未登录（这种情况应该在拦截器层面就被拦截了，这里做兜底检查）
+        if (currentUser == null) {
+            log.warn("用户未登录尝试{}，订单ID: {}", operation, order.getOrderId());
+            throw new BusinessException("用户未登录");
+        }
+
+        // 管理员拥有所有权限，直接通过
+        if (currentUser.isAdmin()) {
+            log.debug("管理员用户{}，订单ID: {}, 用户ID: {}",
+                operation, order.getOrderId(), currentUser.getUserId());
+            return;
+        }
+
+        // 顾客：只能操作自己的订单
+        if (UserType.CUSTOMER.equals(currentUser.getUserType())) {
+            if (order.getUserId() == null) {
+                log.warn("订单没有关联用户ID，订单ID: {}", order.getOrderId());
+                throw new BusinessException("订单数据异常");
+            }
+            if (!currentUser.getUserId().equals(order.getUserId())) {
+                log.warn("顾客尝试{}其他用户的订单，当前用户ID: {}, 订单用户ID: {}, 订单ID: {}",
+                    operation, currentUser.getUserId(), order.getUserId(), order.getOrderId());
+                throw new BusinessException("无权限操作该订单");
+            }
+            log.debug("顾客用户{}自己的订单，订单ID: {}, 用户ID: {}",
+                operation, order.getOrderId(), currentUser.getUserId());
+            return;
+        }
+
+        // 商家：只能操作自己商铺的订单
+        if (UserType.MERCHANT.equals(currentUser.getUserType())) {
+            if (currentUser.getMerchantId() == null) {
+                log.warn("商家用户没有关联商家ID，用户ID: {}", currentUser.getUserId());
+                throw new BusinessException("商家信息异常");
+            }
+            if (order.getMerchantId() == null) {
+                log.warn("订单没有关联商家ID，订单ID: {}", order.getOrderId());
+                throw new BusinessException("订单数据异常");
+            }
+            if (!currentUser.getMerchantId().equals(order.getMerchantId())) {
+                log.warn("商家尝试{}其他商家的订单，当前商家ID: {}, 订单商家ID: {}, 订单ID: {}",
+                    operation, currentUser.getMerchantId(), order.getMerchantId(), order.getOrderId());
+                throw new BusinessException("无权限操作该商家的订单");
+            }
+            log.debug("商家用户{}自己商铺的订单，订单ID: {}, 商家ID: {}",
+                operation, order.getOrderId(), currentUser.getMerchantId());
+            return;
+        }
+
+        // 未知用户类型
+        log.warn("未知用户类型尝试{}，用户类型: {}, 订单ID: {}",
+            operation, currentUser.getUserType(), order.getOrderId());
+        throw new BusinessException("用户类型异常");
     }
 }
 

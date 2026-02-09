@@ -16,6 +16,11 @@
         <result column="locked_stock" property="lockedStock"/>
         <result column="min_stock" property="minStock"/>
         <result column="max_stock" property="maxStock"/>
+        <result column="restore_mode" property="restoreMode" typeHandler="com.jiaoyi.product.handler.RestoreModeTypeHandler"/>
+        <result column="restore_time" property="restoreTime"/>
+        <result column="restore_stock" property="restoreStock"/>
+        <result column="last_restore_time" property="lastRestoreTime"/>
+        <result column="restore_enabled" property="restoreEnabled"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
     </resultMap>
@@ -195,6 +200,77 @@
             </if>
             update_time = NOW()
         WHERE id = #{id}
+    </update>
+
+    <!-- ==================== 库存自动恢复相关查询 ==================== -->
+
+    <!-- 查询需要次日恢复的库存 -->
+    <select id="selectForTomorrowRestore" resultMap="BaseResultMap">
+        SELECT id, store_id, product_shard_id, product_id, sku_id, product_name, sku_name,
+               stock_mode, current_stock, locked_stock, min_stock, max_stock,
+               restore_mode, restore_time, restore_stock, last_restore_time, restore_enabled,
+               create_time, update_time
+        FROM inventory
+        WHERE restore_enabled = TRUE
+          AND restore_mode = 'TOMORROW'
+        ORDER BY id
+    </select>
+
+    <!-- 查询需要在指定时间恢复的库存 -->
+    <select id="selectForScheduledRestore" resultMap="BaseResultMap">
+        SELECT id, store_id, product_shard_id, product_id, sku_id, product_name, sku_name,
+               stock_mode, current_stock, locked_stock, min_stock, max_stock,
+               restore_mode, restore_time, restore_stock, last_restore_time, restore_enabled,
+               create_time, update_time
+        FROM inventory
+        WHERE restore_enabled = TRUE
+          AND restore_mode = 'SCHEDULED'
+          AND restore_time &lt;= #{now}
+          AND (last_restore_time IS NULL OR last_restore_time &lt; restore_time)
+        ORDER BY restore_time, id
+    </select>
+
+    <!-- 恢复库存（更新库存状态） -->
+    <!-- 并发安全：使用CAS更新，防止重复恢复 -->
+    <!-- 对于TOMORROW模式：WHERE条件检查今天是否已恢复 -->
+    <!-- 对于SCHEDULED模式：WHERE条件检查是否已恢复过（last_restore_time < restore_time） -->
+    <update id="restoreInventory">
+        UPDATE inventory SET
+            stock_mode = #{stockMode, typeHandler=com.jiaoyi.product.handler.StockModeTypeHandler},
+            current_stock = #{currentStock},
+            last_restore_time = #{lastRestoreTime},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND (
+              last_restore_time IS NULL
+              OR DATE(last_restore_time) &lt; DATE(#{lastRestoreTime})
+          )
+    </update>
+
+    <!-- 更新库存恢复配置 -->
+    <update id="updateRestoreConfig">
+        UPDATE inventory SET
+            restore_mode = #{restoreMode, typeHandler=com.jiaoyi.product.handler.RestoreModeTypeHandler},
+            <if test="restoreTime != null">
+                restore_time = #{restoreTime},
+            </if>
+            <if test="restoreStock != null">
+                restore_stock = #{restoreStock},
+            </if>
+            restore_enabled = #{restoreEnabled},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 禁用过期的恢复配置 -->
+    <update id="disableExpiredRestoreConfig">
+        UPDATE inventory SET
+            restore_enabled = FALSE,
+            update_time = NOW()
+        WHERE restore_mode = 'SCHEDULED'
+          AND restore_time &lt; #{cutoffTime}
+          AND last_restore_time IS NOT NULL
+          AND restore_enabled = TRUE
     </update>
 
 </mapper>

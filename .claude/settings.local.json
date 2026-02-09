@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn clean compile:*)",
+      "WebSearch",
+      "WebFetch(domain:github.com)",
+      "Bash(xargs cat:*)",
+      "Bash(find:*)",
+      "Bash(grep:*)"
+    ]
+  }
+}

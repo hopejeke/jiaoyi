@@ -8,6 +8,9 @@ import com.jiaoyi.order.enums.OrderStatusEnum;
 import com.jiaoyi.order.mapper.OrderMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,8 +27,14 @@ import java.util.List;
 @Slf4j
 @RequiredArgsConstructor
 public class PeakHourRejectionService {
-    
+
     private final OrderMapper orderMapper;
+
+    @Autowired(required = false)
+    private RedisTemplate<String, Object> redisTemplate;
+
+    @Value("${peak-hour.use-redis:false}")
+    private boolean useRedis;
     
     /**
      * 判断是否允许接单（高峰拒单检查）
@@ -67,35 +76,14 @@ public class PeakHourRejectionService {
         );
         
         log.debug("商户 {} 统计订单时间窗口: {} - {}", merchantId, timeInterval, now);
-        
-        // 4. 统计时间窗口内的订单数量
-        LocalDateTime startTime = LocalDateTime.ofInstant(
-            java.time.Instant.ofEpochMilli(timeInterval),
-            ZoneId.systemDefault()
-        );
-        LocalDateTime endTime = LocalDateTime.ofInstant(
-            java.time.Instant.ofEpochMilli(now),
-            ZoneId.systemDefault()
-        );
-        
-        List<Order> orderList = orderMapper.selectByMerchantIdAndTimeRange(
-            merchantId, startTime, endTime);
-        
-        int qtyOfOrder = 0;
-        for (Order order : orderList) {
-            // 只统计有效的订单（排除取消的订单）
-            // 订单ID不为空，且状态不是已取消
-            if (order.getId() != null && order.getStatus() != null) {
-                Integer status = order.getStatus();
-                // 排除已取消的订单（status = -1 表示已取消）
-                if (!status.equals(-1) && !status.equals(OrderStatusEnum.CANCELLED.getCode())) {
-                    qtyOfOrder++;
-                }
-            }
-        }
-        
-        log.info("商户 {} 在时间窗口内订单数量: {}, 阈值: {}", 
-            merchantId, qtyOfOrder, config.getQtyOfOrders());
+
+        // 4. 统计时间窗口内的订单数量（支持Redis优化）
+        int qtyOfOrder = useRedis && redisTemplate != null
+            ? countOrdersByRedis(merchantId, config.getTimeInterval())
+            : countOrdersByDatabase(merchantId, timeInterval, now);
+
+        log.info("商户 {} 在时间窗口内订单数量: {} (方式: {}), 阈值: {}",
+            merchantId, qtyOfOrder, useRedis ? "Redis" : "DB", config.getQtyOfOrders());
         
         // 5. 判断是否达到限流条件
         if (qtyOfOrder >= config.getQtyOfOrders()) {
@@ -111,7 +99,93 @@ public class PeakHourRejectionService {
             return PeakHourRejectionResult.enableOrder();
         }
     }
-    
+
+    /**
+     * 记录订单到Redis（订单创建成功后调用）
+     */
+    public void recordOrder(String merchantId, Long orderId) {
+        if (!useRedis || redisTemplate == null) {
+            return;
+        }
+
+        try {
+            String key = "merchant:orders:" + merchantId;
+            long timestamp = System.currentTimeMillis();
+            redisTemplate.opsForZSet().add(key, orderId.toString(), timestamp);
+            redisTemplate.expire(key, 1, java.util.concurrent.TimeUnit.HOURS);
+        } catch (Exception e) {
+            log.error("记录订单到Redis失败: merchantId={}, orderId={}", merchantId, orderId, e);
+        }
+    }
+
+    /**
+     * 从Redis移除订单（订单取消时调用）
+     */
+    public void removeOrder(String merchantId, Long orderId) {
+        if (!useRedis || redisTemplate == null) {
+            return;
+        }
+
+        try {
+            String key = "merchant:orders:" + merchantId;
+            redisTemplate.opsForZSet().remove(key, orderId.toString());
+        } catch (Exception e) {
+            log.error("从Redis移除订单失败: merchantId={}, orderId={}", merchantId, orderId, e);
+        }
+    }
+
+    /**
+     * 使用Redis统计订单数
+     */
+    private int countOrdersByRedis(String merchantId, int windowMinutes) {
+        try {
+            String key = "merchant:orders:" + merchantId;
+            long now = System.currentTimeMillis();
+            long windowStart = now - windowMinutes * 60 * 1000L;
+
+            // 清理过期数据
+            redisTemplate.opsForZSet().removeRangeByScore(key, 0, windowStart);
+
+            // 统计窗口内数量
+            Long count = redisTemplate.opsForZSet().count(key, windowStart, now);
+            return count == null ? 0 : count.intValue();
+
+        } catch (Exception e) {
+            log.error("Redis统计失败，降级到DB查询: merchantId={}", merchantId, e);
+            return countOrdersByDatabase(merchantId,
+                System.currentTimeMillis() - windowMinutes * 60 * 1000L,
+                System.currentTimeMillis());
+        }
+    }
+
+    /**
+     * 使用DB统计订单数
+     */
+    private int countOrdersByDatabase(String merchantId, long startMillis, long endMillis) {
+        LocalDateTime startTime = LocalDateTime.ofInstant(
+            java.time.Instant.ofEpochMilli(startMillis),
+            ZoneId.systemDefault()
+        );
+        LocalDateTime endTime = LocalDateTime.ofInstant(
+            java.time.Instant.ofEpochMilli(endMillis),
+            ZoneId.systemDefault()
+        );
+
+        List<Order> orderList = orderMapper.selectByMerchantIdAndTimeRange(
+            merchantId, startTime, endTime);
+
+        int count = 0;
+        for (Order order : orderList) {
+            if (order.getId() != null && order.getStatus() != null) {
+                Integer status = order.getStatus();
+                if (!status.equals(-1) && !status.equals(OrderStatusEnum.CANCELLED.getCode())) {
+                    count++;
+                }
+            }
+        }
+        return count;
+    }
+
     /**
      * 高峰拒单判断结果
      */
