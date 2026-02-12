@@ -1,0 +1,88 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.primary.PoiItemChannelStockMapper">
+    
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.PoiItemChannelStock">
+        <id column="id" property="id"/>
+        <result column="brand_id" property="brandId"/>
+        <result column="poi_id" property="poiId"/>
+        <result column="stock_id" property="stockId"/>
+        <result column="stock_status" property="stockStatus"/>
+        <result column="stock_type" property="stockType"/>
+        <result column="channel_code" property="channelCode"/>
+        <result column="channel_quota" property="channelQuota"/>
+        <result column="channel_sold" property="channelSold"/>
+        <result column="channel_weight" property="channelWeight"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+    
+    <select id="selectByStockIdAndChannel" resultMap="BaseResultMap">
+        SELECT * FROM poi_item_channel_stock
+        WHERE stock_id = #{stockId}
+          AND channel_code = #{channelCode}
+        LIMIT 1
+    </select>
+    
+    <select id="selectByStockId" resultMap="BaseResultMap">
+        SELECT * FROM poi_item_channel_stock
+        WHERE stock_id = #{stockId}
+        ORDER BY channel_code
+    </select>
+    
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO poi_item_channel_stock (
+            brand_id, poi_id, stock_id,
+            stock_status, stock_type, channel_code,
+            channel_quota, channel_sold, channel_weight,
+            created_at, updated_at
+        ) VALUES (
+            #{brandId}, #{poiId}, #{stockId},
+            #{stockStatus}, #{stockType}, #{channelCode},
+            #{channelQuota}, #{channelSold}, #{channelWeight},
+            #{createdAt}, #{updatedAt}
+        )
+    </insert>
+    
+    <update id="updateChannelStock">
+        UPDATE poi_item_channel_stock
+        SET stock_status = #{stockStatus},
+            stock_type = #{stockType},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+    
+    <delete id="deleteByStockId">
+        DELETE FROM poi_item_channel_stock
+        WHERE stock_id = #{stockId}
+    </delete>
+    
+    <!-- 原子扣减渠道已售数量，检查渠道剩余额度 -->
+    <update id="atomicDeductChannelQuota">
+        UPDATE poi_item_channel_stock
+        SET channel_sold = channel_sold + #{delta},
+            updated_at = NOW()
+        WHERE stock_id = #{stockId}
+          AND channel_code = #{channelCode}
+          AND stock_status = 1
+          AND (channel_quota - channel_sold) >= #{delta}
+    </update>
+    
+    <!-- 更新渠道额度和权重 -->
+    <update id="updateChannelQuotaAndWeight">
+        UPDATE poi_item_channel_stock
+        SET channel_quota = #{channelQuota},
+            channel_weight = #{channelWeight},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+    
+    <!-- 重置渠道已售数量 -->
+    <update id="resetChannelSold">
+        UPDATE poi_item_channel_stock
+        SET channel_sold = 0,
+            updated_at = NOW()
+        WHERE stock_id = #{stockId}
+    </update>
+    
+</mapper>

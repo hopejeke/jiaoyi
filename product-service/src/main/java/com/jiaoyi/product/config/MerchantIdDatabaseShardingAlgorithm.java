@@ -9,7 +9,11 @@ import java.util.Properties;
 
 /**
  * 基于 merchant_id（字符串）的数据库分片算法
+ * 
+ * @deprecated 已废弃。Merchant 域已统一使用 product_shard_id 分片（与商品域共享）。
+ *             保留此类仅用于参考，不再被 ShardingSphereConfig 注册。
  */
+@Deprecated
 public class MerchantIdDatabaseShardingAlgorithm implements StandardShardingAlgorithm<String> {
     
     @Override
@@ -23,9 +27,9 @@ public class MerchantIdDatabaseShardingAlgorithm implements StandardShardingAlgo
         
         // 将 merchant_id 字符串转换为数字（使用哈希值）
         int hashCode = Math.abs(merchantId.hashCode());
-        int shardValue = hashCode % 9;
+        int shardValue = hashCode % 6;
         
-        // 数据库分片：shardValue / 3
+        // 数据库分片：shardValue / 3（2库 × 3表 = 6个分片）
         int dbIndex = shardValue / 3;
         String targetName = "ds" + dbIndex;
         

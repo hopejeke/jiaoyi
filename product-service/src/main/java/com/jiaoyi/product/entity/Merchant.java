@@ -22,9 +22,19 @@ public class Merchant {
     private Long id;
     
     /**
-     * 餐馆ID（POS系统ID，用于分片）
+     * 餐馆ID（POS系统ID，业务唯一键）
      */
     private String merchantId;
+    
+    /**
+     * 店铺ID（关联 stores.id，用于与商品域统一分片）
+     */
+    private Long storeId;
+    
+    /**
+     * 分片ID（0-1023，基于 storeId 或 merchantId 计算，用于分库分表路由）
+     */
+    private Integer productShardId;
     
     /**
      * 餐馆名称

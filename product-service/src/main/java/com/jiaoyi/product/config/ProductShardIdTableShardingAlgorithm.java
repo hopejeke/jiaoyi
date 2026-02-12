@@ -12,16 +12,16 @@ import java.util.Properties;
  * 商品域表分片算法（基于 product_shard_id）
  * 
  * 功能：
- * 1. 根据 product_shard_id 计算表索引：table_idx = product_shard_id % 32
+ * 1. 根据 product_shard_id 计算表索引：table_idx = product_shard_id % 4
  * 2. 生成物理表名：table_name = logicTableName + "_" + twoDigits(table_idx)
  * 
  * 配置参数：
- * - table.count.per.db: 每库表数量（默认32）
+ * - table.count.per.db: 每库表数量（默认4）
  */
 @Slf4j
 public class ProductShardIdTableShardingAlgorithm implements StandardShardingAlgorithm<Integer> {
     
-    private int tableCountPerDb = 32; // 默认32张表/库
+    private int tableCountPerDb = 4; // 默认4张表/库
     
     @Override
     public void init(Properties props) {
@@ -30,7 +30,7 @@ public class ProductShardIdTableShardingAlgorithm implements StandardShardingAlg
             try {
                 tableCountPerDb = Integer.parseInt(props.getProperty("table.count.per.db"));
             } catch (NumberFormatException e) {
-                log.warn("【ProductShardIdTableShardingAlgorithm】无法解析 table.count.per.db，使用默认值 32", e);
+                log.warn("【ProductShardIdTableShardingAlgorithm】无法解析 table.count.per.db，使用默认值 4", e);
             }
         }
         log.info("【ProductShardIdTableShardingAlgorithm】初始化完成，每库表数量: {}", tableCountPerDb);
@@ -46,7 +46,7 @@ public class ProductShardIdTableShardingAlgorithm implements StandardShardingAlg
     /**
      * 精确分片（用于 = 和 IN 查询）
      * 
-     * @param availableTargetNames 可用的表名列表（store_products_00..store_products_31）
+     * @param availableTargetNames 可用的表名列表（store_products_00..store_products_03）
      * @param shardingValue 分片值（product_shard_id）
      * @return 目标表名
      */
@@ -57,7 +57,7 @@ public class ProductShardIdTableShardingAlgorithm implements StandardShardingAlg
             throw new IllegalArgumentException("product_shard_id 不能为空");
         }
         
-        // 计算表索引：product_shard_id % 32
+        // 计算表索引：product_shard_id % tableCountPerDb
         int tableIndex = productShardId % tableCountPerDb;
         
         // 生成表名后缀（两位数字符串）

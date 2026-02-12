@@ -2,6 +2,7 @@ package com.jiaoyi.product.service;
 
 import com.jiaoyi.product.entity.MenuItem;
 import com.jiaoyi.product.mapper.sharding.MenuItemMapper;
+import com.jiaoyi.product.util.ProductShardUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,11 @@ public class MenuItemService {
         if (existing.isPresent()) {
             throw new RuntimeException("菜单项信息已存在，merchantId: " + menuItem.getMerchantId() + 
                     ", itemId: " + menuItem.getItemId());
+        }
+        
+        // 计算 product_shard_id（基于 merchantId，与商品域统一分片）
+        if (menuItem.getProductShardId() == null) {
+            menuItem.setProductShardId(ProductShardUtil.calculateProductShardId(menuItem.getMerchantId()));
         }
         
         menuItem.setVersion(1L);

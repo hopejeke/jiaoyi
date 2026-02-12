@@ -6,6 +6,7 @@
     <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.StoreService">
         <id column="id" property="id"/>
         <result column="merchant_id" property="merchantId"/>
+        <result column="product_shard_id" property="productShardId"/>
         <result column="service_type" property="serviceType"/>
         <result column="payment_acceptance" property="paymentAcceptance"/>
         <result column="prepare_time" property="prepareTime"/>
@@ -26,7 +27,7 @@
     </resultMap>
 
     <sql id="Base_Column_List">
-        id, merchant_id, service_type, payment_acceptance, prepare_time, open_time, open_time_range,
+        id, merchant_id, product_shard_id, service_type, payment_acceptance, prepare_time, open_time, open_time_range,
         special_hours, temp_close, have_set, activate, activate_date, enable_use, usage_time_period,
         togo_entrance_qr_base64, togo_entrance_qr_mini_program_base64, version, create_time, update_time
     </sql>
@@ -34,11 +35,11 @@
     <!-- 插入餐馆服务 -->
     <insert id="insert" parameterType="com.jiaoyi.product.entity.StoreService" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO store_services (
-            merchant_id, service_type, payment_acceptance, prepare_time, open_time, open_time_range,
+            merchant_id, product_shard_id, service_type, payment_acceptance, prepare_time, open_time, open_time_range,
             special_hours, temp_close, have_set, activate, activate_date, enable_use, usage_time_period,
             togo_entrance_qr_base64, togo_entrance_qr_mini_program_base64, version, create_time, update_time
         ) VALUES (
-            #{merchantId}, #{serviceType}, #{paymentAcceptance}, #{prepareTime}, #{openTime}, #{openTimeRange},
+            #{merchantId}, #{productShardId}, #{serviceType}, #{paymentAcceptance}, #{prepareTime}, #{openTime}, #{openTimeRange},
             #{specialHours}, #{tempClose}, #{haveSet}, #{activate}, #{activateDate}, #{enableUse}, #{usageTimePeriod},
             #{togoEntranceQrBase64}, #{togoEntranceQrMiniProgramBase64}, 1, NOW(), NOW()
         )

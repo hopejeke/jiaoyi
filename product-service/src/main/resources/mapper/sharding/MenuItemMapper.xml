@@ -6,6 +6,7 @@
     <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.MenuItem">
         <id column="id" property="id"/>
         <result column="merchant_id" property="merchantId"/>
+        <result column="product_shard_id" property="productShardId"/>
         <result column="item_id" property="itemId"/>
         <result column="img_info" property="imgInfo"/>
         <result column="version" property="version"/>
@@ -14,15 +15,15 @@
     </resultMap>
 
     <sql id="Base_Column_List">
-        id, merchant_id, item_id, img_info, version, create_time, update_time
+        id, merchant_id, product_shard_id, item_id, img_info, version, create_time, update_time
     </sql>
 
     <!-- 插入菜单项信息 -->
     <insert id="insert" parameterType="com.jiaoyi.product.entity.MenuItem" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO menu_items (
-            merchant_id, item_id, img_info, version, create_time, update_time
+            merchant_id, product_shard_id, item_id, img_info, version, create_time, update_time
         ) VALUES (
-            #{merchantId}, #{itemId}, #{imgInfo}, 1, NOW(), NOW()
+            #{merchantId}, #{productShardId}, #{itemId}, #{imgInfo}, 1, NOW(), NOW()
         )
         <selectKey keyProperty="version" resultType="long" order="AFTER">
             SELECT version FROM menu_items WHERE merchant_id = #{merchantId} AND item_id = #{itemId} ORDER BY id DESC LIMIT 1

@@ -312,55 +312,74 @@ public class InventoryService {
             throw new IllegalArgumentException("扣减库存时必须提供订单ID（用于幂等性校验）");
         }
         
-        // ========== 关键修复：防止"已解锁的库存又被扣减" ==========
-        // 检查是否已经解锁过（UNLOCK操作），如果已解锁，不允许扣减
-        // 原因：支付成功扣减（DEDUCT）和取消解锁（UNLOCK）可能并发执行
-        // 如果已解锁，说明订单已取消，不应该再扣减
-        List<InventoryTransaction> existingUnlockTransactions = transactionMapper.selectByOrderIdAndSkuIdAndType(
-                orderId, skuId, InventoryTransaction.TransactionType.UNLOCK.name());
-        if (existingUnlockTransactions != null && !existingUnlockTransactions.isEmpty()) {
-            log.warn("订单已解锁库存，不允许扣减，订单ID: {}, 商品ID: {}, SKU ID: {}", 
-                    orderId, productId, skuId);
-            throw new RuntimeException("订单已解锁库存，不允许扣减，订单ID: " + orderId + ", SKU ID: " + skuId);
-        }
+        // ========== CAS 更新：从 LOCKED 状态转为 DEDUCTED ==========
+        // 使用 CAS 更新，只有当前状态是 LOCK 时才能更新为 OUT
+        // 如果状态不是 LOCK（已被解锁或已扣减），affected rows = 0，拒绝操作
+        // 这保证了 deduct 和 unlock 的互斥性
         
-        // 幂等性校验：先尝试插入库存变动记录（OUT 操作）
-        // 唯一索引：(order_id, sku_id, transaction_type)，防止同一订单对同一SKU重复扣减
+        int casUpdated = transactionMapper.casUpdateToDeducted(
+                orderId,
+                skuId,
+                quantity,
+                inventory.getCurrentStock() + quantity,  // beforeStock（扣减前）
+                inventory.getCurrentStock(),              // afterStock（扣减后）
+                inventory.getLockedStock(),               // beforeLocked
+                inventory.getLockedStock() - quantity,   // afterLocked
+                "支付成功扣减库存（SKU级别，SKU ID: " + skuId + "）"
+        );
         
-        InventoryTransaction outTransaction = new InventoryTransaction();
-        outTransaction.setProductId(productId);
-        outTransaction.setSkuId(skuId);
-        outTransaction.setProductShardId(inventory.getProductShardId());
-        outTransaction.setOrderId(orderId);
-        outTransaction.setTransactionType(InventoryTransaction.TransactionType.OUT);
-        outTransaction.setQuantity(quantity);
-        outTransaction.setBeforeStock(inventory.getCurrentStock() + quantity);
-        outTransaction.setAfterStock(inventory.getCurrentStock());
-        outTransaction.setBeforeLocked(inventory.getLockedStock());
-        outTransaction.setAfterLocked(inventory.getLockedStock() - quantity);
-        outTransaction.setRemark("支付成功扣减库存（SKU级别，SKU ID: " + skuId + "）");
-        outTransaction.setCreateTime(java.time.LocalDateTime.now());
-        
-        // 尝试插入记录（如果已存在则返回 0，说明已经扣减过）
-        int inserted = transactionMapper.tryInsert(outTransaction);
-        if (inserted == 0) {
-            log.warn("库存扣减操作已执行过（幂等性校验），订单ID: {}, 商品ID: {}, SKU ID: {}", 
-                    orderId, productId, skuId);
-            return; // 幂等：已扣减过，直接返回
+        if (casUpdated == 0) {
+            // CAS 失败，说明状态不是 LOCK（可能已被解锁或已扣减）
+            InventoryTransaction existing = transactionMapper.selectByOrderIdAndSkuId(orderId, skuId);
+            if (existing != null) {
+                String currentType = existing.getTransactionType() != null ? existing.getTransactionType().name() : "UNKNOWN";
+                log.warn("库存扣减失败（CAS），订单ID: {}, 商品ID: {}, SKU ID: {}, 当前状态: {}", 
+                        orderId, productId, skuId, currentType);
+                if ("UNLOCK".equals(currentType)) {
+                    throw new RuntimeException("订单已解锁库存，不允许扣减，订单ID: " + orderId + ", SKU ID: " + skuId);
+                } else if ("OUT".equals(currentType)) {
+                    log.warn("库存扣减操作已执行过（幂等性校验），订单ID: {}, 商品ID: {}, SKU ID: {}", 
+                            orderId, productId, skuId);
+                    return; // 幂等：已扣减过，直接返回
+                }
+            }
+            throw new RuntimeException("库存扣减失败（CAS），订单ID: " + orderId + ", SKU ID: " + skuId + "，可能状态不是 LOCK");
         }
         
         // LIMITED 模式：扣减库存（SKU级别）
+        int beforeCurrentStock = inventory.getCurrentStock();
+        int beforeLockedStock = inventory.getLockedStock();
+        int expectedAfterCurrentStock = beforeCurrentStock - quantity;
+        int expectedAfterLockedStock = beforeLockedStock - quantity;
+        log.info("【库存扣减】准备执行SQL更新，订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}, 扣减前 current_stock: {}, locked_stock: {}, 预期扣减后 current_stock: {}, locked_stock: {}", 
+                orderId, productId, skuId, quantity, beforeCurrentStock, beforeLockedStock, expectedAfterCurrentStock, expectedAfterLockedStock);
+        
         int updatedRows = inventoryMapper.deductStockBySku(productId, skuId, quantity);
         if (updatedRows == 0) {
-            log.error("库存扣减失败，商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
+            log.error("【库存扣减】SQL更新失败，订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}, 当前 locked_stock: {}，可能原因：locked_stock < quantity", 
+                    orderId, productId, skuId, quantity, beforeLockedStock);
             throw new RuntimeException("库存扣减失败");
         }
         
-        // 记录已成功插入，无需再次插入
+        // 重新查询最新状态，验证扣减结果
+        Inventory latestInventory = inventoryMapper.selectByStoreIdAndProductIdAndSkuId(
+                inventory.getStoreId(), productId, skuId);
+        if (latestInventory != null) {
+            int actualAfterCurrentStock = latestInventory.getCurrentStock();
+            int actualAfterLockedStock = latestInventory.getLockedStock();
+            log.info("【库存扣减】SQL更新成功，订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}, 扣减前 current_stock: {}, locked_stock: {}, 扣减后 current_stock: {}, locked_stock: {}", 
+                    orderId, productId, skuId, quantity, beforeCurrentStock, beforeLockedStock, actualAfterCurrentStock, actualAfterLockedStock);
+            
+            // 检查是否出现负数（防御性检查）
+            if (actualAfterLockedStock < 0) {
+                log.error("【库存扣减】⚠️ 检测到 locked_stock 为负数！订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}, 扣减前: {}, 扣减后: {}", 
+                        orderId, productId, skuId, quantity, beforeLockedStock, actualAfterLockedStock);
+            }
+        }
         
         // 更新缓存
-        inventory.setCurrentStock(inventory.getCurrentStock());
-        inventory.setLockedStock(inventory.getLockedStock() - quantity);
+        inventory.setCurrentStock(latestInventory != null ? latestInventory.getCurrentStock() : expectedAfterCurrentStock);
+        inventory.setLockedStock(latestInventory != null ? latestInventory.getLockedStock() : expectedAfterLockedStock);
         inventoryCacheService.updateInventoryCache(inventory);
         
         log.info("库存扣减成功，商品ID: {}, SKU ID: {}, 扣减数量: {}", productId, skuId, quantity);
@@ -408,57 +427,74 @@ public class InventoryService {
             return com.jiaoyi.common.OperationResult.success("库存模式为 UNLIMITED（无限库存），无需解锁");
         }
         
-        // ========== 关键修复：防止"已扣减的库存又被解锁回去" ==========
-        // 检查是否已经扣减过（OUT操作），如果已扣减，不允许解锁
-        // 原因：支付成功扣减（DEDUCT）和取消解锁（UNLOCK）可能并发执行
-        // 如果已扣减，说明订单已支付，不应该再解锁
-        List<InventoryTransaction> existingTransactions = transactionMapper.selectByOrderIdAndSkuIdAndType(
-                orderId, skuId, InventoryTransaction.TransactionType.OUT.name());
-        if (existingTransactions != null && !existingTransactions.isEmpty()) {
-            log.warn("订单已扣减库存，不允许解锁，订单ID: {}, 商品ID: {}, SKU ID: {}", 
-                    orderId, productId, skuId);
-            return com.jiaoyi.common.OperationResult.failed("订单已扣减库存，不允许解锁，订单ID: " + orderId + ", SKU ID: " + skuId);
-        }
+        // ========== CAS 更新：从 LOCKED 状态转为 UNLOCKED ==========
+        // 使用 CAS 更新，只有当前状态是 LOCK 时才能更新为 UNLOCK
+        // 如果状态不是 LOCK（已被扣减或已解锁），affected rows = 0，拒绝操作
+        // 这保证了 deduct 和 unlock 的互斥性
         
-        // 幂等性校验：先尝试插入库存变动记录（UNLOCK 操作）
-        // 唯一索引：(order_id, sku_id, transaction_type)，防止同一订单对同一SKU重复解锁
-        InventoryTransaction unlockTransaction = new InventoryTransaction();
-        unlockTransaction.setProductId(productId);
-        unlockTransaction.setSkuId(skuId);
-        unlockTransaction.setProductShardId(inventory.getProductShardId());
-        unlockTransaction.setOrderId(orderId);
-        unlockTransaction.setTransactionType(InventoryTransaction.TransactionType.UNLOCK);
-        unlockTransaction.setQuantity(quantity);
-        unlockTransaction.setBeforeStock(inventory.getCurrentStock());
-        unlockTransaction.setAfterStock(inventory.getCurrentStock());
-        unlockTransaction.setBeforeLocked(inventory.getLockedStock());
-        unlockTransaction.setAfterLocked(inventory.getLockedStock() - quantity);
-        unlockTransaction.setRemark("订单取消解锁库存（SKU级别，SKU ID: " + skuId + "）");
-        unlockTransaction.setCreateTime(java.time.LocalDateTime.now());
+        int casUpdated = transactionMapper.casUpdateToUnlocked(
+                orderId,
+                skuId,
+                quantity,
+                inventory.getCurrentStock(),              // beforeStock（不变）
+                inventory.getCurrentStock(),              // afterStock（不变）
+                inventory.getLockedStock(),               // beforeLocked
+                inventory.getLockedStock() - quantity,   // afterLocked
+                "订单取消解锁库存（SKU级别，SKU ID: " + skuId + "）"
+        );
         
-        // 尝试插入记录（如果已存在则返回 0，说明已经解锁过）
-        int inserted = transactionMapper.tryInsert(unlockTransaction);
-        if (inserted == 0) {
-            log.warn("库存解锁操作已执行过（幂等性校验），订单ID: {}, 商品ID: {}, SKU ID: {}", 
-                    orderId, productId, skuId);
-            return com.jiaoyi.common.OperationResult.idempotentSuccess("库存解锁操作已执行过（幂等：重复调用），订单ID: " + orderId + ", SKU ID: " + skuId);
+        if (casUpdated == 0) {
+            // CAS 失败，说明状态不是 LOCK（可能已被扣减或已解锁）
+            InventoryTransaction existing = transactionMapper.selectByOrderIdAndSkuId(orderId, skuId);
+            if (existing != null) {
+                String currentType = existing.getTransactionType() != null ? existing.getTransactionType().name() : "UNKNOWN";
+                log.warn("库存解锁失败（CAS），订单ID: {}, 商品ID: {}, SKU ID: {}, 当前状态: {}", 
+                        orderId, productId, skuId, currentType);
+                if ("OUT".equals(currentType)) {
+                    return com.jiaoyi.common.OperationResult.failed("订单已扣减库存，不允许解锁，订单ID: " + orderId + ", SKU ID: " + skuId);
+                } else if ("UNLOCK".equals(currentType)) {
+                    log.warn("库存解锁操作已执行过（幂等性校验），订单ID: {}, 商品ID: {}, SKU ID: {}", 
+                            orderId, productId, skuId);
+                    return com.jiaoyi.common.OperationResult.idempotentSuccess("库存解锁操作已执行过（幂等：重复调用），订单ID: " + orderId + ", SKU ID: " + skuId);
+                }
+            }
+            return com.jiaoyi.common.OperationResult.failed("库存解锁失败（CAS），订单ID: " + orderId + ", SKU ID: " + skuId + "，可能状态不是 LOCK");
         }
         
         // LIMITED 模式：解锁库存（SKU级别）
         // 注意：SQL 条件包含 locked_stock >= quantity，防止解锁把 locked 扣成负数
+        int beforeLocked = inventory.getLockedStock();
+        int expectedAfterLocked = beforeLocked - quantity;
+        log.info("【库存解锁】准备执行SQL更新，订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}, 解锁前 locked_stock: {}, 预期解锁后: {}", 
+                orderId, productId, skuId, quantity, beforeLocked, expectedAfterLocked);
+        
         int updatedRows = inventoryMapper.unlockStockBySku(productId, skuId, quantity);
         if (updatedRows == 0) {
-            log.error("库存解锁失败，商品ID: {}, SKU ID: {}, 数量: {}，可能原因：locked_stock < quantity 或库存记录不存在", 
-                    productId, skuId, quantity);
+            log.error("【库存解锁】SQL更新失败，订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}, 当前 locked_stock: {}，可能原因：locked_stock < quantity 或库存记录不存在", 
+                    orderId, productId, skuId, quantity, beforeLocked);
             // 关键修复：抛异常让事务回滚，防止幂等记录已插入但库存未解锁，导致后续无法重试
             throw new RuntimeException("库存解锁失败，商品ID: " + productId + ", SKU ID: " + skuId + 
                     "，可能原因：locked_stock < quantity 或库存记录不存在，触发事务回滚以允许重试");
         }
         
-        // 记录已成功插入，无需再次插入
+        // 重新查询最新状态，验证解锁结果
+        Inventory latestInventory = inventoryMapper.selectByStoreIdAndProductIdAndSkuId(
+                inventory.getStoreId(), productId, skuId);
+        if (latestInventory != null) {
+            int actualAfterLocked = latestInventory.getLockedStock();
+            log.info("【库存解锁】SQL更新成功，订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}, 解锁前 locked_stock: {}, 解锁后 locked_stock: {}", 
+                    orderId, productId, skuId, quantity, beforeLocked, actualAfterLocked);
+            
+            // 检查是否出现负数（防御性检查）
+            if (actualAfterLocked < 0) {
+                log.error("【库存解锁】⚠️ 检测到 locked_stock 为负数！订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}, 解锁前: {}, 解锁后: {}", 
+                        orderId, productId, skuId, quantity, beforeLocked, actualAfterLocked);
+                // 不抛异常，记录日志，让业务继续（可能是其他订单的 lock 导致的）
+            }
+        }
         
         // 更新缓存
-        inventory.setLockedStock(inventory.getLockedStock() - quantity);
+        inventory.setLockedStock(latestInventory != null ? latestInventory.getLockedStock() : expectedAfterLocked);
         inventoryCacheService.updateInventoryCache(inventory);
         
         log.info("库存解锁成功，商品ID: {}, SKU ID: {}, 解锁数量: {}", productId, skuId, quantity);

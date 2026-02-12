@@ -92,6 +92,48 @@
         WHERE product_id = #{productId} AND transaction_type = 'OUT'
     </select>
 
+    <!-- CAS 更新：从 LOCKED 状态转为 DEDUCTED（扣减） -->
+    <update id="casUpdateToDeducted">
+        UPDATE inventory_transactions 
+        SET transaction_type = 'OUT',
+            quantity = #{quantity},
+            before_stock = #{beforeStock},
+            after_stock = #{afterStock},
+            before_locked = #{beforeLocked},
+            after_locked = #{afterLocked},
+            remark = #{remark},
+            create_time = NOW()
+        WHERE order_id = #{orderId} 
+          AND sku_id = #{skuId}
+          AND transaction_type = 'LOCK'
+    </update>
+
+    <!-- CAS 更新：从 LOCKED 状态转为 UNLOCKED（解锁） -->
+    <update id="casUpdateToUnlocked">
+        UPDATE inventory_transactions 
+        SET transaction_type = 'UNLOCK',
+            quantity = #{quantity},
+            before_stock = #{beforeStock},
+            after_stock = #{afterStock},
+            before_locked = #{beforeLocked},
+            after_locked = #{afterLocked},
+            remark = #{remark},
+            create_time = NOW()
+        WHERE order_id = #{orderId} 
+          AND sku_id = #{skuId}
+          AND transaction_type = 'LOCK'
+    </update>
+
+    <!-- 根据订单ID和SKU ID查询当前状态（用于检查） -->
+    <select id="selectByOrderIdAndSkuId" resultMap="InventoryTransactionResultMap">
+        SELECT id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, 
+               before_stock, after_stock, before_locked, after_locked, remark, create_time
+        FROM inventory_transactions 
+        WHERE order_id = #{orderId} 
+          AND sku_id = #{skuId}
+        LIMIT 1
+    </select>
+
 </mapper>
 
 

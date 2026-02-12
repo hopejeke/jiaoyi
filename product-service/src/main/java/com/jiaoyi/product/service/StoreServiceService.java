@@ -2,6 +2,7 @@ package com.jiaoyi.product.service;
 
 import com.jiaoyi.product.entity.StoreService;
 import com.jiaoyi.product.mapper.sharding.StoreServiceMapper;
+import com.jiaoyi.product.util.ProductShardUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -34,6 +35,11 @@ public class StoreServiceService {
         if (existing.isPresent()) {
             throw new RuntimeException("餐馆服务已存在，merchantId: " + storeService.getMerchantId() + 
                     ", serviceType: " + storeService.getServiceType());
+        }
+        
+        // 计算 product_shard_id（基于 merchantId，与商品域统一分片）
+        if (storeService.getProductShardId() == null) {
+            storeService.setProductShardId(ProductShardUtil.calculateProductShardId(storeService.getMerchantId()));
         }
         
         // 设置默认值

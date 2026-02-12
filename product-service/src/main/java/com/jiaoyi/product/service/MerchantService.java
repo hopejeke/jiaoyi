@@ -2,6 +2,7 @@ package com.jiaoyi.product.service;
 
 import com.jiaoyi.product.entity.Merchant;
 import com.jiaoyi.product.mapper.sharding.MerchantMapper;
+import com.jiaoyi.product.util.ProductShardUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -31,6 +32,14 @@ public class MerchantService {
         Optional<Merchant> existing = merchantMapper.selectByMerchantId(merchant.getMerchantId());
         if (existing.isPresent()) {
             throw new RuntimeException("餐馆ID已存在，merchantId: " + merchant.getMerchantId());
+        }
+        
+        // 计算 product_shard_id（基于 merchantId，与商品域统一分片）
+        if (merchant.getProductShardId() == null) {
+            int shardId = ProductShardUtil.calculateProductShardId(merchant.getMerchantId());
+            merchant.setProductShardId(shardId);
+            log.info("自动计算 product_shard_id: merchantId={}, productShardId={}", 
+                merchant.getMerchantId(), shardId);
         }
         
         // 设置默认值

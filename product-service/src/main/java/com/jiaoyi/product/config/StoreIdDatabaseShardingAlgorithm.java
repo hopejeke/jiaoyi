@@ -15,16 +15,16 @@ import java.util.Properties;
  * 核心逻辑：
  * 1. 从 store_id 计算 product_shard_id：使用 ProductShardUtil.calculateProductShardId(storeId)
  * 2. 使用纯函数计算：dsIndex = product_shard_id % dsCount
- * 3. 返回 ds${dsIndex}（如 ds0, ds1, ds2）
+ * 3. 返回 ds${dsIndex}（如 ds0, ds1）
  * 
  * 配置参数：
- * - ds-count: 数据源数量（默认 3）
+ * - ds-count: 数据源数量（默认 2）
  * - ds-prefix: 数据源名称前缀（默认 "ds"）
  */
 @Slf4j
 public class StoreIdDatabaseShardingAlgorithm implements StandardShardingAlgorithm<Long> {
     
-    private int dsCount = 3;
+    private int dsCount = 2;
     private String dsPrefix = "ds";
     
     @Override

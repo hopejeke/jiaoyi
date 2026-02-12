@@ -6,7 +6,7 @@
 -- 1. 添加 tbl_id 字段（表路由）
 -- 2. 添加 version 字段（版本号，用于缓存热更新）
 -- 3. 添加 target_ds_id 和 target_tbl_id（迁移目标）
--- 4. 初始化表路由数据（当前使用 product_shard_id % 32）
+-- 4. 初始化表路由数据（当前使用 product_shard_id % 4）
 -- ============================================
 
 USE jiaoyi;
@@ -21,7 +21,7 @@ SET @column_exists = (
 );
 
 SET @sql = IF(@column_exists = 0,
-    'ALTER TABLE product_shard_bucket_route ADD COLUMN tbl_id INT NOT NULL DEFAULT 0 COMMENT ''表后缀（0-31）'' AFTER ds_name',
+    'ALTER TABLE product_shard_bucket_route ADD COLUMN tbl_id INT NOT NULL DEFAULT 0 COMMENT ''表后缀（0-3）'' AFTER ds_name',
     'SELECT ''tbl_id column already exists'' AS message'
 );
 PREPARE stmt FROM @sql;
@@ -79,9 +79,9 @@ PREPARE stmt FROM @sql;
 EXECUTE stmt;
 DEALLOCATE PREPARE stmt;
 
--- 初始化表路由数据（如果 tbl_id 为 0 或 NULL，使用 bucket_id % 32）
+-- 初始化表路由数据（如果 tbl_id 为 0 或 NULL，使用 bucket_id % 4）
 UPDATE product_shard_bucket_route 
-SET tbl_id = bucket_id % 32
+SET tbl_id = bucket_id % 4
 WHERE tbl_id = 0 OR tbl_id IS NULL;
 
 -- 初始化版本号（如果 version 为 1 或 NULL，设置为当前时间戳）

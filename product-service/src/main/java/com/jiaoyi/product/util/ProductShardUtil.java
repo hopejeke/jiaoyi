@@ -69,33 +69,33 @@ public class ProductShardUtil {
     /**
      * 计算表索引（基于 product_shard_id）
      * 
-     * 物理分表固定：32 张表（可配置，默认32）
-     * table_idx = product_shard_id % 32
+     * 物理分表固定：4 张表（可配置，默认4）
+     * table_idx = product_shard_id % 4
      * 
      * @param productShardId 分片ID（0-1023）
-     * @param tableCountPerDb 每库表数量（默认32）
-     * @return 表索引（0-31）
+     * @param tableCountPerDb 每库表数量（默认4）
+     * @return 表索引（0-3）
      */
     public static int calculateTableIndex(int productShardId, int tableCountPerDb) {
         return productShardId % tableCountPerDb;
     }
     
     /**
-     * 计算表索引（使用默认表数量32）
+     * 计算表索引（使用默认表数量4）
      * 
      * @param productShardId 分片ID（0-1023）
-     * @return 表索引（0-31）
+     * @return 表索引（0-3）
      */
     public static int calculateTableIndex(int productShardId) {
-        return calculateTableIndex(productShardId, 32);
+        return calculateTableIndex(productShardId, 4);
     }
     
     /**
      * 格式化表索引为两位数字符串（用于表名）
      * 
-     * 例如：0 -> "00", 1 -> "01", 31 -> "31"
+     * 例如：0 -> "00", 1 -> "01", 3 -> "03"
      * 
-     * @param tableIndex 表索引（0-31）
+     * @param tableIndex 表索引（0-3）
      * @return 两位数字符串
      */
     public static String formatTableIndex(int tableIndex) {

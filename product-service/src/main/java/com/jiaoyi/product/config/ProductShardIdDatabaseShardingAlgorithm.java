@@ -17,11 +17,11 @@ import java.util.Properties;
  * 3. 不依赖 ProductRouteCache，适用于所有线程（Web、定时任务、MQ 消费等）
  * 
  * 配置参数：
- * - ds-count: 数据源数量（默认 3）
+ * - ds-count: 数据源数量（默认 2）
  * - ds-prefix: 数据源名称前缀（默认 "ds"）
  * 
  * 注意：
- * - 此算法适用于固定分片数量的场景（如 3 库、6 库）
+ * - 此算法适用于固定分片数量的场景（如 2 库、4 库）
  * - 如果需要动态路由（从路由表读取），请使用 ProductRouteCache 版本（但需要解决线程上下文问题）
  */
 @Slf4j
@@ -30,7 +30,7 @@ public class ProductShardIdDatabaseShardingAlgorithm implements StandardSharding
     /**
      * 数据源数量（从配置读取）
      */
-    private int dsCount = 3;
+    private int dsCount = 2;
     
     /**
      * 数据源名称前缀（从配置读取）
@@ -53,7 +53,7 @@ public class ProductShardIdDatabaseShardingAlgorithm implements StandardSharding
     /**
      * 精确分片（用于 = 和 IN 查询）
      * 
-     * @param availableTargetNames 可用的数据源名称列表（ds0, ds1, ds2）
+     * @param availableTargetNames 可用的数据源名称列表（ds0, ds1）
      * @param shardingValue 分片值（product_shard_id）
      * @return 目标数据源名称
      */

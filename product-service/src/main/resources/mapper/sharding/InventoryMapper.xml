@@ -114,11 +114,16 @@
     </update>
     
     <!-- 解锁库存（原子操作，SKU级别） -->
+    <!-- 注意：WHERE 条件确保 locked_stock >= quantity，防止扣成负数 -->
+    <!-- 虽然业务层已通过 CAS 更新 transaction_type 做幂等，但 SQL 层面也要保护 -->
     <update id="unlockStockBySku">
         UPDATE inventory SET 
             locked_stock = locked_stock - #{quantity},
             update_time = NOW()
-        WHERE product_id = #{productId} AND sku_id = #{skuId} AND locked_stock &gt;= #{quantity}
+        WHERE product_id = #{productId} 
+          AND sku_id = #{skuId} 
+          AND locked_stock &gt;= #{quantity}
+          AND locked_stock - #{quantity} &gt;= 0
     </update>
 
     <!-- 扣减库存（原子操作，商品级别） -->

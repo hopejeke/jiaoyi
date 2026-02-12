@@ -59,5 +59,44 @@ public interface InventoryTransactionMapper {
      * 统计商品总出库数量
      */
     Long sumOutQuantityByProductId(@Param("productId") Long productId);
+    
+    /**
+     * CAS 更新：从 LOCKED 状态转为 DEDUCTED（扣减）
+     * 只有当前状态是 LOCK 时才能更新，保证原子性
+     * 
+     * @return 更新的行数，1 表示成功，0 表示状态不是 LOCK（已被其他操作修改）
+     */
+    int casUpdateToDeducted(
+            @Param("orderId") Long orderId,
+            @Param("skuId") Long skuId,
+            @Param("quantity") Integer quantity,
+            @Param("beforeStock") Integer beforeStock,
+            @Param("afterStock") Integer afterStock,
+            @Param("beforeLocked") Integer beforeLocked,
+            @Param("afterLocked") Integer afterLocked,
+            @Param("remark") String remark);
+    
+    /**
+     * CAS 更新：从 LOCKED 状态转为 UNLOCKED（解锁）
+     * 只有当前状态是 LOCK 时才能更新，保证原子性
+     * 
+     * @return 更新的行数，1 表示成功，0 表示状态不是 LOCK（已被其他操作修改）
+     */
+    int casUpdateToUnlocked(
+            @Param("orderId") Long orderId,
+            @Param("skuId") Long skuId,
+            @Param("quantity") Integer quantity,
+            @Param("beforeStock") Integer beforeStock,
+            @Param("afterStock") Integer afterStock,
+            @Param("beforeLocked") Integer beforeLocked,
+            @Param("afterLocked") Integer afterLocked,
+            @Param("remark") String remark);
+    
+    /**
+     * 根据订单ID和SKU ID查询当前状态（用于检查）
+     */
+    InventoryTransaction selectByOrderIdAndSkuId(
+            @Param("orderId") Long orderId,
+            @Param("skuId") Long skuId);
 }
 

@@ -57,6 +57,7 @@ public class DatabaseInitializer {
                 createOutboxNodeTable(conn, metaData);
                 // outbox 表已在分片库中创建，不再在基础库创建
                 createSnowflakeWorkerTable(conn, metaData);
+                createPoiItemStockTables(conn, metaData); // 商品中心库存管理相关表（不分片）
             }
             
             // 3. 创建 online-order-v2 相关的分片表（merchants, store_services, menu_items）
@@ -147,8 +148,8 @@ public class DatabaseInitializer {
             // 创建3个数据库
             createDatabases(conn);
             
-            // 为每个数据库创建分片表（只创建 store_products 表）
-            for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
+            // 为每个数据库创建分片表
+            for (int dbIndex = 0; dbIndex < 2; dbIndex++) {
                 String dbName = "jiaoyi_product_" + dbIndex;
                 createShardingTables(conn, dbName, dbIndex);
             }
@@ -162,12 +163,12 @@ public class DatabaseInitializer {
     }
     
     /**
-     * 创建3个数据库
+     * 创建2个数据库
      */
     private void createDatabases(Connection conn) throws Exception {
         try (Statement stmt = conn.createStatement()) {
-            // 商品服务专用数据库：jiaoyi_product_0/1/2
-            for (int i = 0; i < 3; i++) {
+            // 商品服务专用数据库：jiaoyi_product_0/1
+            for (int i = 0; i < 2; i++) {
                 String dbName = "jiaoyi_product_" + i;
                 String createDbSql = "CREATE DATABASE IF NOT EXISTS " + dbName + 
                         " DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci";
@@ -213,11 +214,11 @@ public class DatabaseInitializer {
     }
     
     /**
-     * 创建商品表分片（32张表/库：store_products_00..store_products_31）
+     * 创建商品表分片（4张表/库：store_products_00..store_products_03）
      * 使用 product_shard_id 作为分片键（基于 storeId 计算，固定1024个虚拟桶）
      */
     private void createStoreProductsTables(Statement stmt, int dbIndex) throws Exception {
-        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
+        for (int tableIndex = 0; tableIndex < 4; tableIndex++) {
             String tableName = "store_products_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
@@ -243,15 +244,15 @@ public class DatabaseInitializer {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='店铺商品表_库" + dbIndex + "_分片" + String.format("%02d", tableIndex) + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 商品表分片创建完成（32个分片表：store_products_00..store_products_31）");
+        log.info("  ✓ 商品表分片创建完成（4个分片表：store_products_00..store_products_03）");
     }
     
     /**
-     * 创建商品SKU表分片（32张表/库：product_sku_00..product_sku_31）
+     * 创建商品SKU表分片（4张表/库：product_sku_00..product_sku_03）
      * 使用 product_shard_id 作为分片键，与 store_products 表保持一致
      */
     private void createProductSkuTables(Statement stmt, int dbIndex) throws Exception {
-        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
+        for (int tableIndex = 0; tableIndex < 4; tableIndex++) {
             String tableName = "product_sku_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
@@ -278,7 +279,7 @@ public class DatabaseInitializer {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品SKU表_库" + dbIndex + "_分片" + String.format("%02d", tableIndex) + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 商品SKU表分片创建完成（32个分片表：product_sku_00..product_sku_31）");
+        log.info("  ✓ 商品SKU表分片创建完成（4个分片表：product_sku_00..product_sku_03）");
     }
     
     /**
@@ -290,7 +291,7 @@ public class DatabaseInitializer {
         log.info("开始强制更新所有 product_sku 表结构（确保 is_delete 字段存在）...");
         
         try (Connection conn = DriverManager.getConnection(baseUrl, username, password)) {
-            for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
+            for (int dbIndex = 0; dbIndex < 2; dbIndex++) {
                 String dbName = "jiaoyi_product_" + dbIndex;
                 try (Statement stmt = conn.createStatement()) {
                     stmt.executeUpdate("USE " + dbName);
@@ -309,8 +310,8 @@ public class DatabaseInitializer {
      * 更新商品SKU表结构（添加缺失的字段）
      */
     private void updateProductSkuTables(Statement stmt, int dbIndex) throws Exception {
-        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
-            String tableName = "product_sku_" + tableIndex;
+        for (int tableIndex = 0; tableIndex < 4; tableIndex++) {
+            String tableName = "product_sku_" + String.format("%02d", tableIndex);
             try {
                 // 检查表是否存在
                 java.sql.ResultSet rs = stmt.executeQuery("SHOW TABLES LIKE '" + tableName + "'");
@@ -506,7 +507,7 @@ public class DatabaseInitializer {
                 log.error("更新表 {} 结构时出错: {}", tableName, e.getMessage(), e);
             }
         }
-        log.info("  ✓ 商品SKU表结构更新完成（3个分片表）");
+        log.info("  ✓ 商品SKU表结构更新完成（4个分片表）");
     }
     
     /**
@@ -519,7 +520,7 @@ public class DatabaseInitializer {
         
         try (Connection conn = DriverManager.getConnection(baseUrl, username, password)) {
             DatabaseMetaData metaData = conn.getMetaData();
-            for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
+            for (int dbIndex = 0; dbIndex < 2; dbIndex++) {
                 String dbName = "jiaoyi_product_" + dbIndex;
                 try (Statement stmt = conn.createStatement()) {
                     stmt.executeUpdate("USE " + dbName);
@@ -538,8 +539,8 @@ public class DatabaseInitializer {
      * 更新库存表结构（添加缺失的 stock_mode 字段）
      */
     private void updateInventoryTables(Statement stmt, int dbIndex, DatabaseMetaData metaData) throws Exception {
-        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
-            String tableName = "inventory_" + tableIndex;
+        for (int tableIndex = 0; tableIndex < 4; tableIndex++) {
+            String tableName = "inventory_" + String.format("%02d", tableIndex);
             try {
                 // 检查表是否存在
                 ResultSet tables = metaData.getTables(null, "jiaoyi_product_" + dbIndex, tableName, null);
@@ -589,16 +590,16 @@ public class DatabaseInitializer {
                 log.error("更新表 {} 结构时出错: {}", tableName, e.getMessage(), e);
             }
         }
-        log.info("  ✓ 库存表结构更新完成（3个分片表）");
+        log.info("  ✓ 库存表结构更新完成（4个分片表）");
     }
     
     /**
-     * 创建库存表分片（32张表/库：inventory_00..inventory_31）
+     * 创建库存表分片（4张表/库：inventory_00..inventory_03）
      * 使用 product_shard_id 作为分片键，与 store_products 表保持一致
      * 库存按SKU级别管理，sku_id为NULL时表示商品级别库存（兼容旧数据）
      */
     private void createInventoryTables(Statement stmt, int dbIndex, DatabaseMetaData metaData) throws Exception {
-        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
+        for (int tableIndex = 0; tableIndex < 4; tableIndex++) {
             String tableName = "inventory_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
@@ -626,10 +627,10 @@ public class DatabaseInitializer {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存表（SKU级别）_库" + dbIndex + "_分片" + String.format("%02d", tableIndex) + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 库存表分片创建完成（32个分片表：inventory_00..inventory_31）");
+        log.info("  ✓ 库存表分片创建完成（4个分片表：inventory_00..inventory_03）");
         
-        // 创建库存变动记录表分片（32个分片表）
-        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
+        // 创建库存变动记录表分片（4个分片表）
+        for (int tableIndex = 0; tableIndex < 4; tableIndex++) {
             String tableName = "inventory_transactions_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
@@ -657,7 +658,7 @@ public class DatabaseInitializer {
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存变动记录表_库" + dbIndex + "_分片" + String.format("%02d", tableIndex) + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 库存变动记录表分片创建完成（32个分片表：inventory_transactions_00..inventory_transactions_31）");
+        log.info("  ✓ 库存变动记录表分片创建完成（4个分片表：inventory_transactions_00..inventory_transactions_03）");
     }
     
     /**
@@ -751,15 +752,12 @@ public class DatabaseInitializer {
     }
     
     /**
-     * 创建outbox表（32张表/库：outbox_00..outbox_31）
+     * 创建outbox表（每库1张，不分表）
      * 用于可靠事件发布（Outbox Pattern）
-     * 使用 product_shard_id 作为分片键，与商品表保持一致
+     * Outbox是临时中转数据，正常运行时数据量极小，无需分表
      */
     private void createOutboxTable(Statement stmt, int dbIndex) throws Exception {
-        // 创建32张分表：outbox_00..outbox_31
-        for (int tableIndex = 0; tableIndex < 32; tableIndex++) {
-            String tableSuffix = String.format("%02d", tableIndex);
-            String tableName = "outbox_" + tableSuffix;
+        String tableName = "outbox";
         String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                 "id BIGINT AUTO_INCREMENT PRIMARY KEY COMMENT '主键ID', " +
                 "type VARCHAR(100) NOT NULL COMMENT '任务类型（如：DEDUCT_STOCK_HTTP、PAYMENT_SUCCEEDED_MQ）', " +
@@ -796,7 +794,7 @@ public class DatabaseInitializer {
                 "INDEX idx_status_next_retry (status, next_retry_time), " +
                 "INDEX idx_claim (product_shard_id, status, next_retry_time, lock_until, id), " +
                 "INDEX idx_cleanup (product_shard_id, status, created_at)" +
-                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='可靠任务表（Outbox Pattern）_库" + dbIndex + "_表" + tableSuffix + "'";
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='可靠任务表（Outbox Pattern）_库" + dbIndex + "'";
             stmt.executeUpdate(createTableSql);
         
         // 检查并添加缺失的列（如果表已存在但缺少这些列）
@@ -927,9 +925,8 @@ public class DatabaseInitializer {
                     log.warn("检查/添加索引时出错（数据库 jiaoyi_product_{}, 表 {}）: {}", dbIndex, tableName, e.getMessage());
                 }
             }
-        }
         
-        log.info("  ✓ outbox 表创建完成（数据库 jiaoyi_product_{}，共32张表：outbox_00..outbox_31）", dbIndex);
+        log.info("  ✓ outbox 表创建完成（数据库 jiaoyi_product_{}，1张表）", dbIndex);
     }
     
     /**
@@ -1263,7 +1260,7 @@ public class DatabaseInitializer {
         
         try (Connection conn = DriverManager.getConnection(baseUrl, username, password)) {
             // 为每个数据库创建分片表
-            for (int dbIndex = 0; dbIndex < 3; dbIndex++) {
+            for (int dbIndex = 0; dbIndex < 2; dbIndex++) {
                 String dbName = "jiaoyi_product_" + dbIndex;
                 try (Statement stmt = conn.createStatement()) {
                     stmt.executeUpdate("USE " + dbName);
@@ -1345,11 +1342,13 @@ public class DatabaseInitializer {
      * 创建 merchants 表分片（3个分片表）
      */
     private void createMerchantsTables(Statement stmt, int dbIndex) throws Exception {
-        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
-            String tableName = "merchants_" + tableIndex;
+        for (int tableIndex = 0; tableIndex < 4; tableIndex++) {
+            String tableName = "merchants_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
-                    "merchant_id VARCHAR(50) NOT NULL COMMENT '餐馆ID（POS系统ID）', " +
+                    "merchant_id VARCHAR(50) NOT NULL COMMENT '餐馆ID（POS系统ID，业务唯一键）', " +
+                    "store_id BIGINT COMMENT '店铺ID（关联stores.id，用于与商品域统一分片）', " +
+                    "product_shard_id INT NOT NULL COMMENT '分片ID（0-1023，与商品域统一）', " +
                     "name VARCHAR(200) NOT NULL COMMENT '餐馆名称', " +
                     "time_zone VARCHAR(50) NOT NULL COMMENT '时区', " +
                     "logo VARCHAR(500) COMMENT '餐馆Logo', " +
@@ -1385,22 +1384,25 @@ public class DatabaseInitializer {
                     "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
                     "update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
                     "UNIQUE KEY uk_merchant_id (merchant_id), " +
+                    "INDEX idx_product_shard_id (product_shard_id), " +
+                    "INDEX idx_store_id (store_id), " +
                     "INDEX idx_display (display)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='餐馆表_库" + dbIndex + "_分片" + tableIndex + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 餐馆表分片创建完成（3个分片表）");
+        log.info("  ✓ 餐馆表分片创建完成（4个分片表）");
     }
     
     /**
-     * 创建 store_services 表分片（3个分片表）
+     * 创建 store_services 表分片（4个分片表，统一 product_shard_id 分片）
      */
     private void createStoreServicesTables(Statement stmt, int dbIndex) throws Exception {
-        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
-            String tableName = "store_services_" + tableIndex;
+        for (int tableIndex = 0; tableIndex < 4; tableIndex++) {
+            String tableName = "store_services_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
-                    "merchant_id VARCHAR(50) NOT NULL COMMENT '餐馆ID（用于分片）', " +
+                    "merchant_id VARCHAR(50) NOT NULL COMMENT '餐馆ID（业务唯一键）', " +
+                    "product_shard_id INT NOT NULL COMMENT '分片ID（0-1023，与商品域统一）', " +
                     "service_type VARCHAR(50) NOT NULL COMMENT '服务类型：PICKUP/DELIVERY/SELF_DINE_IN', " +
                     "payment_acceptance JSON COMMENT '支付方式（JSON数组）', " +
                     "prepare_time JSON COMMENT '准备时间（JSON：{\"min\":30,\"max\":60}）', " +
@@ -1419,39 +1421,149 @@ public class DatabaseInitializer {
                     "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
                     "update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
                     "UNIQUE KEY uk_merchant_service (merchant_id, service_type), " +
+                    "INDEX idx_product_shard_id (product_shard_id), " +
                     "INDEX idx_merchant_id (merchant_id), " +
                     "INDEX idx_service_type (service_type), " +
                     "INDEX idx_activate (activate)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='餐馆服务表_库" + dbIndex + "_分片" + tableIndex + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 餐馆服务表分片创建完成（3个分片表）");
+        log.info("  ✓ 餐馆服务表分片创建完成（4个分片表）");
     }
     
     /**
-     * 创建 menu_items 表分片（3个分片表）
+     * 创建 menu_items 表分片（4个分片表，统一 product_shard_id 分片）
      */
     private void createMenuItemsTables(Statement stmt, int dbIndex) throws Exception {
-        for (int tableIndex = 0; tableIndex < 3; tableIndex++) {
-            String tableName = "menu_items_" + tableIndex;
+        for (int tableIndex = 0; tableIndex < 4; tableIndex++) {
+            String tableName = "menu_items_" + String.format("%02d", tableIndex);
             String createTableSql = "CREATE TABLE IF NOT EXISTS " + tableName + " (" +
                     "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
-                    "merchant_id VARCHAR(50) NOT NULL COMMENT '餐馆ID（用于分片）', " +
+                    "merchant_id VARCHAR(50) NOT NULL COMMENT '餐馆ID（业务唯一键）', " +
+                    "product_shard_id INT NOT NULL COMMENT '分片ID（0-1023，与商品域统一）', " +
                     "item_id BIGINT NOT NULL COMMENT '菜品ID（POS系统ID）', " +
                     "img_info JSON COMMENT '图片信息（JSON：{\"urls\":[],\"name\":\"\",\"hisUrl\":[]}）', " +
                     "version BIGINT NOT NULL DEFAULT 0 COMMENT '版本号（用于乐观锁和缓存一致性）', " +
                     "create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间', " +
                     "update_time DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间', " +
                     "UNIQUE KEY uk_merchant_item (merchant_id, item_id), " +
+                    "INDEX idx_product_shard_id (product_shard_id), " +
                     "INDEX idx_merchant_id (merchant_id), " +
                     "INDEX idx_item_id (item_id)" +
                     ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='菜单项信息表_库" + dbIndex + "_分片" + tableIndex + "'";
             stmt.executeUpdate(createTableSql);
         }
-        log.info("  ✓ 菜单项信息表分片创建完成（3个分片表）");
+        log.info("  ✓ 菜单项信息表分片创建完成（4个分片表）");
     }
     
     // 订单表相关方法已迁移到 order-service，不再在此维护
+    
+    /**
+     * 创建商品中心库存管理相关表（不分片，存储在 primary 数据源 jiaoyi 库）
+     * - poi_item_stock: 商品库存主表
+     * - poi_item_channel_stock: 商品渠道库存表
+     * - poi_item_stock_log: 库存变更记录表
+     * - oversell_record: 超卖记录表
+     */
+    private void createPoiItemStockTables(Connection conn, DatabaseMetaData metaData) {
+        log.info("开始创建商品中心库存管理相关表...");
+        try (Statement stmt = conn.createStatement()) {
+            // 1. poi_item_stock
+            stmt.executeUpdate(
+                "CREATE TABLE IF NOT EXISTS poi_item_stock (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
+                "poi_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
+                "object_type INT NOT NULL COMMENT '对象类型：1-SPU, 2-SKU', " +
+                "object_id BIGINT NOT NULL COMMENT '对象ID', " +
+                "stock_status INT NOT NULL COMMENT '库存状态：1-可售, 2-售罄', " +
+                "stock_type INT DEFAULT 0 COMMENT '库存类型：1-不限量, 2-限量', " +
+                "plan_quantity DECIMAL(10,1) DEFAULT 0 COMMENT '计划库存份数', " +
+                "real_quantity DECIMAL(10,1) DEFAULT 0 COMMENT '实时库存', " +
+                "auto_restore_type INT DEFAULT 0 COMMENT '自动恢复类型', " +
+                "auto_restore_at TIMESTAMP NULL COMMENT '恢复时间', " +
+                "shared_pool_quantity DECIMAL(10,1) DEFAULT 0 COMMENT '共享池库存', " +
+                "last_manual_set_time TIMESTAMP NULL COMMENT '最后手动设置时间', " +
+                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
+                "UNIQUE KEY uk_brand_poi_object (brand_id, poi_id, object_id), " +
+                "INDEX idx_brand_poi (brand_id, poi_id), " +
+                "INDEX idx_updated_at (updated_at)" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品库存主表'"
+            );
+            log.info("  ✓ poi_item_stock 表创建成功");
+            
+            // 2. poi_item_channel_stock
+            stmt.executeUpdate(
+                "CREATE TABLE IF NOT EXISTS poi_item_channel_stock (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
+                "poi_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
+                "stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id', " +
+                "stock_status INT NOT NULL COMMENT '库存状态：1-可售, 2-售罄', " +
+                "stock_type INT DEFAULT 0 COMMENT '库存类型', " +
+                "channel_code VARCHAR(32) NOT NULL COMMENT '渠道代码', " +
+                "channel_quota DECIMAL(10,1) DEFAULT 0 COMMENT '渠道分配额度', " +
+                "channel_sold DECIMAL(10,1) DEFAULT 0 COMMENT '渠道已售数量', " +
+                "channel_weight DECIMAL(3,2) DEFAULT 0.33 COMMENT '渠道权重', " +
+                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
+                "UNIQUE KEY uk_stock_channel (stock_id, channel_code), " +
+                "INDEX idx_brand_poi (brand_id, poi_id), " +
+                "INDEX idx_stock_id (stock_id)" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品渠道库存表'"
+            );
+            log.info("  ✓ poi_item_channel_stock 表创建成功");
+            
+            // 3. poi_item_stock_log
+            stmt.executeUpdate(
+                "CREATE TABLE IF NOT EXISTS poi_item_stock_log (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
+                "poi_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
+                "stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id', " +
+                "content TEXT NOT NULL COMMENT '变更内容JSON', " +
+                "change_type VARCHAR(20) NOT NULL DEFAULT 'ABSOLUTE_SET' COMMENT '变更类型', " +
+                "delta DECIMAL(10,1) DEFAULT 0 COMMENT '变更量', " +
+                "source VARCHAR(20) NOT NULL DEFAULT 'CLOUD' COMMENT '来源', " +
+                "order_id VARCHAR(64) NULL COMMENT '关联订单ID', " +
+                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                "INDEX idx_stock_id (stock_id), " +
+                "INDEX idx_brand_poi (brand_id, poi_id), " +
+                "INDEX idx_created_at (created_at), " +
+                "INDEX idx_order_id (order_id), " +
+                "INDEX idx_stock_change_time (stock_id, change_type, created_at)" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存变更记录表'"
+            );
+            log.info("  ✓ poi_item_stock_log 表创建成功");
+            
+            // 4. oversell_record
+            stmt.executeUpdate(
+                "CREATE TABLE IF NOT EXISTS oversell_record (" +
+                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
+                "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
+                "poi_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
+                "stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id', " +
+                "object_id BIGINT NOT NULL COMMENT '商品对象ID', " +
+                "oversell_quantity DECIMAL(10,1) NOT NULL COMMENT '超卖数量', " +
+                "source VARCHAR(20) NOT NULL COMMENT '触发来源', " +
+                "status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '状态', " +
+                "resolved_by VARCHAR(64) NULL COMMENT '处理人', " +
+                "resolved_at TIMESTAMP NULL COMMENT '处理时间', " +
+                "remark TEXT NULL COMMENT '备注', " +
+                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
+                "INDEX idx_brand_poi (brand_id, poi_id), " +
+                "INDEX idx_stock_id (stock_id), " +
+                "INDEX idx_status (status), " +
+                "INDEX idx_created_at (created_at)" +
+                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='超卖记录表'"
+            );
+            log.info("  ✓ oversell_record 表创建成功");
+            
+        } catch (Exception e) {
+            log.error("创建商品中心库存管理表失败: {}", e.getMessage(), e);
+        }
+    }
 }
 
 

@@ -42,7 +42,7 @@ public class ProductShardIdDatabaseShardingAlgorithmV2 implements StandardShardi
     /**
      * 数据源数量（降级时使用）
      */
-    private int dsCount = 3;
+    private int dsCount = 2;
     
     /**
      * 数据源名称前缀（降级时使用）
@@ -98,7 +98,7 @@ public class ProductShardIdDatabaseShardingAlgorithmV2 implements StandardShardi
     /**
      * 精确分片（用于 = 和 IN 查询）
      * 
-     * @param availableTargetNames 可用的数据源名称列表（ds0, ds1, ds2）
+     * @param availableTargetNames 可用的数据源名称列表（ds0, ds1）
      * @param shardingValue 分片值（product_shard_id）
      * @return 目标数据源名称
      */

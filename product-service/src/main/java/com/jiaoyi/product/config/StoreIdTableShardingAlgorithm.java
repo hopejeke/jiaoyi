@@ -14,16 +14,16 @@ import java.util.Properties;
  * 
  * 核心逻辑：
  * 1. 从 store_id 计算 product_shard_id：使用 ProductShardUtil.calculateProductShardId(storeId)
- * 2. 计算表索引：table_idx = product_shard_id % 32
+ * 2. 计算表索引：table_idx = product_shard_id % 4
  * 3. 生成物理表名：table_name = logicTableName + "_" + twoDigits(table_idx)
  * 
  * 配置参数：
- * - table.count.per.db: 每库表数量（默认32）
+ * - table.count.per.db: 每库表数量（默认4）
  */
 @Slf4j
 public class StoreIdTableShardingAlgorithm implements StandardShardingAlgorithm<Long> {
     
-    private int tableCountPerDb = 32;
+    private int tableCountPerDb = 4;
     
     @Override
     public void init(Properties props) {
@@ -31,7 +31,7 @@ public class StoreIdTableShardingAlgorithm implements StandardShardingAlgorithm<
             try {
                 tableCountPerDb = Integer.parseInt(props.getProperty("table.count.per.db"));
             } catch (NumberFormatException e) {
-                log.warn("【StoreIdTableShardingAlgorithm】无法解析 table.count.per.db，使用默认值 32", e);
+                log.warn("【StoreIdTableShardingAlgorithm】无法解析 table.count.per.db，使用默认值 4", e);
             }
         }
         log.info("【StoreIdTableShardingAlgorithm】初始化完成，每库表数量: {}", tableCountPerDb);

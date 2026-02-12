@@ -27,5 +27,12 @@ public class RocketMQConfig {
     
     // 库存缓存更新消费者组
     public static final String INVENTORY_CACHE_UPDATE_CONSUMER_GROUP = "inventory-cache-update-consumer-group";
+    
+    // POI商品库存同步相关Topic（商品中心 → POS）
+    public static final String POI_ITEM_STOCK_SYNC_TOPIC = "poi-item-stock-sync-topic";
+    public static final String POI_ITEM_STOCK_SYNC_TAG = "sync-to-pos";
+    
+    // POI商品库存同步消费者组
+    public static final String POI_ITEM_STOCK_SYNC_CONSUMER_GROUP = "poi-item-stock-sync-consumer-group";
 }
 

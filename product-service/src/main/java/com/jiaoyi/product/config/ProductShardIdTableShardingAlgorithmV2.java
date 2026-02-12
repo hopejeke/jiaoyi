@@ -21,7 +21,7 @@ import java.util.Properties;
  * 配置参数：
  * - use-routing-table: 是否使用路由表（默认 true）
  * - fallback-to-mod: 路由表不可用时是否降级为取模（默认 false）
- * - table-count-per-db: 每库表数量（默认32，降级时使用）
+ * - table-count-per-db: 每库表数量（默认4，降级时使用）
  */
 @Slf4j
 public class ProductShardIdTableShardingAlgorithmV2 implements StandardShardingAlgorithm<Integer> {
@@ -39,7 +39,7 @@ public class ProductShardIdTableShardingAlgorithmV2 implements StandardShardingA
     /**
      * 每库表数量（降级时使用）
      */
-    private int tableCountPerDb = 32;
+    private int tableCountPerDb = 4;
     
     /**
      * 路由缓存（延迟加载）
@@ -87,7 +87,7 @@ public class ProductShardIdTableShardingAlgorithmV2 implements StandardShardingA
     /**
      * 精确分片（用于 = 和 IN 查询）
      * 
-     * @param availableTargetNames 可用的表名列表（orders_00..orders_31）
+     * @param availableTargetNames 可用的表名列表（store_products_00..store_products_03）
      * @param shardingValue 分片值（product_shard_id）
      * @return 目标表名
      */
