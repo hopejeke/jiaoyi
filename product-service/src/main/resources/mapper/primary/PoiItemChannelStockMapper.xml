@@ -13,6 +13,9 @@
         <result column="channel_quota" property="channelQuota"/>
         <result column="channel_sold" property="channelSold"/>
         <result column="channel_weight" property="channelWeight"/>
+        <result column="borrowed_from_pool" property="borrowedFromPool"/>
+        <result column="contributed_to_pool" property="contributedToPool"/>
+        <result column="utilization_rate" property="utilizationRate"/>
         <result column="created_at" property="createdAt"/>
         <result column="updated_at" property="updatedAt"/>
     </resultMap>
@@ -61,6 +64,7 @@
     <update id="atomicDeductChannelQuota">
         UPDATE poi_item_channel_stock
         SET channel_sold = channel_sold + #{delta},
+            utilization_rate = ROUND((channel_sold + #{delta}) / NULLIF(channel_quota, 0) * 100, 1),
             updated_at = NOW()
         WHERE stock_id = #{stockId}
           AND channel_code = #{channelCode}
@@ -77,12 +81,71 @@
         WHERE id = #{id}
     </update>
     
-    <!-- 重置渠道已售数量 -->
+    <!-- 重置渠道已售数量（重新分配额度时） -->
     <update id="resetChannelSold">
         UPDATE poi_item_channel_stock
         SET channel_sold = 0,
+            utilization_rate = 0,
             updated_at = NOW()
         WHERE stock_id = #{stockId}
     </update>
-    
+
+    <!-- 累加共享池借调量（渠道额度不够，从共享池借时记录） -->
+    <update id="addBorrowedFromPool">
+        UPDATE poi_item_channel_stock
+        SET borrowed_from_pool = borrowed_from_pool + #{amount},
+            updated_at = NOW()
+        WHERE stock_id = #{stockId}
+          AND channel_code = #{channelCode}
+    </update>
+
+    <!-- 累加共享池贡献量（渠道额度回收到共享池时记录） -->
+    <update id="addContributedToPool">
+        UPDATE poi_item_channel_stock
+        SET contributed_to_pool = contributed_to_pool + #{amount},
+            updated_at = NOW()
+        WHERE stock_id = #{stockId}
+          AND channel_code = #{channelCode}
+    </update>
+
+    <!-- 查询使用率低于水位线的渠道（用于自动回收空闲额度） -->
+    <select id="selectLowUtilizationChannels" resultMap="BaseResultMap">
+        SELECT * FROM poi_item_channel_stock
+        WHERE stock_id = #{stockId}
+          AND stock_status = 1
+          AND channel_quota > 0
+          AND (channel_sold / channel_quota * 100) &lt; #{lowWatermark}
+        ORDER BY utilization_rate ASC
+    </select>
+
+    <!-- 查询使用率超过水位线的渠道（用于触发共享池借调） -->
+    <select id="selectHighUtilizationChannels" resultMap="BaseResultMap">
+        SELECT * FROM poi_item_channel_stock
+        WHERE stock_id = #{stockId}
+          AND stock_status = 1
+          AND channel_quota > 0
+          AND (channel_sold / channel_quota * 100) > #{highWatermark}
+        ORDER BY utilization_rate DESC
+    </select>
+
+    <!-- 原子回收渠道额度到共享池（减少渠道quota，同时增加贡献量） -->
+    <update id="reclaimChannelQuota">
+        UPDATE poi_item_channel_stock
+        SET channel_quota = channel_quota - #{reclaimAmount},
+            contributed_to_pool = contributed_to_pool + #{reclaimAmount},
+            utilization_rate = ROUND(channel_sold / NULLIF(channel_quota - #{reclaimAmount}, 0) * 100, 1),
+            updated_at = NOW()
+        WHERE id = #{id}
+          AND (channel_quota - channel_sold) >= #{reclaimAmount}
+    </update>
+
+    <!-- 重置贡献追踪计数（每日或每次重新分配时重置） -->
+    <update id="resetContributionTracking">
+        UPDATE poi_item_channel_stock
+        SET borrowed_from_pool = 0,
+            contributed_to_pool = 0,
+            updated_at = NOW()
+        WHERE stock_id = #{stockId}
+    </update>
+
 </mapper>

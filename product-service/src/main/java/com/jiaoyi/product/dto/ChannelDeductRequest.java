@@ -36,4 +36,13 @@ public class ChannelDeductRequest {
     
     /** 关联订单ID（用于幂等） */
     private String orderId;
+
+    /**
+     * 扣减策略名称（可选）
+     * - STANDARD_FUNNEL: 标准三层漏斗（默认）: 渠道额度 → 共享池 → 拒绝
+     * - STRICT_CHANNEL:  严格渠道隔离: 渠道额度 → 直接拒绝
+     * - SHARED_POOL_FIRST: 共享池优先: 共享池 → 渠道额度 → 拒绝
+     * 不传则使用默认策略
+     */
+    private String strategyName;
 }

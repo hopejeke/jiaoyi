@@ -11,6 +11,8 @@ import com.jiaoyi.product.mapper.primary.PoiItemChannelStockMapper;
 import com.jiaoyi.product.mapper.primary.PoiItemStockLogMapper;
 import com.jiaoyi.product.mapper.primary.PoiItemStockMapper;
 import com.jiaoyi.product.mapper.primary.OversellRecordMapper;
+import com.jiaoyi.product.service.strategy.ChannelDeductionStrategy;
+import com.jiaoyi.product.service.strategy.StandardDeductionStrategy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,41 +25,74 @@ import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 /**
  * 商品中心库存服务
- * 
+ *
+ * 架构概览（三层库存模型）：
+ *
+ *   ┌──────────────────────────────────────────────────┐
+ *   │              POI 总库存 (real_quantity)            │
+ *   │                                                  │
+ *   │   ┌──────────┐ ┌──────────┐ ┌──────────┐       │
+ *   │   │  POS 渠道 │ │ KIOSK渠道│ │ 在线渠道  │       │
+ *   │   │  quota:30│ │ quota:20 │ │ quota:30 │       │
+ *   │   │  sold:25 │ │ sold:5   │ │ sold:28  │       │
+ *   │   └──────────┘ └──────────┘ └──────────┘       │
+ *   │                                                  │
+ *   │   ┌──────────────────────────────────────┐      │
+ *   │   │         共享池 (shared_pool: 20)      │      │
+ *   │   │   任何渠道额度不够时可以借用            │      │
+ *   │   └──────────────────────────────────────┘      │
+ *   └──────────────────────────────────────────────────┘
+ *
  * 核心功能：
  * 1. POS/商品中心 库存同步（syncFromPos / updateStock）
  * 2. POS 离线事件回放（replayOfflineEvents）
- * 3. 渠道库存隔离扣减（deductByChannel：先扣渠道额度→再借共享池）
+ * 3. 渠道库存隔离扣减（deductByChannel）：策略模式，支持多种扣减策略
  * 4. 共享池加权分配（allocateChannelQuotas）
  * 5. 超卖检测和补偿（detectOversellAndRecord）
  * 6. 绝对设置 vs 相对变更冲突合并（handleAbsoluteSet / handleRelativeDelta）
+ * 7. 渠道贡献度追踪 + 动态权重调整（ChannelStockRebalanceService）
  */
 @Slf4j
 @Service
 public class PoiItemStockService {
-    
+
     @Autowired
     private PoiItemStockMapper stockMapper;
-    
+
     @Autowired
     private PoiItemChannelStockMapper channelStockMapper;
-    
+
     @Autowired
     private PoiItemStockLogMapper stockLogMapper;
-    
+
     @Autowired
     private OversellRecordMapper oversellRecordMapper;
-    
+
     @Autowired
     private ObjectMapper objectMapper;
-    
+
     @Autowired
     private OutboxService outboxService;
-    
+
+    /**
+     * 扣减策略注册表
+     * key = 策略名称, value = 策略实例
+     * 支持运行时通过配置中心切换策略
+     */
+    @Autowired
+    private Map<String, ChannelDeductionStrategy> strategyMap;
+
+    /**
+     * 默认扣减策略（标准三层漏斗）
+     */
+    @Autowired
+    private StandardDeductionStrategy defaultDeductionStrategy;
+
     private static final String OUTBOX_TYPE_STOCK_SYNC = "POI_ITEM_STOCK_SYNC_MQ";
     
     // ========================= 1. POS 在线库存同步 =========================
@@ -243,24 +278,25 @@ public class PoiItemStockService {
         }
     }
     
-    // ========================= 3. 渠道库存隔离扣减 =========================
-    
+    // ========================= 3. 渠道库存隔离扣减（策略模式） =========================
+
     /**
-     * 渠道级别库存扣减
-     * 
-     * 三层扣减逻辑（同一事务内）：
-     * ① 检查渠道是否售罄 → 拒绝
-     * ② 尝试扣渠道专属额度（channel_quota - channel_sold >= delta）
-     * ③ 渠道额度不够 → 尝试从共享池借（shared_pool_quantity >= delta）
-     * ④ 共享池也不够 → 返回库存不足
-     * ⑤ 扣减成功后，同步扣减 real_quantity 并写日志
+     * 渠道级别库存扣减（策略模式入口）
+     *
+     * 通过策略模式支持多种扣减策略，解耦扣减逻辑与业务控制：
+     * - STANDARD_FUNNEL（默认）: 渠道额度 → 共享池借调 → 拒绝
+     * - STRICT_CHANNEL:         渠道额度 → 直接拒绝（不借共享池）
+     * - SHARED_POOL_FIRST:      共享池 → 渠道额度 → 拒绝（促销活动场景）
+     *
+     * 策略选择可以通过 request.getStrategyName() 指定，也可以通过配置中心按
+     * brandId/poiId/channelCode 路由到不同策略。
      */
     @Transactional(transactionManager = "primaryTransactionManager")
     public ChannelDeductResult deductByChannel(ChannelDeductRequest request) {
         log.info("渠道库存扣减: poiId={}, objectId={}, channel={}, qty={}, orderId={}",
             request.getPoiId(), request.getObjectId(), request.getChannelCode(),
             request.getQuantity(), request.getOrderId());
-        
+
         // 1. 幂等检查
         if (request.getOrderId() != null) {
             int count = stockLogMapper.countByOrderId(request.getOrderId());
@@ -269,86 +305,82 @@ public class PoiItemStockService {
                 return ChannelDeductResult.duplicate();
             }
         }
-        
-        // 2. 查询库存主表（加行锁）
+
+        // 2. 查询库存主表
         PoiItemStock stock = stockMapper.selectByBrandIdAndPoiIdAndObjectId(
             request.getBrandId(), request.getPoiId(), request.getObjectId());
         if (stock == null) {
             throw new RuntimeException("库存记录不存在: objectId=" + request.getObjectId());
         }
-        
+
         // 不限量模式直接成功
         if (stock.getStockType() != null && stock.getStockType() == PoiItemStock.StockType.UNLIMITED.getCode()) {
             writeDeductLog(stock, request, "UNLIMITED_PASS");
             return ChannelDeductResult.success(
                 ChannelDeductResult.Status.SUCCESS_FROM_CHANNEL, null, null);
         }
-        
+
         // 3. 查询渠道库存
         PoiItemChannelStock channelStock = channelStockMapper.selectByStockIdAndChannel(
             stock.getId(), request.getChannelCode());
-        
+
         // 如果渠道已售罄
-        if (channelStock != null && channelStock.getStockStatus() != null 
+        if (channelStock != null && channelStock.getStockStatus() != null
             && channelStock.getStockStatus() == PoiItemStock.StockStatus.OUT_OF_STOCK.getCode()) {
             return new ChannelDeductResult(
-                ChannelDeductResult.Status.CHANNEL_OUT_OF_STOCK, BigDecimal.ZERO, 
+                ChannelDeductResult.Status.CHANNEL_OUT_OF_STOCK, BigDecimal.ZERO,
                 stock.getSharedPoolQuantity(), "该渠道已售罄");
         }
-        
-        BigDecimal delta = request.getQuantity();
-        
-        // 4. 尝试扣渠道专属额度
-        if (channelStock != null) {
-            int channelDeducted = channelStockMapper.atomicDeductChannelQuota(
-                stock.getId(), request.getChannelCode(), delta);
-            
-            if (channelDeducted > 0) {
-                // 渠道额度扣成功，同步扣主表 real_quantity
-                stockMapper.atomicDeduct(stock.getId(), delta);
-                
-                writeDeductLog(stock, request, "FROM_CHANNEL");
-                
+
+        // 4. 选择扣减策略（策略模式）
+        ChannelDeductionStrategy strategy = resolveStrategy(request);
+        log.info("使用扣减策略: {}, channel={}", strategy.name(), request.getChannelCode());
+
+        // 5. 执行策略扣减
+        ChannelDeductResult result = strategy.deduct(stock, channelStock, request);
+
+        // 6. 后置处理：写日志 + 自动售罄检测
+        if (result.isSuccess()) {
+            String source = result.getStatus() == ChannelDeductResult.Status.SUCCESS_FROM_SHARED_POOL
+                    ? "FROM_SHARED_POOL" : "FROM_CHANNEL";
+            writeDeductLog(stock, request, source);
+
+            // 自动售罄检测
+            if (channelStock != null) {
                 PoiItemChannelStock updated = channelStockMapper.selectByStockIdAndChannel(
-                    stock.getId(), request.getChannelCode());
-                BigDecimal channelRemaining = updated != null ? updated.getChannelRemaining() : BigDecimal.ZERO;
-                
-                // 检查扣减后渠道是否该售罄
-                autoMarkChannelSoldOut(stock.getId(), request.getChannelCode(), channelRemaining);
-                
-                log.info("渠道额度扣减成功: channel={}, remaining={}", 
-                    request.getChannelCode(), channelRemaining);
-                return ChannelDeductResult.success(
-                    ChannelDeductResult.Status.SUCCESS_FROM_CHANNEL,
-                    channelRemaining, stock.getSharedPoolQuantity());
+                        stock.getId(), request.getChannelCode());
+                if (updated != null) {
+                    autoMarkChannelSoldOut(stock.getId(), request.getChannelCode(), updated.getChannelRemaining());
+                }
             }
+        } else if (result.getStatus() == ChannelDeductResult.Status.OUT_OF_STOCK) {
+            autoMarkChannelSoldOut(stock.getId(), request.getChannelCode(), BigDecimal.ZERO);
+            autoMarkStockSoldOut(stock);
         }
-        
-        // 5. 渠道额度不够，尝试从共享池借
-        int sharedDeducted = stockMapper.atomicDeductSharedPool(stock.getId(), delta);
-        if (sharedDeducted > 0) {
-            writeDeductLog(stock, request, "FROM_SHARED_POOL");
-            
-            PoiItemStock updatedStock = stockMapper.selectByBrandIdAndPoiIdAndObjectId(
-                request.getBrandId(), request.getPoiId(), request.getObjectId());
-            BigDecimal channelRemaining = channelStock != null ? channelStock.getChannelRemaining() : BigDecimal.ZERO;
-            
-            log.info("共享池扣减成功: sharedPoolRemaining={}", updatedStock.getSharedPoolQuantity());
-            return ChannelDeductResult.success(
-                ChannelDeductResult.Status.SUCCESS_FROM_SHARED_POOL,
-                channelRemaining, updatedStock.getSharedPoolQuantity());
+
+        return result;
+    }
+
+    /**
+     * 策略路由：根据请求参数选择扣减策略
+     *
+     * 路由优先级：
+     * 1. 请求显式指定 strategyName → 使用指定策略
+     * 2. 未指定 → 使用默认策略（StandardDeductionStrategy）
+     *
+     * 扩展点：可以接入配置中心，按 brandId/poiId 路由到不同策略
+     */
+    private ChannelDeductionStrategy resolveStrategy(ChannelDeductRequest request) {
+        // 如果请求显式指定了策略
+        if (request.getStrategyName() != null && !request.getStrategyName().isEmpty()) {
+            for (ChannelDeductionStrategy s : strategyMap.values()) {
+                if (s.name().equalsIgnoreCase(request.getStrategyName())) {
+                    return s;
+                }
+            }
+            log.warn("未找到策略: {}, 降级使用默认策略", request.getStrategyName());
         }
-        
-        // 6. 都不够 → 库存不足
-        BigDecimal channelRemaining = channelStock != null ? channelStock.getChannelRemaining() : BigDecimal.ZERO;
-        log.warn("库存不足: channel={}, channelRemaining={}, sharedPool={}", 
-            request.getChannelCode(), channelRemaining, stock.getSharedPoolQuantity());
-        
-        // 自动售罄
-        autoMarkChannelSoldOut(stock.getId(), request.getChannelCode(), BigDecimal.ZERO);
-        autoMarkStockSoldOut(stock);
-        
-        return ChannelDeductResult.outOfStock(channelRemaining, stock.getSharedPoolQuantity());
+        return defaultDeductionStrategy;
     }
     
     // ========================= 4. 共享池加权分配 =========================
