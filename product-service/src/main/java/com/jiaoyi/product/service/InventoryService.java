@@ -312,11 +312,59 @@ public class InventoryService {
             throw new IllegalArgumentException("扣减库存时必须提供订单ID（用于幂等性校验）");
         }
         
-        // ========== CAS 更新：从 LOCKED 状态转为 DEDUCTED ==========
-        // 使用 CAS 更新，只有当前状态是 LOCK 时才能更新为 OUT
-        // 如果状态不是 LOCK（已被解锁或已扣减），affected rows = 0，拒绝操作
-        // 这保证了 deduct 和 unlock 的互斥性
+        // ========== 幂等与分支：已有流水则按状态处理 ==========
+        InventoryTransaction existingTx = transactionMapper.selectByOrderIdAndSkuId(orderId, skuId);
+        if (existingTx != null) {
+            String currentType = existingTx.getTransactionType() != null ? existingTx.getTransactionType().name() : null;
+            if ("OUT".equals(currentType)) {
+                log.warn("库存扣减已执行过（幂等），订单ID: {}, SKU ID: {}", orderId, skuId);
+                return;
+            }
+            if ("UNLOCK".equals(currentType)) {
+                throw new RuntimeException("订单已解锁库存，不允许扣减，订单ID: " + orderId + ", SKU ID: " + skuId);
+            }
+            // existingType == LOCK -> 走 OO 流程（先锁后扣），见下方 casUpdateToDeducted
+        }
         
+        // ========== 无锁直扣（POS 等）：无流水时先插 OUT 再只扣 current_stock ==========
+        if (existingTx == null) {
+            InventoryTransaction outTx = new InventoryTransaction();
+            outTx.setProductId(productId);
+            outTx.setSkuId(skuId);
+            outTx.setProductShardId(inventory.getProductShardId());
+            outTx.setOrderId(orderId);
+            outTx.setTransactionType(InventoryTransaction.TransactionType.OUT);
+            outTx.setQuantity(quantity);
+            outTx.setBeforeStock(inventory.getCurrentStock());
+            outTx.setAfterStock(inventory.getCurrentStock() - quantity);
+            outTx.setBeforeLocked(0);
+            outTx.setAfterLocked(0);
+            outTx.setRemark("直接实扣（无锁定，如 POS 支付成功）SKU ID: " + skuId);
+            outTx.setCreateTime(java.time.LocalDateTime.now());
+            int inserted = transactionMapper.tryInsert(outTx);
+            if (inserted == 0) {
+                // 并发下可能已被其他请求插入，再查一次
+                existingTx = transactionMapper.selectByOrderIdAndSkuId(orderId, skuId);
+                if (existingTx != null && "OUT".equals(existingTx.getTransactionType() != null ? existingTx.getTransactionType().name() : null)) {
+                    log.warn("库存扣减已执行过（幂等，并发），订单ID: {}, SKU ID: {}", orderId, skuId);
+                    return;
+                }
+                throw new RuntimeException("库存扣减流水插入冲突，订单ID: " + orderId + ", SKU ID: " + skuId);
+            }
+            int directUpdated = inventoryMapper.deductStockBySkuDirect(productId, skuId, quantity);
+            if (directUpdated == 0) {
+                throw new RuntimeException("库存不足或记录不存在，无法直接扣减，订单ID: " + orderId + ", SKU ID: " + skuId);
+            }
+            Inventory latest = inventoryMapper.selectByStoreIdAndProductIdAndSkuId(inventory.getStoreId(), productId, skuId);
+            if (latest != null) {
+                inventory.setCurrentStock(latest.getCurrentStock());
+                inventoryCacheService.updateInventoryCache(inventory);
+            }
+            log.info("库存直接实扣成功（无锁），商品ID: {}, SKU ID: {}, 数量: {}, 订单ID: {}", productId, skuId, quantity, orderId);
+            return;
+        }
+        
+        // ========== OO 流程：CAS 更新流水 LOCK -> OUT，再扣 current_stock + locked_stock ==========
         int casUpdated = transactionMapper.casUpdateToDeducted(
                 orderId,
                 skuId,

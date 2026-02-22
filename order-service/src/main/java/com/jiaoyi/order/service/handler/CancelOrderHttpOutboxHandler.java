@@ -62,40 +62,15 @@ public class CancelOrderHttpOutboxHandler implements OutboxHandler {
             throw new RuntimeException("优惠券退还失败: " + e.getMessage(), e);
         }
         
-        // 2. 解锁库存（如果有订单项）
-        if (command.getProductIds() != null && !command.getProductIds().isEmpty() &&
-            command.getSkuIds() != null && !command.getSkuIds().isEmpty() &&
-            command.getQuantities() != null && !command.getQuantities().isEmpty() &&
-            command.getProductIds().size() == command.getSkuIds().size()) {
-            
+        // 2. 按订单归还库存
+        if (orderId != null && !orderId.isEmpty()) {
             try {
-                ProductServiceClient.UnlockStockBatchRequest unlockRequest = new ProductServiceClient.UnlockStockBatchRequest();
-                unlockRequest.setProductIds(command.getProductIds());
-                unlockRequest.setSkuIds(command.getSkuIds());
-                unlockRequest.setQuantities(command.getQuantities());
-                unlockRequest.setOrderId(orderId);
-                
-                com.jiaoyi.common.ApiResponse<com.jiaoyi.common.OperationResult> stockResponse = productServiceClient.unlockStockBatch(unlockRequest);
-                if (stockResponse.getCode() != 200 || stockResponse.getData() == null) {
-                    throw new RuntimeException("库存解锁失败: " + (stockResponse.getMessage() != null ? stockResponse.getMessage() : "未知错误"));
-                }
-                
-                com.jiaoyi.common.OperationResult stockResult = stockResponse.getData();
-                if (com.jiaoyi.common.OperationResult.ResultStatus.FAILED.equals(stockResult.getStatus())) {
-                    throw new RuntimeException("库存解锁失败: " + stockResult.getMessage());
-                }
-                
-                // SUCCESS 或 IDEMPOTENT_SUCCESS 都视为成功
-                log.info("【CancelOrderHandler】库存解锁{}，outboxId: {}, orderId: {}, 状态: {}", 
-                        com.jiaoyi.common.OperationResult.ResultStatus.IDEMPOTENT_SUCCESS.equals(stockResult.getStatus()) ? "（幂等成功）" : "成功",
-                        outbox.getId(), orderId, stockResult.getStatus());
+                productServiceClient.returnByOrder(orderId);
+                log.info("【CancelOrderHandler】按订单归还库存成功，outboxId: {}, orderId: {}", outbox.getId(), orderId);
             } catch (Exception e) {
-                log.error("【CancelOrderHandler】库存解锁失败，outboxId: {}, orderId: {}", outbox.getId(), orderId, e);
-                // 注意：优惠券已退还，但库存未解锁，需要重试或人工处理
-                throw new RuntimeException("库存解锁失败: " + e.getMessage(), e);
+                log.error("【CancelOrderHandler】按订单归还库存失败，outboxId: {}, orderId: {}", outbox.getId(), orderId, e);
+                throw new RuntimeException("库存归还失败: " + e.getMessage(), e);
             }
-        } else {
-            log.warn("【CancelOrderHandler】订单项信息不完整，跳过库存解锁，outboxId: {}, orderId: {}", outbox.getId(), orderId);
         }
         
         log.info("【CancelOrderHandler】取消订单任务处理成功，outboxId: {}, orderId: {}", outbox.getId(), orderId);

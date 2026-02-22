@@ -16,9 +16,9 @@ public interface OversellRecordMapper {
     
     OversellRecord selectById(@Param("id") Long id);
     
-    List<OversellRecord> selectByBrandIdAndPoiId(
+    List<OversellRecord> selectByBrandIdAndStoreId(
         @Param("brandId") String brandId,
-        @Param("poiId") String poiId,
+        @Param("storeId") String storeId,
         @Param("status") String status,
         @Param("limit") Integer limit
     );

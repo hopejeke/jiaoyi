@@ -28,7 +28,7 @@ ALTER TABLE poi_item_stock_log
 CREATE TABLE IF NOT EXISTS oversell_record (
     id BIGINT AUTO_INCREMENT PRIMARY KEY,
     brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID',
-    poi_id VARCHAR(32) NOT NULL COMMENT '门店ID',
+    store_id VARCHAR(32) NOT NULL COMMENT '门店ID',
     stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id',
     object_id BIGINT NOT NULL COMMENT '商品对象ID',
     oversell_quantity DECIMAL(10,1) NOT NULL COMMENT '超卖数量',
@@ -38,7 +38,7 @@ CREATE TABLE IF NOT EXISTS oversell_record (
     resolved_at TIMESTAMP NULL COMMENT '处理时间',
     remark TEXT NULL COMMENT '备注',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
-    INDEX idx_brand_poi (brand_id, poi_id),
+    INDEX idx_brand_store (brand_id, store_id),
     INDEX idx_stock_id (stock_id),
     INDEX idx_status (status),
     INDEX idx_created_at (created_at)

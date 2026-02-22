@@ -40,7 +40,7 @@ public class OversellRecord {
     
     private Long id;
     private String brandId;
-    private String poiId;
+    private String storeId;
     private Long stockId;
     private Long objectId;
     private BigDecimal oversellQuantity;

@@ -187,31 +187,10 @@ public class OrderTimeoutMessageService implements RocketMQListener<OrderTimeout
             
             log.info("订单超时取消成功，订单ID: {}", order.getId());
             
-            // 2. 解锁库存（SKU级别）
+            // 2. 按订单归还库存
             if (order.getOrderItems() != null && !order.getOrderItems().isEmpty()) {
-                List<Long> productIds = order.getOrderItems().stream()
-                        .filter(item -> item.getProductId() != null)
-                        .map(item -> item.getProductId())
-                        .collect(Collectors.toList());
-                List<Long> skuIds = order.getOrderItems().stream()
-                        .filter(item -> item.getSkuId() != null)
-                        .map(item -> item.getSkuId())
-                        .collect(Collectors.toList());
-                List<Integer> quantities = order.getOrderItems().stream()
-                        .map(item -> item.getQuantity())
-                        .collect(Collectors.toList());
-                
-                if (!productIds.isEmpty() && !skuIds.isEmpty() && productIds.size() == skuIds.size()) {
-                    ProductServiceClient.UnlockStockBatchRequest unlockRequest = new ProductServiceClient.UnlockStockBatchRequest();
-                    unlockRequest.setProductIds(productIds);
-                    unlockRequest.setSkuIds(skuIds);
-                    unlockRequest.setQuantities(quantities);
-                    unlockRequest.setOrderId(order.getId());
-                    productServiceClient.unlockStockBatch(unlockRequest);
-                    log.info("超时订单库存解锁成功（SKU级别），订单ID: {}", order.getId());
-                } else {
-                    log.warn("订单项缺少productId或skuId，无法解锁库存，订单ID: {}", order.getId());
-                }
+                productServiceClient.returnByOrder(String.valueOf(order.getId()));
+                log.info("超时订单按订单归还库存成功，订单ID: {}", order.getId());
             }
             
             // 3. 退还优惠券

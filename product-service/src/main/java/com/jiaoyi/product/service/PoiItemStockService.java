@@ -59,6 +59,14 @@ public class PoiItemStockService {
     private OutboxService outboxService;
     
     private static final String OUTBOX_TYPE_STOCK_SYNC = "POI_ITEM_STOCK_SYNC_MQ";
+    /** 分配模式一：单池+渠道上限。总库存一个池子，每渠道仅一个可售上限 channel_max，超过不能卖，0=不设上限；渠道不单独占库存。 */
+    private static final String ALLOCATION_MODE_WEIGHTED_QUOTA = "WEIGHTED_QUOTA";
+    /** 分配模式二：安全线保护。不预分配，总库存低于高优先级渠道安全线时锁定低优先级渠道。 */
+    private static final String ALLOCATION_MODE_SAFETY_STOCK = "SAFETY_STOCK";
+    /** 扣减来源：安全线模式（仅扣主表 real_quantity，归还时只还主表） */
+    private static final String DEDUCT_SOURCE_FROM_SAFETY_STOCK = "FROM_SAFETY_STOCK";
+    /** 扣减来源：方案一无渠道记录时只扣主表，归还时只还主表 */
+    private static final String DEDUCT_SOURCE_FROM_POOL = "FROM_POOL";
     
     // ========================= 1. POS 在线库存同步 =========================
     
@@ -67,11 +75,11 @@ public class PoiItemStockService {
      */
     @Transactional(transactionManager = "primaryTransactionManager")
     public void syncFromPos(StockSyncFromPosRequest request) {
-        log.info("接收POS上报库存变更: brandId={}, poiId={}, objectId={}", 
-            request.getBrandId(), request.getPoiId(), request.getObjectId());
+        log.info("接收POS上报库存变更: brandId={}, storeId={}, objectId={}", 
+            request.getBrandId(), request.getStoreId(), request.getObjectId());
         
-        PoiItemStock stock = stockMapper.selectByBrandIdAndPoiIdAndObjectId(
-            request.getBrandId(), request.getPoiId(), request.getObjectId());
+        PoiItemStock stock = stockMapper.selectByBrandIdAndStoreIdAndObjectId(
+            request.getBrandId(), request.getStoreId(), request.getObjectId());
         
         if (stock != null && request.getUpdatedAt() != null) {
             if (!stock.getUpdatedAt().equals(request.getUpdatedAt())) {
@@ -86,7 +94,7 @@ public class PoiItemStockService {
         if (stock == null) {
             stock = new PoiItemStock();
             stock.setBrandId(request.getBrandId());
-            stock.setPoiId(request.getPoiId());
+            stock.setStoreId(request.getStoreId());
             stock.setObjectType(PoiItemStock.ObjectType.SKU.getCode());
             stock.setObjectId(request.getObjectId());
             stock.setStockStatus(request.getStockStatus());
@@ -100,7 +108,7 @@ public class PoiItemStockService {
             stockMapper.insert(stock);
         } else {
             int updated = stockMapper.updateStock(
-                stock.getId(), request.getBrandId(), request.getPoiId(),
+                stock.getId(), request.getBrandId(), request.getStoreId(),
                 request.getStockStatus(), request.getStockType(),
                 request.getPlanQuantity(), request.getRealQuantity(),
                 request.getAutoRestoreType(), request.getAutoRestoreAt(),
@@ -118,7 +126,7 @@ public class PoiItemStockService {
             for (StockSyncFromPosRequest.ChannelStock cs : request.getChannelStocks()) {
                 PoiItemChannelStock channel = new PoiItemChannelStock();
                 channel.setBrandId(request.getBrandId());
-                channel.setPoiId(request.getPoiId());
+                channel.setStoreId(request.getStoreId());
                 channel.setStockId(stock.getId());
                 channel.setStockStatus(cs.getStockStatus());
                 channel.setStockType(cs.getStockType());
@@ -130,7 +138,7 @@ public class PoiItemStockService {
         }
         
         // 写变更日志
-        writeLog(stock, request.getBrandId(), request.getPoiId(),
+        writeLog(stock, request.getBrandId(), request.getStoreId(),
             "ABSOLUTE_SET", BigDecimal.ZERO, "POS", null, request);
     }
     
@@ -139,8 +147,8 @@ public class PoiItemStockService {
      */
     @Transactional(transactionManager = "primaryTransactionManager")
     public void updateStock(StockSyncFromPosRequest request) {
-        log.info("商品中心设置库存: brandId={}, poiId={}, objectId={}", 
-            request.getBrandId(), request.getPoiId(), request.getObjectId());
+        log.info("商品中心设置库存: brandId={}, storeId={}, objectId={}", 
+            request.getBrandId(), request.getStoreId(), request.getObjectId());
         
         syncFromPos(request);
         
@@ -150,8 +158,8 @@ public class PoiItemStockService {
                 try {
                     sendStockSyncToOutbox(request);
                 } catch (Exception e) {
-                    log.error("库存已更新但写入outbox失败: brandId={}, poiId={}, objectId={}", 
-                        request.getBrandId(), request.getPoiId(), request.getObjectId(), e);
+                    log.error("库存已更新但写入outbox失败: brandId={}, storeId={}, objectId={}", 
+                        request.getBrandId(), request.getStoreId(), request.getObjectId(), e);
                 }
             }
         });
@@ -171,8 +179,8 @@ public class PoiItemStockService {
      */
     @Transactional(transactionManager = "primaryTransactionManager")
     public PosOfflineReplayResult replayOfflineEvents(PosOfflineReplayRequest request) {
-        log.info("开始POS离线事件回放: brandId={}, poiId={}, posInstance={}, events={}",
-            request.getBrandId(), request.getPoiId(), 
+        log.info("开始POS离线事件回放: brandId={}, storeId={}, posInstance={}, events={}",
+            request.getBrandId(), request.getStoreId(), 
             request.getPosInstanceId(), request.getEvents().size());
         
         PosOfflineReplayResult result = new PosOfflineReplayResult();
@@ -185,7 +193,7 @@ public class PoiItemStockService {
         for (StockChangeEvent event : request.getEvents()) {
             // 补充 brand/poi（事件可能不带）
             if (event.getBrandId() == null) event.setBrandId(request.getBrandId());
-            if (event.getPoiId() == null) event.setPoiId(request.getPoiId());
+            if (event.getStoreId() == null) event.setStoreId(request.getStoreId());
             event.setSource(StockChangeEvent.Source.POS_OFFLINE);
             
             try {
@@ -224,8 +232,8 @@ public class PoiItemStockService {
      */
     private boolean applyStockChangeEvent(StockChangeEvent event) {
         // 查找库存记录
-        PoiItemStock stock = stockMapper.selectByBrandIdAndPoiIdAndObjectId(
-            event.getBrandId(), event.getPoiId(), event.getObjectId());
+        PoiItemStock stock = stockMapper.selectByBrandIdAndStoreIdAndObjectId(
+            event.getBrandId(), event.getStoreId(), event.getObjectId());
         
         if (stock == null) {
             throw new RuntimeException("库存记录不存在: objectId=" + event.getObjectId());
@@ -257,100 +265,153 @@ public class PoiItemStockService {
      */
     @Transactional(transactionManager = "primaryTransactionManager")
     public ChannelDeductResult deductByChannel(ChannelDeductRequest request) {
-        log.info("渠道库存扣减: poiId={}, objectId={}, channel={}, qty={}, orderId={}",
-            request.getPoiId(), request.getObjectId(), request.getChannelCode(),
+        log.info("渠道库存扣减: storeId={}, objectId={}, channel={}, qty={}, orderId={}",
+            request.getStoreId(), request.getObjectId(), request.getChannelCode(),
             request.getQuantity(), request.getOrderId());
-        
-        // 1. 幂等检查
-        if (request.getOrderId() != null) {
-            int count = stockLogMapper.countByOrderId(request.getOrderId());
-            if (count > 0) {
-                log.info("重复扣减请求，跳过: orderId={}", request.getOrderId());
-                return ChannelDeductResult.duplicate();
-            }
-        }
-        
-        // 2. 查询库存主表（加行锁）
-        PoiItemStock stock = stockMapper.selectByBrandIdAndPoiIdAndObjectId(
-            request.getBrandId(), request.getPoiId(), request.getObjectId());
+
+        PoiItemStock stock = stockMapper.selectByBrandIdAndStoreIdAndObjectId(
+            request.getBrandId(), request.getStoreId(), request.getObjectId());
         if (stock == null) {
             throw new RuntimeException("库存记录不存在: objectId=" + request.getObjectId());
         }
-        
-        // 不限量模式直接成功
+        if (request.getOrderId() != null) {
+            int count = stockLogMapper.countDeductByOrderIdAndStockId(request.getOrderId(), stock.getId());
+            if (count > 0) {
+                log.info("重复扣减请求，跳过: orderId={}, stockId={}", request.getOrderId(), stock.getId());
+                return ChannelDeductResult.duplicate();
+            }
+        }
         if (stock.getStockType() != null && stock.getStockType() == PoiItemStock.StockType.UNLIMITED.getCode()) {
             writeDeductLog(stock, request, "UNLIMITED_PASS");
             return ChannelDeductResult.success(
                 ChannelDeductResult.Status.SUCCESS_FROM_CHANNEL, null, null);
         }
-        
-        // 3. 查询渠道库存
+
+        // 商家可选两种模式：WEIGHTED_QUOTA=单池+渠道上限，SAFETY_STOCK=安全线保护
+        String mode = stock.getAllocationMode() != null ? stock.getAllocationMode() : ALLOCATION_MODE_WEIGHTED_QUOTA;
+        if (ALLOCATION_MODE_SAFETY_STOCK.equalsIgnoreCase(mode)) {
+            return deductBySafetyStock(request, stock);
+        }
+        return deductByWeightedQuota(request, stock);
+    }
+
+    /**
+     * 方案一：总库存一个池子，渠道不单独占库存；每渠道仅一个可售上限（channel_max），超过则不能卖，0或未填=不设上限。
+     */
+    private ChannelDeductResult deductByWeightedQuota(ChannelDeductRequest request, PoiItemStock stock) {
+        BigDecimal delta = request.getQuantity();
         PoiItemChannelStock channelStock = channelStockMapper.selectByStockIdAndChannel(
             stock.getId(), request.getChannelCode());
-        
-        // 如果渠道已售罄
-        if (channelStock != null && channelStock.getStockStatus() != null 
-            && channelStock.getStockStatus() == PoiItemStock.StockStatus.OUT_OF_STOCK.getCode()) {
-            return new ChannelDeductResult(
-                ChannelDeductResult.Status.CHANNEL_OUT_OF_STOCK, BigDecimal.ZERO, 
-                stock.getSharedPoolQuantity(), "该渠道已售罄");
+
+        PoiItemStock locked = stockMapper.selectByIdForUpdate(stock.getId());
+        if (locked == null) {
+            throw new RuntimeException("库存记录不存在: id=" + stock.getId());
         }
-        
-        BigDecimal delta = request.getQuantity();
-        
-        // 4. 尝试扣渠道专属额度
+        BigDecimal realQty = locked.getRealQuantity() != null ? locked.getRealQuantity() : BigDecimal.ZERO;
+        if (realQty.compareTo(delta) < 0) {
+            log.warn("库存不足: stockId={}, real={}, need={}", stock.getId(), realQty, delta);
+            autoMarkStockSoldOut(stock);
+            return ChannelDeductResult.outOfStock(BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+
         if (channelStock != null) {
-            int channelDeducted = channelStockMapper.atomicDeductChannelQuota(
+            int updated = channelStockMapper.atomicIncreaseChannelSoldWithCap(
                 stock.getId(), request.getChannelCode(), delta);
-            
-            if (channelDeducted > 0) {
-                // 渠道额度扣成功，同步扣主表 real_quantity
-                stockMapper.atomicDeduct(stock.getId(), delta);
-                
-                writeDeductLog(stock, request, "FROM_CHANNEL");
-                
-                PoiItemChannelStock updated = channelStockMapper.selectByStockIdAndChannel(
-                    stock.getId(), request.getChannelCode());
-                BigDecimal channelRemaining = updated != null ? updated.getChannelRemaining() : BigDecimal.ZERO;
-                
-                // 检查扣减后渠道是否该售罄
-                autoMarkChannelSoldOut(stock.getId(), request.getChannelCode(), channelRemaining);
-                
-                log.info("渠道额度扣减成功: channel={}, remaining={}", 
-                    request.getChannelCode(), channelRemaining);
-                return ChannelDeductResult.success(
-                    ChannelDeductResult.Status.SUCCESS_FROM_CHANNEL,
-                    channelRemaining, stock.getSharedPoolQuantity());
+            BigDecimal cap = channelStock.getChannelMax();
+            if (cap != null && cap.compareTo(BigDecimal.ZERO) > 0 && updated == 0) {
+                BigDecimal sold = channelStock.getChannelSold() != null ? channelStock.getChannelSold() : BigDecimal.ZERO;
+                log.warn("超过渠道可售上限: channel={}, sold={}, max={}, need={}",
+                    request.getChannelCode(), sold, cap, delta);
+                return new ChannelDeductResult(
+                    ChannelDeductResult.Status.CHANNEL_OUT_OF_STOCK,
+                    cap.subtract(sold),
+                    BigDecimal.ZERO,
+                    "超过该渠道可售上限");
             }
         }
-        
-        // 5. 渠道额度不够，尝试从共享池借
-        int sharedDeducted = stockMapper.atomicDeductSharedPool(stock.getId(), delta);
-        if (sharedDeducted > 0) {
-            writeDeductLog(stock, request, "FROM_SHARED_POOL");
-            
-            PoiItemStock updatedStock = stockMapper.selectByBrandIdAndPoiIdAndObjectId(
-                request.getBrandId(), request.getPoiId(), request.getObjectId());
-            BigDecimal channelRemaining = channelStock != null ? channelStock.getChannelRemaining() : BigDecimal.ZERO;
-            
-            log.info("共享池扣减成功: sharedPoolRemaining={}", updatedStock.getSharedPoolQuantity());
-            return ChannelDeductResult.success(
-                ChannelDeductResult.Status.SUCCESS_FROM_SHARED_POOL,
-                channelRemaining, updatedStock.getSharedPoolQuantity());
+
+        int deducted = stockMapper.atomicDeduct(stock.getId(), delta);
+        if (deducted == 0) {
+            return ChannelDeductResult.outOfStock(BigDecimal.ZERO, BigDecimal.ZERO);
         }
-        
-        // 6. 都不够 → 库存不足
-        BigDecimal channelRemaining = channelStock != null ? channelStock.getChannelRemaining() : BigDecimal.ZERO;
-        log.warn("库存不足: channel={}, channelRemaining={}, sharedPool={}", 
-            request.getChannelCode(), channelRemaining, stock.getSharedPoolQuantity());
-        
-        // 自动售罄
-        autoMarkChannelSoldOut(stock.getId(), request.getChannelCode(), BigDecimal.ZERO);
-        autoMarkStockSoldOut(stock);
-        
-        return ChannelDeductResult.outOfStock(channelRemaining, stock.getSharedPoolQuantity());
+        String deductSource = channelStock != null ? "FROM_CHANNEL" : DEDUCT_SOURCE_FROM_POOL;
+        writeDeductLog(stock, request, deductSource);
+
+        PoiItemChannelStock updatedCh = channelStockMapper.selectByStockIdAndChannel(
+            stock.getId(), request.getChannelCode());
+        BigDecimal channelRemaining = BigDecimal.ZERO;
+        if (updatedCh != null && updatedCh.getChannelMax() != null && updatedCh.getChannelMax().compareTo(BigDecimal.ZERO) > 0) {
+            channelRemaining = updatedCh.getChannelMax().subtract(updatedCh.getChannelSold() != null ? updatedCh.getChannelSold() : BigDecimal.ZERO);
+        }
+        PoiItemStock after = stockMapper.selectByBrandIdAndStoreIdAndObjectId(
+            request.getBrandId(), request.getStoreId(), request.getObjectId());
+        BigDecimal sharedPool = after != null && after.getSharedPoolQuantity() != null ? after.getSharedPoolQuantity() : BigDecimal.ZERO;
+        return ChannelDeductResult.success(
+            ChannelDeductResult.Status.SUCCESS_FROM_CHANNEL,
+            channelRemaining, sharedPool);
     }
-    
+
+    /** 方案二：安全线保护扣减。可用库存 = real_quantity - 高优先级渠道安全线之和；扣减后不能低于安全线。 */
+    private ChannelDeductResult deductBySafetyStock(ChannelDeductRequest request, PoiItemStock stock) {
+        PoiItemChannelStock myChannel = channelStockMapper.selectByStockIdAndChannel(
+            stock.getId(), request.getChannelCode());
+        int myPriority = (myChannel != null && myChannel.getChannelPriority() != null)
+            ? myChannel.getChannelPriority() : 0;
+        BigDecimal reservedByHigher = channelStockMapper.sumSafetyStockForHigherPriority(stock.getId(), myPriority);
+        if (reservedByHigher == null) {
+            reservedByHigher = BigDecimal.ZERO;
+        }
+        PoiItemStock locked = stockMapper.selectByIdForUpdate(stock.getId());
+        if (locked == null) {
+            throw new RuntimeException("库存记录不存在: id=" + stock.getId());
+        }
+        BigDecimal realQty = locked.getRealQuantity() != null ? locked.getRealQuantity() : BigDecimal.ZERO;
+        BigDecimal availableForMe = realQty.subtract(reservedByHigher);
+        BigDecimal delta = request.getQuantity();
+        if (availableForMe.compareTo(delta) < 0) {
+            log.warn("安全线模式库存不足: channel={}, available={}, reserved={}, need={}",
+                request.getChannelCode(), availableForMe, reservedByHigher, delta);
+            return ChannelDeductResult.outOfStock(availableForMe, BigDecimal.ZERO);
+        }
+        int updated = stockMapper.atomicDeductWithFloor(stock.getId(), delta, reservedByHigher);
+        if (updated == 0) {
+            log.warn("安全线模式扣减失败(并发): stockId={}, delta={}, floor={}", stock.getId(), delta, reservedByHigher);
+            return ChannelDeductResult.outOfStock(availableForMe, BigDecimal.ZERO);
+        }
+        writeDeductLog(stock, request, DEDUCT_SOURCE_FROM_SAFETY_STOCK);
+        PoiItemStock after = stockMapper.selectByBrandIdAndStoreIdAndObjectId(
+            request.getBrandId(), request.getStoreId(), request.getObjectId());
+        BigDecimal sharedPool = after != null && after.getSharedPoolQuantity() != null ? after.getSharedPoolQuantity() : BigDecimal.ZERO;
+        log.info("安全线模式扣减成功: channel={}, remaining={}", request.getChannelCode(), availableForMe.subtract(delta));
+        return ChannelDeductResult.success(
+            ChannelDeductResult.Status.SUCCESS_FROM_CHANNEL,
+            availableForMe.subtract(delta), sharedPool);
+    }
+
+    /**
+     * 按渠道批量扣减（一单多品，下单时调用）
+     * 逐行扣减，按 orderId+stockId 幂等；任一行库存不足则抛异常（调用方需保证要么全成功要么全失败）。
+     */
+    @Transactional(transactionManager = "primaryTransactionManager")
+    public void deductByChannelBatch(ChannelDeductBatchRequest request) {
+        if (request.getItems() == null || request.getItems().isEmpty()) {
+            return;
+        }
+        for (ChannelDeductBatchRequest.Item item : request.getItems()) {
+            ChannelDeductRequest req = new ChannelDeductRequest(
+                request.getBrandId(), request.getStoreId(), item.getObjectId(),
+                request.getChannelCode(), item.getQuantity(), request.getOrderId());
+            ChannelDeductResult res = deductByChannel(req);
+            if (res.isSuccess()) {
+                continue;
+            }
+            if (res.getStatus() == ChannelDeductResult.Status.DUPLICATE) {
+                continue;
+            }
+            throw new RuntimeException("库存扣减失败: " + (res.getMessage() != null ? res.getMessage() : res.getStatus().name()));
+        }
+    }
+
     // ========================= 4. 共享池加权分配 =========================
     
     /**
@@ -363,10 +424,10 @@ public class PoiItemStockService {
      * 4. 剩余不足整除的部分放入共享池
      */
     @Transactional(transactionManager = "primaryTransactionManager")
-    public void allocateChannelQuotas(String brandId, String poiId, Long objectId) {
-        log.info("开始渠道额度分配: brandId={}, poiId={}, objectId={}", brandId, poiId, objectId);
+    public void allocateChannelQuotas(String brandId, String storeId, Long objectId) {
+        log.info("开始渠道额度分配: brandId={}, storeId={}, objectId={}", brandId, storeId, objectId);
         
-        PoiItemStock stock = stockMapper.selectByBrandIdAndPoiIdAndObjectId(brandId, poiId, objectId);
+        PoiItemStock stock = stockMapper.selectByBrandIdAndStoreIdAndObjectId(brandId, storeId, objectId);
         if (stock == null) {
             throw new RuntimeException("库存记录不存在");
         }
@@ -490,8 +551,8 @@ public class PoiItemStockService {
         }
         
         // 自动判断售罄
-        PoiItemStock updatedStock = stockMapper.selectByBrandIdAndPoiIdAndObjectId(
-            event.getBrandId(), event.getPoiId(), event.getObjectId());
+        PoiItemStock updatedStock = stockMapper.selectByBrandIdAndStoreIdAndObjectId(
+            event.getBrandId(), event.getStoreId(), event.getObjectId());
         if (updatedStock.getRealQuantity().compareTo(BigDecimal.ZERO) <= 0) {
             stockMapper.updateStockStatus(stock.getId(), 
                 PoiItemStock.StockStatus.OUT_OF_STOCK.getCode(), LocalDateTime.now());
@@ -581,8 +642,8 @@ public class PoiItemStockService {
             .collect(Collectors.toList());
         
         for (Long objectId : objectIds) {
-            PoiItemStock stock = stockMapper.selectByBrandIdAndPoiIdAndObjectId(
-                request.getBrandId(), request.getPoiId(), objectId);
+            PoiItemStock stock = stockMapper.selectByBrandIdAndStoreIdAndObjectId(
+                request.getBrandId(), request.getStoreId(), objectId);
             
             if (stock != null && stock.getRealQuantity().compareTo(BigDecimal.ZERO) < 0) {
                 // 超卖了！
@@ -593,7 +654,7 @@ public class PoiItemStockService {
                 // 记录超卖
                 OversellRecord record = new OversellRecord();
                 record.setBrandId(request.getBrandId());
-                record.setPoiId(request.getPoiId());
+                record.setStoreId(request.getStoreId());
                 record.setStockId(stock.getId());
                 record.setObjectId(objectId);
                 record.setOversellQuantity(oversellQty);
@@ -618,8 +679,8 @@ public class PoiItemStockService {
     /**
      * 查询超卖记录
      */
-    public List<OversellRecord> getOversellRecords(String brandId, String poiId, String status) {
-        return oversellRecordMapper.selectByBrandIdAndPoiId(brandId, poiId, status, 100);
+    public List<OversellRecord> getOversellRecords(String brandId, String storeId, String status) {
+        return oversellRecordMapper.selectByBrandIdAndStoreId(brandId, storeId, status, 100);
     }
     
     /**
@@ -664,21 +725,29 @@ public class PoiItemStockService {
     }
     
     /**
-     * 写入通用变更日志
+     * 写入通用变更日志（无扣减来源时 deductSource/channelCode 传 null）
      */
-    private void writeLog(PoiItemStock stock, String brandId, String poiId,
-                          String changeType, BigDecimal delta, String source, 
+    private void writeLog(PoiItemStock stock, String brandId, String storeId,
+                          String changeType, BigDecimal delta, String source,
                           String orderId, Object content) {
+        writeLog(stock, brandId, storeId, changeType, delta, source, orderId, content, null, null);
+    }
+
+    private void writeLog(PoiItemStock stock, String brandId, String storeId,
+                          String changeType, BigDecimal delta, String source,
+                          String orderId, Object content, String deductSource, String channelCode) {
         try {
             PoiItemStockLog logEntry = new PoiItemStockLog();
             logEntry.setBrandId(brandId);
-            logEntry.setPoiId(poiId);
+            logEntry.setStoreId(storeId);
             logEntry.setStockId(stock.getId());
             logEntry.setContent(objectMapper.writeValueAsString(content));
             logEntry.setChangeType(changeType);
             logEntry.setDelta(delta);
             logEntry.setSource(source);
             logEntry.setOrderId(orderId);
+            logEntry.setDeductSource(deductSource);
+            logEntry.setChannelCode(channelCode);
             logEntry.setCreatedAt(LocalDateTime.now());
             stockLogMapper.insert(logEntry);
         } catch (Exception e) {
@@ -691,7 +760,7 @@ public class PoiItemStockService {
      * 写入事件类型的日志
      */
     private void writeEventLog(PoiItemStock stock, StockChangeEvent event) {
-        writeLog(stock, event.getBrandId(), event.getPoiId(),
+        writeLog(stock, event.getBrandId(), event.getStoreId(),
             event.getChangeType().name(),
             event.getDelta() != null ? event.getDelta() : BigDecimal.ZERO,
             event.getSource().name(),
@@ -700,32 +769,138 @@ public class PoiItemStockService {
     }
     
     /**
-     * 写入扣减日志
+     * 写入扣减日志（remark 为 FROM_CHANNEL / FROM_SHARED_POOL，用于按源头归还）
      */
     private void writeDeductLog(PoiItemStock stock, ChannelDeductRequest request, String remark) {
-        writeLog(stock, request.getBrandId(), request.getPoiId(),
+        writeLog(stock, request.getBrandId(), request.getStoreId(),
             "RELATIVE_DELTA",
             request.getQuantity().negate(),
             "CLOUD",
             request.getOrderId(),
-            request);
+            request,
+            remark,
+            request.getChannelCode());
+    }
+    
+    // ========================= 按订单归还（按源头还） =========================
+
+    /** 扣减来源常量，与日志 deduct_source 一致 */
+    private static final String DEDUCT_SOURCE_FROM_CHANNEL = "FROM_CHANNEL";
+    private static final String DEDUCT_SOURCE_FROM_SHARED_POOL = "FROM_SHARED_POOL";
+
+    /**
+     * 按订单ID归还库存（订单取消时调用）
+     * 根据扣减日志的 deduct_source 与 channel_code 按源头归还：渠道还渠道、共享池还共享池；幂等按 orderId+stockId 是否已有 RETURN 记录判断。
+     */
+    @Transactional(transactionManager = "primaryTransactionManager")
+    public void returnStockByOrderId(String orderId) {
+        if (orderId == null || orderId.isEmpty()) {
+            return;
+        }
+        List<PoiItemStockLog> deductLogs = stockLogMapper.selectDeductLogsByOrderId(orderId);
+        if (deductLogs.isEmpty()) {
+            log.info("归还跳过：无扣减记录 orderId={}", orderId);
+            return;
+        }
+        for (PoiItemStockLog logRow : deductLogs) {
+            Long stockId = logRow.getStockId();
+            int alreadyReturned = stockLogMapper.countReturnByOrderIdAndStockId(orderId, stockId);
+            if (alreadyReturned > 0) {
+                log.info("归还幂等跳过：已存在归还记录 orderId={}, stockId={}", orderId, stockId);
+                continue;
+            }
+            BigDecimal returnQty = logRow.getDelta() != null ? logRow.getDelta().abs() : BigDecimal.ZERO;
+            if (returnQty.compareTo(BigDecimal.ZERO) <= 0) {
+                continue;
+            }
+            String deductSource = logRow.getDeductSource();
+            String channelCode = logRow.getChannelCode();
+
+            if (DEDUCT_SOURCE_FROM_CHANNEL.equals(deductSource) && channelCode != null && !channelCode.isEmpty()) {
+                int chUpdated = channelStockMapper.atomicDecreaseChannelSold(stockId, channelCode, returnQty);
+                if (chUpdated == 0) {
+                    log.warn("归还渠道失败（渠道已售不足或不存在）: orderId={}, stockId={}, channel={}, qty={}", orderId, stockId, channelCode, returnQty);
+                    continue;
+                }
+                stockMapper.atomicIncreaseRealQuantity(stockId, returnQty);
+            } else if (DEDUCT_SOURCE_FROM_SHARED_POOL.equals(deductSource)) {
+                stockMapper.atomicReturnToSharedPool(stockId, returnQty);
+            } else if (DEDUCT_SOURCE_FROM_SAFETY_STOCK.equals(deductSource) || DEDUCT_SOURCE_FROM_POOL.equals(deductSource)) {
+                stockMapper.atomicIncreaseRealQuantity(stockId, returnQty);
+            } else {
+                log.debug("归还跳过（非渠道/共享池/安全线/池子扣减或旧数据）: orderId={}, stockId={}, deductSource={}", orderId, stockId, deductSource);
+                continue;
+            }
+            writeReturnLog(logRow, returnQty);
+        }
+        log.info("按订单归还完成: orderId={}, 条数={}", orderId, deductLogs.size());
+    }
+
+    private void writeReturnLog(PoiItemStockLog deductLog, BigDecimal returnQty) {
+        PoiItemStock stub = new PoiItemStock();
+        stub.setId(deductLog.getStockId());
+        stub.setBrandId(deductLog.getBrandId());
+        stub.setStoreId(deductLog.getStoreId());
+        try {
+            java.util.Map<String, Object> content = new java.util.HashMap<>();
+            content.put("reason", "order_cancel_return");
+            content.put("orderId", deductLog.getOrderId() != null ? deductLog.getOrderId() : "");
+            writeLog(stub, deductLog.getBrandId(), deductLog.getStoreId(),
+                "RETURN", returnQty, "CLOUD", deductLog.getOrderId(), content,
+                deductLog.getDeductSource(), deductLog.getChannelCode());
+        } catch (Exception e) {
+            log.error("写入归还记录失败", e);
+            throw new RuntimeException("写入归还记录失败", e);
+        }
+    }
+
+    /**
+     * 设置渠道库存分配模式（WEIGHTED_QUOTA | SAFETY_STOCK）
+     */
+    @Transactional(transactionManager = "primaryTransactionManager")
+    public void setAllocationMode(String brandId, String storeId, Long objectId, String allocationMode) {
+        PoiItemStock stock = stockMapper.selectByBrandIdAndStoreIdAndObjectId(brandId, storeId, objectId);
+        if (stock == null) {
+            throw new RuntimeException("库存记录不存在");
+        }
+        if (!ALLOCATION_MODE_WEIGHTED_QUOTA.equalsIgnoreCase(allocationMode)
+            && !ALLOCATION_MODE_SAFETY_STOCK.equalsIgnoreCase(allocationMode)) {
+            throw new IllegalArgumentException("allocationMode 必须为 WEIGHTED_QUOTA（单池+渠道上限）或 SAFETY_STOCK（安全线保护）");
+        }
+        stockMapper.updateAllocationMode(stock.getId(), allocationMode.toUpperCase());
+        log.info("分配模式已更新: stockId={}, mode={}", stock.getId(), allocationMode);
+    }
+
+    /**
+     * 更新渠道优先级与安全线（方案二 SAFETY_STOCK 用，运营后台配置）
+     */
+    @Transactional(transactionManager = "primaryTransactionManager")
+    public void updateChannelPriorityAndSafetyStock(Long channelId, Integer channelPriority, BigDecimal safetyStock) {
+        PoiItemChannelStock ch = channelStockMapper.selectById(channelId);
+        if (ch == null) {
+            throw new RuntimeException("渠道库存记录不存在: id=" + channelId);
+        }
+        channelStockMapper.updatePriorityAndSafetyStock(channelId,
+            channelPriority != null ? channelPriority : (ch.getChannelPriority() != null ? ch.getChannelPriority() : 0),
+            safetyStock != null ? safetyStock : (ch.getSafetyStock() != null ? ch.getSafetyStock() : BigDecimal.ZERO));
+        log.info("渠道优先级/安全线已更新: channelId={}, priority={}, safetyStock={}", channelId, channelPriority, safetyStock);
     }
     
     /**
      * 查询库存详情
      */
-    public PoiItemStock getStockDetail(String brandId, String poiId, Long objectId) {
-        return stockMapper.selectByBrandIdAndPoiIdAndObjectId(brandId, poiId, objectId);
+    public PoiItemStock getStockDetail(String brandId, String storeId, Long objectId) {
+        return stockMapper.selectByBrandIdAndStoreIdAndObjectId(brandId, storeId, objectId);
     }
-    
+
     /**
      * 查询库存变更记录
      */
-    public List<PoiItemStockLog> getStockLogs(String brandId, String poiId, Long stockId, Integer limit) {
+    public List<PoiItemStockLog> getStockLogs(String brandId, String storeId, Long stockId, Integer limit) {
         if (stockId != null) {
             return stockLogMapper.selectByStockId(stockId, limit != null ? limit : 100);
         } else {
-            return stockLogMapper.selectByBrandIdAndPoiId(brandId, poiId, limit != null ? limit : 100);
+            return stockLogMapper.selectByBrandIdAndStoreId(brandId, storeId, limit != null ? limit : 100);
         }
     }
     
@@ -735,9 +910,9 @@ public class PoiItemStockService {
         try {
             StockSyncToPosMessage message = buildSyncToPosMessage(request);
             String payload = objectMapper.writeValueAsString(message);
-            String bizKey = request.getPoiId() + ":" + request.getObjectId() + ":" + System.currentTimeMillis();
-            String messageKey = "stock-sync:" + request.getPoiId() + ":" + request.getObjectId();
-            String shardingKey = request.getPoiId();
+            String bizKey = request.getStoreId() + ":" + request.getObjectId() + ":" + System.currentTimeMillis();
+            String messageKey = "stock-sync:" + request.getStoreId() + ":" + request.getObjectId();
+            String shardingKey = request.getStoreId();
             
             outboxService.enqueue(
                 OUTBOX_TYPE_STOCK_SYNC, bizKey, payload,
@@ -756,7 +931,7 @@ public class PoiItemStockService {
     private StockSyncToPosMessage buildSyncToPosMessage(StockSyncFromPosRequest request) {
         StockSyncToPosMessage message = new StockSyncToPosMessage();
         message.setBrandId(request.getBrandId());
-        message.setPoiId(request.getPoiId());
+        message.setStoreId(request.getStoreId());
         
         StockSyncToPosMessage.StockData data = new StockSyncToPosMessage.StockData();
         data.setObjectId(request.getObjectId());

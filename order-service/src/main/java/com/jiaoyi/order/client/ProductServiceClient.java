@@ -38,53 +38,19 @@ public interface ProductServiceClient {
      */
     @PostMapping("/inventory/check")
     ApiResponse<Boolean> checkStock(@RequestBody CheckStockRequest request);
-    
+
     /**
-     * 锁定库存
+     * 按渠道批量扣减（下单时调，一单多品）
      */
-    @PostMapping("/inventory/{productId}/lock")
-    ApiResponse<Void> lockStock(@PathVariable("productId") Long productId, 
-                    @RequestParam("quantity") Integer quantity);
-    
+    @PostMapping("/inventory/poi/stock/deduct-by-channel/batch")
+    ApiResponse<Void> deductByChannelBatch(@RequestBody ChannelDeductBatchRequest request);
+
     /**
-     * 批量锁定库存
+     * 按订单归还库存（取消时调）
      */
-    @PostMapping("/inventory/lock/batch")
-    ApiResponse<Void> lockStockBatch(@RequestBody LockStockBatchRequest request);
-    
-    /**
-     * 解锁库存（基于SKU）
-     */
-    @PostMapping("/inventory/{productId}/unlock")
-    ApiResponse<Void> unlockStock(@PathVariable("productId") Long productId,
-                      @RequestParam("skuId") Long skuId,
-                      @RequestParam("quantity") Integer quantity);
-    
-    /**
-     * 批量解锁库存（基于SKU）
-     * 
-     * 返回 OperationResult，包含操作结果状态：
-     * - SUCCESS: 第一次调用，解锁成功
-     * - IDEMPOTENT_SUCCESS: 重复调用，但库存已解锁过（幂等成功）
-     * - FAILED: 操作失败
-     */
-    @PostMapping("/inventory/unlock/batch")
-    ApiResponse<com.jiaoyi.common.OperationResult> unlockStockBatch(@RequestBody UnlockStockBatchRequest request);
-    
-    /**
-     * 扣减库存（基于SKU）
-     */
-    @PostMapping("/inventory/{productId}/deduct")
-    ApiResponse<Void> deductStock(@PathVariable("productId") Long productId,
-                      @RequestParam("skuId") Long skuId,
-                      @RequestParam("quantity") Integer quantity);
-    
-    /**
-     * 批量扣减库存
-     */
-    @PostMapping("/inventory/deduct/batch")
-    ApiResponse<Void> deductStockBatch(@RequestBody DeductStockBatchRequest request);
-    
+    @PostMapping("/inventory/poi/stock/return-by-order")
+    ApiResponse<Void> returnByOrder(@RequestParam("orderId") String orderId);
+
     /**
      * 获取商户信息（包含自动接单配置）
      */
@@ -97,70 +63,42 @@ public interface ProductServiceClient {
     class CheckStockRequest {
         private Long productId;
         private Integer quantity;
-        
+
         public Long getProductId() { return productId; }
         public void setProductId(Long productId) { this.productId = productId; }
         public Integer getQuantity() { return quantity; }
         public void setQuantity(Integer quantity) { this.quantity = quantity; }
     }
-    
+
     /**
-     * 批量锁定库存请求（基于SKU）
+     * 按渠道批量扣减请求（brandId/storeId/channelCode/orderId + items）
      */
-    class LockStockBatchRequest {
-        private List<Long> productIds;
-        private List<Long> skuIds;
-        private List<Integer> quantities;
-        private Long orderId; // 订单ID（用于幂等性校验）
-        
-        public List<Long> getProductIds() { return productIds; }
-        public void setProductIds(List<Long> productIds) { this.productIds = productIds; }
-        public List<Long> getSkuIds() { return skuIds; }
-        public void setSkuIds(List<Long> skuIds) { this.skuIds = skuIds; }
-        public List<Integer> getQuantities() { return quantities; }
-        public void setQuantities(List<Integer> quantities) { this.quantities = quantities; }
-        public Long getOrderId() { return orderId; }
-        public void setOrderId(Long orderId) { this.orderId = orderId; }
+    class ChannelDeductBatchRequest {
+        private String brandId;
+        private String storeId;
+        private String channelCode;
+        private String orderId;
+        private List<ChannelDeductItem> items;
+
+        public String getBrandId() { return brandId; }
+        public void setBrandId(String brandId) { this.brandId = brandId; }
+        public String getStoreId() { return storeId; }
+        public void setStoreId(String storeId) { this.storeId = storeId; }
+        public String getChannelCode() { return channelCode; }
+        public void setChannelCode(String channelCode) { this.channelCode = channelCode; }
+        public String getOrderId() { return orderId; }
+        public void setOrderId(String orderId) { this.orderId = orderId; }
+        public List<ChannelDeductItem> getItems() { return items; }
+        public void setItems(List<ChannelDeductItem> items) { this.items = items; }
     }
-    
-    /**
-     * 批量解锁库存请求（基于SKU）
-     */
-    class UnlockStockBatchRequest {
-        private List<Long> productIds;
-        private List<Long> skuIds;
-        private List<Integer> quantities;
-        private Long orderId;
-        
-        public List<Long> getProductIds() { return productIds; }
-        public void setProductIds(List<Long> productIds) { this.productIds = productIds; }
-        public List<Long> getSkuIds() { return skuIds; }
-        public void setSkuIds(List<Long> skuIds) { this.skuIds = skuIds; }
-        public List<Integer> getQuantities() { return quantities; }
-        public void setQuantities(List<Integer> quantities) { this.quantities = quantities; }
-        public Long getOrderId() { return orderId; }
-        public void setOrderId(Long orderId) { this.orderId = orderId; }
-    }
-    
-    /**
-     * 批量扣减库存请求（基于SKU）
-     */
-    class DeductStockBatchRequest {
-        private List<Long> productIds;
-        private List<Long> skuIds;
-        private List<Integer> quantities;
-        private Long orderId;
-        private String idempotencyKey; // 幂等键（用于库存服务幂等）
-        
-        public List<Long> getProductIds() { return productIds; }
-        public void setProductIds(List<Long> productIds) { this.productIds = productIds; }
-        public List<Long> getSkuIds() { return skuIds; }
-        public void setSkuIds(List<Long> skuIds) { this.skuIds = skuIds; }
-        public List<Integer> getQuantities() { return quantities; }
-        public void setQuantities(List<Integer> quantities) { this.quantities = quantities; }
-        public Long getOrderId() { return orderId; }
-        public void setOrderId(Long orderId) { this.orderId = orderId; }
-        public String getIdempotencyKey() { return idempotencyKey; }
-        public void setIdempotencyKey(String idempotencyKey) { this.idempotencyKey = idempotencyKey; }
+
+    class ChannelDeductItem {
+        private Long objectId;
+        private java.math.BigDecimal quantity;
+
+        public Long getObjectId() { return objectId; }
+        public void setObjectId(Long objectId) { this.objectId = objectId; }
+        public java.math.BigDecimal getQuantity() { return quantity; }
+        public void setQuantity(java.math.BigDecimal quantity) { this.quantity = quantity; }
     }
 }

@@ -5,7 +5,7 @@
     <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.OversellRecord">
         <id column="id" property="id"/>
         <result column="brand_id" property="brandId"/>
-        <result column="poi_id" property="poiId"/>
+        <result column="store_id" property="storeId"/>
         <result column="stock_id" property="stockId"/>
         <result column="object_id" property="objectId"/>
         <result column="oversell_quantity" property="oversellQuantity"/>
@@ -19,10 +19,10 @@
     
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO oversell_record (
-            brand_id, poi_id, stock_id, object_id,
+            brand_id, store_id, stock_id, object_id,
             oversell_quantity, source, status, remark, created_at
         ) VALUES (
-            #{brandId}, #{poiId}, #{stockId}, #{objectId},
+            #{brandId}, #{storeId}, #{stockId}, #{objectId},
             #{oversellQuantity}, #{source}, #{status}, #{remark}, NOW()
         )
     </insert>
@@ -31,10 +31,10 @@
         SELECT * FROM oversell_record WHERE id = #{id}
     </select>
     
-    <select id="selectByBrandIdAndPoiId" resultMap="BaseResultMap">
+    <select id="selectByBrandIdAndStoreId" resultMap="BaseResultMap">
         SELECT * FROM oversell_record
         WHERE brand_id = #{brandId}
-          AND poi_id = #{poiId}
+          AND store_id = #{storeId}
         <if test="status != null">
           AND status = #{status}
         </if>

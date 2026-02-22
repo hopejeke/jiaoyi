@@ -31,9 +31,9 @@ public interface PoiItemStockLogMapper {
     /**
      * 根据品牌ID、门店ID查询变更记录列表
      */
-    List<PoiItemStockLog> selectByBrandIdAndPoiId(
+    List<PoiItemStockLog> selectByBrandIdAndStoreId(
         @Param("brandId") String brandId,
-        @Param("poiId") String poiId,
+        @Param("storeId") String storeId,
         @Param("limit") Integer limit
     );
     
@@ -50,5 +50,26 @@ public interface PoiItemStockLogMapper {
     BigDecimal sumDeltaSince(
         @Param("stockId") Long stockId,
         @Param("sinceTime") LocalDateTime sinceTime
+    );
+
+    /**
+     * 根据订单ID查询扣减记录（RELATIVE_DELTA 且 delta&lt;0），用于按源头归还
+     */
+    List<PoiItemStockLog> selectDeductLogsByOrderId(@Param("orderId") String orderId);
+
+    /**
+     * 是否已有该订单该库存的归还记录（幂等）
+     */
+    int countReturnByOrderIdAndStockId(
+        @Param("orderId") String orderId,
+        @Param("stockId") Long stockId
+    );
+
+    /**
+     * 是否已有该订单该库存的扣减记录（按行幂等，支持一单多品）
+     */
+    int countDeductByOrderIdAndStockId(
+        @Param("orderId") String orderId,
+        @Param("stockId") Long stockId
     );
 }

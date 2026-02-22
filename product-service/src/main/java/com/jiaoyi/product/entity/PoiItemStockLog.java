@@ -25,7 +25,7 @@ public class PoiItemStockLog {
     /**
      * 门店ID
      */
-    private String poiId;
+    private String storeId;
     
     /**
      * 关联 poi_item_stock.id
@@ -56,6 +56,17 @@ public class PoiItemStockLog {
      * 关联订单ID（用于幂等，RELATIVE_DELTA时必填）
      */
     private String orderId;
+
+    /**
+     * 扣减来源（仅 RELATIVE_DELTA 扣减时填）：FROM_CHANNEL-从渠道额度扣, FROM_SHARED_POOL-从共享池借
+     * 用于订单取消时按源头归还
+     */
+    private String deductSource;
+
+    /**
+     * 渠道代码（扣减时必填，用于按源头归还时知道还到哪个渠道）
+     */
+    private String channelCode;
     
     /**
      * 创建时间

@@ -59,7 +59,7 @@ public class PoiItemChannelStock {
     /**
      * 门店ID
      */
-    private String poiId;
+    private String storeId;
     
     /**
      * 关联 poi_item_stock.id
@@ -95,6 +95,21 @@ public class PoiItemChannelStock {
      * 渠道分配权重（0-1，所有渠道权重之和=1）
      */
     private java.math.BigDecimal channelWeight = new java.math.BigDecimal("0.33");
+    
+    /**
+     * 该渠道可售上限（方案一）：超过则不能卖；0或null表示不设上限。渠道不单独占库存，只做上限校验。
+     */
+    private java.math.BigDecimal channelMax = java.math.BigDecimal.ZERO;
+    
+    /**
+     * 渠道优先级（数值越大越高），如 POS=100, 自取=50, 外卖=10。方案二 SAFETY_STOCK 时使用。
+     */
+    private Integer channelPriority = 0;
+    
+    /**
+     * 该渠道安全线：当总库存小于等于此值时，所有优先级低于本渠道的渠道被锁定。仅高优先级渠道配置，其他为 0。
+     */
+    private java.math.BigDecimal safetyStock = java.math.BigDecimal.ZERO;
     
     /**
      * 创建时间

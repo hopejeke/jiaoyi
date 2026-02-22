@@ -21,7 +21,7 @@ public class PosOfflineReplayRequest {
     private String brandId;
     
     /** 门店ID */
-    private String poiId;
+    private String storeId;
     
     /** POS实例标识（用于日志追踪） */
     private String posInstanceId;

@@ -135,13 +135,21 @@
         WHERE product_id = #{productId} AND sku_id IS NULL AND locked_stock &gt;= #{quantity}
     </update>
     
-    <!-- 扣减库存（原子操作，SKU级别） -->
+    <!-- 扣减库存（原子操作，SKU级别）：OO 先锁后扣，同时减 current_stock 和 locked_stock -->
     <update id="deductStockBySku">
         UPDATE inventory SET 
             current_stock = current_stock - #{quantity},
             locked_stock = locked_stock - #{quantity},
             update_time = NOW()
         WHERE product_id = #{productId} AND sku_id = #{skuId} AND locked_stock &gt;= #{quantity}
+    </update>
+
+    <!-- 直接扣减库存（仅减 current_stock）：POS 等无锁直扣场景 -->
+    <update id="deductStockBySkuDirect">
+        UPDATE inventory SET 
+            current_stock = current_stock - #{quantity},
+            update_time = NOW()
+        WHERE product_id = #{productId} AND sku_id = #{skuId} AND current_stock &gt;= #{quantity}
     </update>
 
     <!-- 查询所有库存记录 -->

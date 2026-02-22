@@ -75,8 +75,15 @@ public interface InventoryMapper {
     
     /**
      * 扣减库存（原子操作，SKU级别）
+     * 同时扣减 current_stock 和 locked_stock，用于 OO 流程（先锁后扣）
      */
     int deductStockBySku(@Param("productId") Long productId, @Param("skuId") Long skuId, @Param("quantity") Integer quantity);
+
+    /**
+     * 直接扣减库存（仅扣 current_stock，不扣 locked_stock）
+     * 用于 POS 等无锁定、支付成功直接实扣的场景；WHERE current_stock >= quantity 防超卖
+     */
+    int deductStockBySkuDirect(@Param("productId") Long productId, @Param("skuId") Long skuId, @Param("quantity") Integer quantity);
     
     /**
      * 查询所有库存记录

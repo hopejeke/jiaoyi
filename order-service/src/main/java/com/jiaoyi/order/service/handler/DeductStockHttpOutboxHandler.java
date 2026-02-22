@@ -34,26 +34,8 @@ public class DeductStockHttpOutboxHandler implements OutboxHandler {
         if (command.getOrderId() == null) {
             throw new IllegalArgumentException("库存扣减命令缺少 orderId");
         }
-        
-        // 构建请求
-        ProductServiceClient.DeductStockBatchRequest request = new ProductServiceClient.DeductStockBatchRequest();
-        request.setOrderId(command.getOrderId());
-        request.setProductIds(command.getProductIds());
-        request.setSkuIds(command.getSkuIds());
-        request.setQuantities(command.getQuantities());
-        
-        // 幂等键：使用 orderId + "-DEDUCT"（或使用 command 中的 idempotencyKey）
-        String idempotencyKey = command.getIdempotencyKey() != null 
-                ? command.getIdempotencyKey() 
-                : command.getOrderId() + "-DEDUCT";
-        request.setIdempotencyKey(idempotencyKey);
-        
-        // 调用库存服务（幂等性由 product-service 保证）
-        productServiceClient.deductStockBatch(request);
-        
-        log.info("Outbox HTTP 库存扣减成功，id: {}, orderId: {}, idempotencyKey: {}", 
-                outbox.getId(), command.getOrderId(), 
-                command.getIdempotencyKey() != null ? command.getIdempotencyKey() : command.getOrderId() + "-DEDUCT");
+        // 库存已改为创建订单时按渠道扣减，支付成功不再扣减，任务直接视为成功
+        log.debug("扣减任务跳过（已改为下单时按渠道扣减），outboxId: {}, orderId: {}", outbox.getId(), command.getOrderId());
     }
 }
 

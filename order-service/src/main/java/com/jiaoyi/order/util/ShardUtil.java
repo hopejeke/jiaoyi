@@ -1,7 +1,9 @@
 package com.jiaoyi.order.util;
 
 import com.google.common.hash.Hashing;
+
 import java.nio.charset.StandardCharsets;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * 分片工具类
@@ -114,6 +116,16 @@ public class ShardUtil {
      */
     public static boolean isValidShardId(int shardId) {
         return shardId >= 0 && shardId < BUCKET_COUNT;
+    }
+
+    private static final AtomicInteger ORDER_ID_SEQ = new AtomicInteger(0);
+
+    /**
+     * 预生成订单ID（用于下单时先按渠道扣减再 insert，需在 insert 前有 orderId）
+     * 格式：当前毫秒 * 10000 + 自增序列，单机近似唯一；生产环境建议用雪花或 DB 序列
+     */
+    public static long generateOrderId() {
+        return System.currentTimeMillis() * 10000L + (ORDER_ID_SEQ.incrementAndGet() % 10000);
     }
 }
 

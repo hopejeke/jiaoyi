@@ -48,7 +48,7 @@ public class StockChangeEvent {
     private String brandId;
     
     /** 门店ID */
-    private String poiId;
+    private String storeId;
     
     /** 商品对象ID */
     private Long objectId;

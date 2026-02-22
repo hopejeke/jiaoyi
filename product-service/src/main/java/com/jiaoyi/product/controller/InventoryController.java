@@ -1,28 +1,40 @@
 package com.jiaoyi.product.controller;
 
 import com.jiaoyi.common.ApiResponse;
+import com.jiaoyi.product.dto.ChannelDeductBatchRequest;
+import com.jiaoyi.product.dto.ChannelDeductRequest;
+import com.jiaoyi.product.dto.ChannelDeductResult;
+import com.jiaoyi.product.dto.PosOfflineReplayRequest;
+import com.jiaoyi.product.dto.PosOfflineReplayResult;
+import com.jiaoyi.product.dto.StockSyncFromPosRequest;
 import com.jiaoyi.product.entity.Inventory;
+import com.jiaoyi.product.entity.OversellRecord;
+import com.jiaoyi.product.entity.PoiItemStock;
+import com.jiaoyi.product.entity.PoiItemStockLog;
 import com.jiaoyi.product.service.InventoryService;
+import com.jiaoyi.product.service.PoiItemStockService;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Optional;
 
 /**
- * 库存管理控制器
+ * 库存管理控制器（唯一扣库存入口：门店+商品+SKU 锁/扣/还）
  */
 @RestController
 @RequestMapping("/api/inventory")
 @RequiredArgsConstructor
 @Slf4j
 public class InventoryController {
-    
+
     private final InventoryService inventoryService;
-    
+    private final PoiItemStockService poiItemStockService;
+
     /**
      * 获取所有库存信息（兼容前端 /api/inventory 接口）
      * 注意：如果数据量大，建议使用分页查询
@@ -273,124 +285,6 @@ public class InventoryController {
     
 
     /**
-     * 锁定库存（基于SKU）
-     */
-    @PostMapping("/{productId}/lock")
-    public ResponseEntity<ApiResponse<Void>> lockStock(
-            @PathVariable Long productId,
-            @RequestParam Long skuId,
-            @RequestParam Integer quantity,
-            @RequestParam Long orderId) {
-        log.info("锁定库存（SKU级别），订单ID: {}, 商品ID: {}, SKU ID: {}, 数量: {}", orderId, productId, skuId, quantity);
-        try {
-            inventoryService.checkAndLockStock(productId, skuId, quantity, orderId);
-            return ResponseEntity.ok(ApiResponse.success("锁定成功", null));
-        } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
-        }
-    }
-    
-    /**
-     * 解锁库存（基于SKU）
-     */
-    @PostMapping("/{productId}/unlock")
-    public ResponseEntity<ApiResponse<Void>> unlockStock(
-            @PathVariable Long productId,
-            @RequestParam Long skuId,
-            @RequestParam Integer quantity) {
-        log.info("解锁库存（SKU级别），商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
-        try {
-            inventoryService.unlockStock(productId, skuId, quantity, null);
-            return ResponseEntity.ok(ApiResponse.success("解锁成功", null));
-        } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
-        }
-    }
-    
-    /**
-     * 扣减库存（基于SKU）
-     */
-    @PostMapping("/{productId}/deduct")
-    public ResponseEntity<ApiResponse<Void>> deductStock(
-            @PathVariable Long productId,
-            @RequestParam Long skuId,
-            @RequestParam Integer quantity) {
-        log.info("扣减库存（SKU级别），商品ID: {}, SKU ID: {}, 数量: {}", productId, skuId, quantity);
-        try {
-            inventoryService.deductStock(productId, skuId, quantity, null);
-            return ResponseEntity.ok(ApiResponse.success("扣减成功", null));
-        } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
-        }
-    }
-    
-    /**
-     * 批量锁定库存（基于SKU）
-     */
-    @PostMapping("/lock/batch")
-    public ResponseEntity<ApiResponse<Void>> lockStockBatch(@RequestBody LockStockBatchRequest request) {
-        log.info("批量锁定库存（SKU级别），订单ID: {}, 商品数量: {}", request.getOrderId(), request.getProductIds().size());
-        try {
-            if (request.getOrderId() == null) {
-                return ResponseEntity.ok(ApiResponse.error(400, "订单ID不能为空（用于幂等性校验）"));
-            }
-            inventoryService.checkAndLockStockBatch(request.getProductIds(), request.getSkuIds(), request.getQuantities(), request.getOrderId());
-            return ResponseEntity.ok(ApiResponse.success("批量锁定成功", null));
-        } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
-        }
-    }
-    
-    /**
-     * 批量解锁库存（基于SKU）
-     * 
-     * 返回码说明：
-     * - 200: 操作成功（SUCCESS 或 IDEMPOTENT_SUCCESS）
-     *   - SUCCESS: 第一次调用，解锁成功
-     *   - IDEMPOTENT_SUCCESS: 重复调用，但库存已解锁过（幂等成功）
-     * - 400: 操作失败
-     */
-    @PostMapping("/unlock/batch")
-    public ResponseEntity<ApiResponse<com.jiaoyi.common.OperationResult>> unlockStockBatch(@RequestBody UnlockStockBatchRequest request) {
-        log.info("批量解锁库存（SKU级别），订单ID: {}, 商品数量: {}", request.getOrderId(), request.getProductIds().size());
-        try {
-            com.jiaoyi.common.OperationResult result = inventoryService.unlockStockBatch(
-                    request.getProductIds(), request.getSkuIds(), request.getQuantities(), request.getOrderId());
-            
-            // 根据结果状态返回对应的HTTP状态码
-            if (com.jiaoyi.common.OperationResult.ResultStatus.FAILED.equals(result.getStatus())) {
-                return ResponseEntity.ok(ApiResponse.error(400, result.getMessage()));
-            } else {
-                // SUCCESS 或 IDEMPOTENT_SUCCESS 都返回 200，但通过 result 中的 status 区分
-                return ResponseEntity.ok(ApiResponse.success(result.getMessage(), result));
-            }
-        } catch (Exception e) {
-            log.error("批量解锁库存异常", e);
-            return ResponseEntity.ok(ApiResponse.error(400, "批量解锁库存失败: " + e.getMessage()));
-        }
-    }
-    
-    /**
-     * 批量扣减库存（基于SKU）
-     */
-    @PostMapping("/deduct/batch")
-    public ResponseEntity<ApiResponse<Void>> deductStockBatch(@RequestBody DeductStockBatchRequest request) {
-        log.info("批量扣减库存（SKU级别），订单ID: {}, idempotencyKey: {}, 商品数量: {}", 
-                request.getOrderId(), request.getIdempotencyKey(), request.getProductIds().size());
-        try {
-            inventoryService.deductStockBatch(
-                    request.getProductIds(), 
-                    request.getSkuIds(), 
-                    request.getQuantities(), 
-                    request.getOrderId(),
-                    request.getIdempotencyKey());
-            return ResponseEntity.ok(ApiResponse.success("批量扣减成功", null));
-        } catch (Exception e) {
-            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
-        }
-    }
-    
-    /**
      * 设置库存数量（商品级别或SKU级别）
      */
     @PostMapping("/set-stock")
@@ -411,7 +305,176 @@ public class InventoryController {
             return ResponseEntity.ok(ApiResponse.error(400, "库存设置失败: " + e.getMessage()));
         }
     }
-    
+
+    // ========================= 门店/渠道库存（原 PoiItemStock，路径 /poi/stock/*） =========================
+
+    @PostMapping("/poi/stock/sync-from-pos")
+    public ResponseEntity<ApiResponse<Void>> poiSyncFromPos(@RequestBody StockSyncFromPosRequest request) {
+        try {
+            poiItemStockService.syncFromPos(request);
+            return ResponseEntity.ok(ApiResponse.success("同步成功", null));
+        } catch (Exception e) {
+            log.error("POS库存同步失败", e);
+            return ResponseEntity.ok(ApiResponse.error(500, e.getMessage()));
+        }
+    }
+
+    @PostMapping("/poi/stock/update")
+    public ResponseEntity<ApiResponse<Void>> poiUpdateStock(@RequestBody StockSyncFromPosRequest request) {
+        try {
+            poiItemStockService.updateStock(request);
+            return ResponseEntity.ok(ApiResponse.success("设置成功", null));
+        } catch (Exception e) {
+            log.error("设置库存失败", e);
+            return ResponseEntity.ok(ApiResponse.error(500, e.getMessage()));
+        }
+    }
+
+    @PostMapping("/poi/stock/detail")
+    public ResponseEntity<ApiResponse<PoiItemStock>> poiStockDetail(
+            @RequestParam String brandId, @RequestParam String storeId, @RequestParam Long objectId) {
+        try {
+            PoiItemStock stock = poiItemStockService.getStockDetail(brandId, storeId, objectId);
+            if (stock == null) {
+                return ResponseEntity.ok(ApiResponse.error(404, "库存不存在"));
+            }
+            return ResponseEntity.ok(ApiResponse.success(stock));
+        } catch (Exception e) {
+            log.error("查询库存详情失败", e);
+            return ResponseEntity.ok(ApiResponse.error(500, e.getMessage()));
+        }
+    }
+
+    @PostMapping("/poi/stock/log")
+    public ResponseEntity<ApiResponse<List<PoiItemStockLog>>> poiStockLog(
+            @RequestParam(required = false) String brandId,
+            @RequestParam(required = false) String storeId,
+            @RequestParam(required = false) Long stockId,
+            @RequestParam(defaultValue = "100") Integer limit) {
+        try {
+            List<PoiItemStockLog> logs = poiItemStockService.getStockLogs(brandId, storeId, stockId, limit);
+            return ResponseEntity.ok(ApiResponse.success(logs));
+        } catch (Exception e) {
+            log.error("查询库存变动记录失败", e);
+            return ResponseEntity.ok(ApiResponse.error(500, e.getMessage()));
+        }
+    }
+
+    @PostMapping("/poi/stock/replay-offline")
+    public ResponseEntity<ApiResponse<PosOfflineReplayResult>> poiReplayOffline(@RequestBody PosOfflineReplayRequest request) {
+        try {
+            PosOfflineReplayResult result = poiItemStockService.replayOfflineEvents(request);
+            return ResponseEntity.ok(ApiResponse.success(result.isOversellDetected()
+                    ? "回放完成，检测到超卖（" + result.getOversellQuantity() + "份），请店长确认" : "回放完成", result));
+        } catch (Exception e) {
+            log.error("POS离线事件回放失败", e);
+            return ResponseEntity.ok(ApiResponse.error(500, e.getMessage()));
+        }
+    }
+
+    /** 按渠道扣库存（单品） */
+    @PostMapping("/poi/stock/deduct-by-channel")
+    public ResponseEntity<ApiResponse<ChannelDeductResult>> poiDeductByChannel(@RequestBody ChannelDeductRequest request) {
+        try {
+            ChannelDeductResult result = poiItemStockService.deductByChannel(request);
+            return ResponseEntity.ok(ApiResponse.success(result.getMessage(), result));
+        } catch (Exception e) {
+            log.error("渠道库存扣减失败", e);
+            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
+        }
+    }
+
+    /** 按渠道批量扣减（订单多品，下单时调） */
+    @PostMapping("/poi/stock/deduct-by-channel/batch")
+    public ResponseEntity<ApiResponse<Void>> poiDeductByChannelBatch(@RequestBody ChannelDeductBatchRequest request) {
+        try {
+            poiItemStockService.deductByChannelBatch(request);
+            return ResponseEntity.ok(ApiResponse.success("扣减成功", null));
+        } catch (Exception e) {
+            log.error("渠道批量扣减失败", e);
+            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
+        }
+    }
+
+    @PostMapping("/poi/stock/allocate-channel-quotas")
+    public ResponseEntity<ApiResponse<Void>> poiAllocateChannelQuotas(
+            @RequestParam String brandId, @RequestParam String storeId, @RequestParam Long objectId) {
+        try {
+            poiItemStockService.allocateChannelQuotas(brandId, storeId, objectId);
+            return ResponseEntity.ok(ApiResponse.success("渠道额度分配成功", null));
+        } catch (Exception e) {
+            log.error("渠道额度分配失败", e);
+            return ResponseEntity.ok(ApiResponse.error(500, e.getMessage()));
+        }
+    }
+
+    /** 设置渠道库存分配模式：WEIGHTED_QUOTA（加权配额）| SAFETY_STOCK（安全线保护） */
+    @PutMapping("/poi/stock/allocation-mode")
+    public ResponseEntity<ApiResponse<Void>> poiSetAllocationMode(@RequestBody SetAllocationModeRequest request) {
+        try {
+            poiItemStockService.setAllocationMode(
+                request.getBrandId(), request.getStoreId(), request.getObjectId(),
+                request.getAllocationMode());
+            return ResponseEntity.ok(ApiResponse.success("分配模式已更新", null));
+        } catch (Exception e) {
+            log.error("设置分配模式失败", e);
+            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
+        }
+    }
+
+    /** 更新渠道优先级与安全线（方案二 SAFETY_STOCK 时使用，运营后台配置） */
+    @PutMapping("/poi/stock/channel-safety")
+    public ResponseEntity<ApiResponse<Void>> poiUpdateChannelSafety(@RequestBody UpdateChannelSafetyRequest request) {
+        try {
+            poiItemStockService.updateChannelPriorityAndSafetyStock(
+                request.getChannelId(), request.getChannelPriority(), request.getSafetyStock());
+            return ResponseEntity.ok(ApiResponse.success("渠道安全线配置已更新", null));
+        } catch (Exception e) {
+            log.error("更新渠道安全线配置失败", e);
+            return ResponseEntity.ok(ApiResponse.error(400, e.getMessage()));
+        }
+    }
+
+    @PostMapping("/poi/stock/return-by-order")
+    public ResponseEntity<ApiResponse<Void>> poiReturnByOrder(@RequestParam String orderId) {
+        try {
+            poiItemStockService.returnStockByOrderId(orderId);
+            return ResponseEntity.ok(ApiResponse.success("归还处理完成", null));
+        } catch (Exception e) {
+            log.error("按订单归还库存失败 orderId={}", orderId, e);
+            return ResponseEntity.ok(ApiResponse.error(500, e.getMessage()));
+        }
+    }
+
+    @GetMapping("/poi/stock/oversell-records")
+    public ResponseEntity<ApiResponse<List<OversellRecord>>> poiOversellRecords(
+            @RequestParam String brandId,
+            @RequestParam String storeId,
+            @RequestParam(required = false) String status) {
+        try {
+            List<OversellRecord> records = poiItemStockService.getOversellRecords(brandId, storeId, status);
+            return ResponseEntity.ok(ApiResponse.success(records));
+        } catch (Exception e) {
+            log.error("查询超卖记录失败", e);
+            return ResponseEntity.ok(ApiResponse.error(500, e.getMessage()));
+        }
+    }
+
+    @PostMapping("/poi/stock/resolve-oversell")
+    public ResponseEntity<ApiResponse<Void>> poiResolveOversell(
+            @RequestParam Long recordId,
+            @RequestParam String status,
+            @RequestParam(required = false) String resolvedBy,
+            @RequestParam(required = false) String remark) {
+        try {
+            poiItemStockService.resolveOversellRecord(recordId, status, resolvedBy, remark);
+            return ResponseEntity.ok(ApiResponse.success("超卖记录已处理", null));
+        } catch (Exception e) {
+            log.error("处理超卖记录失败", e);
+            return ResponseEntity.ok(ApiResponse.error(500, e.getMessage()));
+        }
+    }
+
     /**
      * 检查库存请求DTO（基于SKU）
      */
@@ -421,41 +484,7 @@ public class InventoryController {
         private Long skuId;
         private Integer quantity;
     }
-    
-    /**
-     * 批量锁定库存请求DTO（基于SKU）
-     */
-    @Data
-    public static class LockStockBatchRequest {
-        private List<Long> productIds;
-        private List<Long> skuIds;
-        private List<Integer> quantities;
-        private Long orderId; // 订单ID（用于幂等性校验）
-    }
-    
-    /**
-     * 批量解锁库存请求DTO（基于SKU）
-     */
-    @Data
-    public static class UnlockStockBatchRequest {
-        private List<Long> productIds;
-        private List<Long> skuIds;
-        private List<Integer> quantities;
-        private Long orderId;
-    }
-    
-    /**
-     * 批量扣减库存请求DTO（基于SKU）
-     */
-    @Data
-    public static class DeductStockBatchRequest {
-        private List<Long> productIds;
-        private List<Long> skuIds;
-        private List<Integer> quantities;
-        private Long orderId;
-        private String idempotencyKey; // 幂等键（可选，格式：orderId + "-DEDUCT"）
-    }
-    
+
     /**
      * 设置库存请求DTO
      */
@@ -469,6 +498,27 @@ public class InventoryController {
         private Integer maxStock; // 最大库存容量
     }
     
+    /**
+     * 设置分配模式请求：WEIGHTED_QUOTA | SAFETY_STOCK
+     */
+    @Data
+    public static class SetAllocationModeRequest {
+        private String brandId;
+        private String storeId;
+        private Long objectId;
+        private String allocationMode;
+    }
+
+    /**
+     * 更新渠道优先级与安全线请求（方案二用）
+     */
+    @Data
+    public static class UpdateChannelSafetyRequest {
+        private Long channelId;
+        private Integer channelPriority;
+        private BigDecimal safetyStock;
+    }
+
     /**
      * 更新库存请求DTO
      */

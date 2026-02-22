@@ -24,7 +24,7 @@ public class StockSyncToPosMessage {
     /**
      * 门店ID
      */
-    private String poiId;
+    private String storeId;
     
     /**
      * 对象类型

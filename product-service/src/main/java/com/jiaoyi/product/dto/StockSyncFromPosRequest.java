@@ -24,7 +24,7 @@ public class StockSyncFromPosRequest {
     /**
      * 门店ID
      */
-    private String poiId;
+    private String storeId;
     
     /**
      * 对象ID

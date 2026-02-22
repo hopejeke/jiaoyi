@@ -18,9 +18,9 @@ public interface PoiItemStockMapper {
     /**
      * 根据品牌ID、门店ID、对象ID查询
      */
-    PoiItemStock selectByBrandIdAndPoiIdAndObjectId(
+    PoiItemStock selectByBrandIdAndStoreIdAndObjectId(
         @Param("brandId") String brandId,
-        @Param("poiId") String poiId,
+        @Param("storeId") String storeId,
         @Param("objectId") Long objectId
     );
     
@@ -40,7 +40,7 @@ public interface PoiItemStockMapper {
     int updateStock(
         @Param("id") Long id,
         @Param("brandId") String brandId,
-        @Param("poiId") String poiId,
+        @Param("storeId") String storeId,
         @Param("stockStatus") Integer stockStatus,
         @Param("stockType") Integer stockType,
         @Param("planQuantity") BigDecimal planQuantity,
@@ -102,8 +102,41 @@ public interface PoiItemStockMapper {
     /**
      * 根据品牌ID、门店ID查询列表
      */
-    List<PoiItemStock> selectByBrandIdAndPoiId(
+    List<PoiItemStock> selectByBrandIdAndStoreId(
         @Param("brandId") String brandId,
-        @Param("poiId") String poiId
+        @Param("storeId") String storeId
+    );
+
+    /**
+     * 归还到共享池：增加 shared_pool_quantity 和 real_quantity（订单取消按源头还）
+     */
+    int atomicReturnToSharedPool(
+        @Param("id") Long id,
+        @Param("qty") BigDecimal qty
+    );
+
+    /**
+     * 仅增加主表 real_quantity（还渠道时用，渠道表已 atomicDecreaseChannelSold）
+     */
+    int atomicIncreaseRealQuantity(
+        @Param("id") Long id,
+        @Param("qty") BigDecimal qty
+    );
+
+    /**
+     * 带安全线底线的原子扣减（方案二 SAFETY_STOCK）：扣减后 real_quantity 不能低于 safetyFloor
+     */
+    int atomicDeductWithFloor(
+        @Param("id") Long id,
+        @Param("delta") BigDecimal delta,
+        @Param("safetyFloor") BigDecimal safetyFloor
+    );
+
+    /**
+     * 更新分配模式
+     */
+    int updateAllocationMode(
+        @Param("id") Long id,
+        @Param("allocationMode") String allocationMode
     );
 }

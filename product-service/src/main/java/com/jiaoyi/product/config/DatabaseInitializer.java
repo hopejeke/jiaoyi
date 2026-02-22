@@ -1473,7 +1473,7 @@ public class DatabaseInitializer {
                 "CREATE TABLE IF NOT EXISTS poi_item_stock (" +
                 "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
                 "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
-                "poi_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
+                "store_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
                 "object_type INT NOT NULL COMMENT '对象类型：1-SPU, 2-SKU', " +
                 "object_id BIGINT NOT NULL COMMENT '对象ID', " +
                 "stock_status INT NOT NULL COMMENT '库存状态：1-可售, 2-售罄', " +
@@ -1486,8 +1486,8 @@ public class DatabaseInitializer {
                 "last_manual_set_time TIMESTAMP NULL COMMENT '最后手动设置时间', " +
                 "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
                 "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
-                "UNIQUE KEY uk_brand_poi_object (brand_id, poi_id, object_id), " +
-                "INDEX idx_brand_poi (brand_id, poi_id), " +
+                "UNIQUE KEY uk_brand_store_object (brand_id, store_id, object_id), " +
+                "INDEX idx_brand_store (brand_id, store_id), " +
                 "INDEX idx_updated_at (updated_at)" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品库存主表'"
             );
@@ -1498,7 +1498,7 @@ public class DatabaseInitializer {
                 "CREATE TABLE IF NOT EXISTS poi_item_channel_stock (" +
                 "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
                 "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
-                "poi_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
+                "store_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
                 "stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id', " +
                 "stock_status INT NOT NULL COMMENT '库存状态：1-可售, 2-售罄', " +
                 "stock_type INT DEFAULT 0 COMMENT '库存类型', " +
@@ -1509,7 +1509,7 @@ public class DatabaseInitializer {
                 "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
                 "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
                 "UNIQUE KEY uk_stock_channel (stock_id, channel_code), " +
-                "INDEX idx_brand_poi (brand_id, poi_id), " +
+                "INDEX idx_brand_store (brand_id, store_id), " +
                 "INDEX idx_stock_id (stock_id)" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品渠道库存表'"
             );
@@ -1520,29 +1520,44 @@ public class DatabaseInitializer {
                 "CREATE TABLE IF NOT EXISTS poi_item_stock_log (" +
                 "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
                 "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
-                "poi_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
+                "store_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
                 "stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id', " +
                 "content TEXT NOT NULL COMMENT '变更内容JSON', " +
                 "change_type VARCHAR(20) NOT NULL DEFAULT 'ABSOLUTE_SET' COMMENT '变更类型', " +
                 "delta DECIMAL(10,1) DEFAULT 0 COMMENT '变更量', " +
                 "source VARCHAR(20) NOT NULL DEFAULT 'CLOUD' COMMENT '来源', " +
                 "order_id VARCHAR(64) NULL COMMENT '关联订单ID', " +
+                "deduct_source VARCHAR(32) NULL COMMENT '扣减来源：FROM_CHANNEL/FROM_SHARED_POOL', " +
+                "channel_code VARCHAR(32) NULL COMMENT '渠道代码（归还时用）', " +
                 "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
                 "INDEX idx_stock_id (stock_id), " +
-                "INDEX idx_brand_poi (brand_id, poi_id), " +
+                "INDEX idx_brand_store (brand_id, store_id), " +
                 "INDEX idx_created_at (created_at), " +
                 "INDEX idx_order_id (order_id), " +
                 "INDEX idx_stock_change_time (stock_id, change_type, created_at)" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存变更记录表'"
             );
             log.info("  ✓ poi_item_stock_log 表创建成功");
+            // 兼容已存在表：补充 deduct_source、channel_code 列（用于按源头归还）
+            try (ResultSet deductSourceCol = metaData.getColumns(null, null, "poi_item_stock_log", "deduct_source")) {
+                if (!deductSourceCol.next()) {
+                    stmt.executeUpdate("ALTER TABLE poi_item_stock_log ADD COLUMN deduct_source VARCHAR(32) NULL COMMENT '扣减来源：FROM_CHANNEL/FROM_SHARED_POOL' AFTER order_id");
+                    log.info("  ✓ poi_item_stock_log 已添加 deduct_source 列");
+                }
+            }
+            try (ResultSet channelCodeCol = metaData.getColumns(null, null, "poi_item_stock_log", "channel_code")) {
+                if (!channelCodeCol.next()) {
+                    stmt.executeUpdate("ALTER TABLE poi_item_stock_log ADD COLUMN channel_code VARCHAR(32) NULL COMMENT '渠道代码（归还时用）' AFTER deduct_source");
+                    log.info("  ✓ poi_item_stock_log 已添加 channel_code 列");
+                }
+            }
             
             // 4. oversell_record
             stmt.executeUpdate(
                 "CREATE TABLE IF NOT EXISTS oversell_record (" +
                 "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
                 "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
-                "poi_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
+                "store_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
                 "stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id', " +
                 "object_id BIGINT NOT NULL COMMENT '商品对象ID', " +
                 "oversell_quantity DECIMAL(10,1) NOT NULL COMMENT '超卖数量', " +
@@ -1552,7 +1567,7 @@ public class DatabaseInitializer {
                 "resolved_at TIMESTAMP NULL COMMENT '处理时间', " +
                 "remark TEXT NULL COMMENT '备注', " +
                 "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
-                "INDEX idx_brand_poi (brand_id, poi_id), " +
+                "INDEX idx_brand_store (brand_id, store_id), " +
                 "INDEX idx_stock_id (stock_id), " +
                 "INDEX idx_status (status), " +
                 "INDEX idx_created_at (created_at)" +

@@ -80,33 +80,20 @@ public class DeductStockConsumer implements RocketMQListener<MessageExt> {
                 return; // 重复消息，直接返回（幂等成功）
             }
             
-            // 3. 调用 product-service 扣减库存（幂等性由 product-service 保证，使用 idempotencyKey）
-            ProductServiceClient.DeductStockBatchRequest deductRequest = new ProductServiceClient.DeductStockBatchRequest();
-            deductRequest.setProductIds(command.getProductIds());
-            deductRequest.setSkuIds(command.getSkuIds());
-            deductRequest.setQuantities(command.getQuantities());
-            deductRequest.setOrderId(orderId);
-            
+            // 3. 库存已改为创建订单时按渠道扣减，支付成功不再扣减，直接标记成功
+            log.debug("扣减消息跳过（已改为下单时按渠道扣减），orderId: {}, idempotencyKey: {}", orderId, idempotencyKey);
             try {
-                productServiceClient.deductStockBatch(deductRequest);
-                log.info("库存扣减成功，orderId: {}, idempotencyKey: {}, 商品数量: {}", 
-                        orderId, idempotencyKey, 
-                        command.getProductIds() != null ? command.getProductIds().size() : 0);
-                
-                // 标记消费为成功
                 consumerLogService.markSuccess(
                         RocketMQConfig.DEDUCT_STOCK_CONSUMER_GROUP, 
                         idempotencyKey
                 );
                 
             } catch (Exception e) {
-                log.error("调用 product-service 扣减库存失败，orderId: {}, idempotencyKey: {}", 
-                        orderId, idempotencyKey, e);
-                // 标记消费为失败
+                log.error("标记扣减消费成功失败，orderId: {}, idempotencyKey: {}", orderId, idempotencyKey, e);
                 consumerLogService.markFailed(
                         RocketMQConfig.DEDUCT_STOCK_CONSUMER_GROUP, 
                         idempotencyKey, 
-                        "扣减库存失败: " + e.getMessage()
+                        "标记成功失败: " + e.getMessage()
                 );
                 // 抛出异常，让 RocketMQ 重试
                 throw new RuntimeException("扣减库存失败: " + e.getMessage(), e);

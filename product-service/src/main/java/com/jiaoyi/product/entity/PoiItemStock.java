@@ -158,7 +158,7 @@ public class PoiItemStock {
     /**
      * 门店ID
      */
-    private String poiId;
+    private String storeId;
     
     /**
      * 对象类型：1-SPU, 2-SKU
@@ -210,6 +210,11 @@ public class PoiItemStock {
      * 用于冲突合并：绝对设置 vs 相对变更
      */
     private LocalDateTime lastManualSetTime;
+    
+    /**
+     * 渠道库存分配模式：WEIGHTED_QUOTA=加权配额+共享池, SAFETY_STOCK=安全线保护
+     */
+    private String allocationMode = "WEIGHTED_QUOTA";
     
     /**
      * 创建时间

@@ -416,7 +416,11 @@ public class OrderService {
             order.setShardId(shardId);
             log.info("计算 shard_id: {} (基于 storeId: {})", shardId, storeId);
         }
-        
+        // 预生成订单ID（按渠道扣减需在 insert 前带 orderId 调用）
+        if (order.getId() == null) {
+            order.setId(com.jiaoyi.order.util.ShardUtil.generateOrderId());
+        }
+
         // 高峰拒单检查（排除堂食订单）
         if (!OrderTypeEnum.SELF_DINE_IN.equals(order.getOrderType())) {
             MerchantCapabilityConfig config = merchantCapabilityConfigMapper.selectByMerchantId(order.getMerchantId());
@@ -530,39 +534,50 @@ public class OrderService {
 
                     log.info("成功获取订单内容锁，开始处理在线点餐订单创建（锁将自动续期），内容锁key: {}", contentLockKey);
                     
-                    // 1. 检查并锁定库存（基于SKU）
+                    // 1. 按渠道扣减库存（下单即扣，取消时按订单归还）
                     List<Long> productIds = null;
                     List<Long> skuIds = null;
                     List<Integer> quantities = null;
-                    
+                    boolean stockDeducted = false;
+
                     try {
                         if (orderItems != null && !orderItems.isEmpty()) {
-                            productIds = orderItems.stream()
-                                    .map(OrderItem::getProductId)
-                                    .filter(Objects::nonNull)
-                                    .collect(Collectors.toList());
                             skuIds = orderItems.stream()
                                     .map(OrderItem::getSkuId)
+                                    .filter(Objects::nonNull)
+                                    .collect(Collectors.toList());
+                            productIds = orderItems.stream()
+                                    .map(OrderItem::getProductId)
                                     .filter(Objects::nonNull)
                                     .collect(Collectors.toList());
                             quantities = orderItems.stream()
                                     .map(OrderItem::getQuantity)
                                     .collect(Collectors.toList());
-                            
-                            if (!productIds.isEmpty() && !skuIds.isEmpty() && productIds.size() == skuIds.size()) {
-                                log.info("检查并锁定库存（SKU级别），订单ID: {}, 商品数量: {}", order.getId(), productIds.size());
-                                ProductServiceClient.LockStockBatchRequest lockRequest = new ProductServiceClient.LockStockBatchRequest();
-                                lockRequest.setProductIds(productIds);
-                                lockRequest.setSkuIds(skuIds);
-                                lockRequest.setQuantities(quantities);
-                                lockRequest.setOrderId(order.getId()); // 传递订单ID用于幂等性校验
-                                try {
-                                    productServiceClient.lockStockBatch(lockRequest);
-                                } catch (Exception e) {
-                                    log.error("锁定库存失败", e);
-                                    throw new BusinessException("库存不足或锁定失败: " + e.getMessage());
+
+                            if (!productIds.isEmpty() && !skuIds.isEmpty() && productIds.size() == skuIds.size()
+                                    && order.getMerchantId() != null && order.getStoreId() != null && order.getId() != null) {
+                                log.info("按渠道扣减库存，订单ID: {}, 商品数量: {}", order.getId(), skuIds.size());
+                                ProductServiceClient.ChannelDeductBatchRequest deductRequest = new ProductServiceClient.ChannelDeductBatchRequest();
+                                deductRequest.setBrandId(order.getMerchantId());
+                                deductRequest.setStoreId(String.valueOf(order.getStoreId()));
+                                deductRequest.setChannelCode("ONLINE_ORDER");
+                                deductRequest.setOrderId(String.valueOf(order.getId()));
+                                List<ProductServiceClient.ChannelDeductItem> items = new java.util.ArrayList<>();
+                                for (int i = 0; i < skuIds.size(); i++) {
+                                    ProductServiceClient.ChannelDeductItem item = new ProductServiceClient.ChannelDeductItem();
+                                    item.setObjectId(skuIds.get(i));
+                                    item.setQuantity(java.math.BigDecimal.valueOf(quantities.get(i)));
+                                    items.add(item);
                                 }
-                            } else {
+                                deductRequest.setItems(items);
+                                try {
+                                    productServiceClient.deductByChannelBatch(deductRequest);
+                                    stockDeducted = true;
+                                } catch (Exception e) {
+                                    log.error("按渠道扣减库存失败", e);
+                                    throw new BusinessException("库存不足或扣减失败: " + e.getMessage());
+                                }
+                            } else if (orderItems.stream().anyMatch(i -> i.getProductId() == null || i.getSkuId() == null)) {
                                 throw new BusinessException("订单项必须包含productId和skuId");
                             }
                         }
@@ -741,60 +756,30 @@ public class OrderService {
                         return insertedOrder;
                         
                     } catch (Exception e) {
-                        // 如果订单创建失败，解锁已锁定的库存
-                        log.error("在线点餐订单创建失败，尝试解锁库存", e);
-                        if (productIds != null && skuIds != null && quantities != null && !productIds.isEmpty()) {
-                            boolean unlockSuccess = false;
+                        // 如果订单创建失败，按订单归还已扣库存
+                        log.error("在线点餐订单创建失败，尝试归还库存", e);
+                        if (stockDeducted && order.getId() != null) {
                             int maxRetries = com.jiaoyi.order.constants.OrderConstants.STOCK_UNLOCK_MAX_RETRIES;
-
+                            boolean returnSuccess = false;
                             for (int retryCount = 0; retryCount < maxRetries; retryCount++) {
                                 try {
                                     if (retryCount > 0) {
-                                        log.info("重试解锁库存，第 {} 次", retryCount);
-                                        // 指数退避
+                                        log.info("重试归还库存，第 {} 次", retryCount);
                                         Thread.sleep(1000L * retryCount);
                                     }
-
-                                    ProductServiceClient.UnlockStockBatchRequest unlockRequest =
-                                        new ProductServiceClient.UnlockStockBatchRequest();
-                                    unlockRequest.setProductIds(productIds);
-                                    unlockRequest.setSkuIds(skuIds);
-                                    unlockRequest.setQuantities(quantities);
-                                    unlockRequest.setOrderId(null);
-
-                                    productServiceClient.unlockStockBatch(unlockRequest);
-                                    unlockSuccess = true;
-                                    log.info("库存解锁成功，商品数量: {}", productIds.size());
+                                    productServiceClient.returnByOrder(String.valueOf(order.getId()));
+                                    returnSuccess = true;
+                                    log.info("库存归还成功，订单ID: {}", order.getId());
                                     break;
-
-                                } catch (Exception unlockException) {
-                                    log.error("解锁库存失败，重试次数: {}/{}", retryCount + 1, maxRetries, unlockException);
-
+                                } catch (Exception returnException) {
+                                    log.error("归还库存失败，重试次数: {}/{}", retryCount + 1, maxRetries, returnException);
                                     if (retryCount == maxRetries - 1) {
-                                        // 最后一次重试也失败，记录库存泄漏
-                                        String leakageInfo = String.format(
-                                            "库存泄漏告警 - 订单创建失败但库存解锁失败，" +
-                                            "用户ID: %d, 商品ID: %s, SKU ID: %s, 数量: %s",
-                                            order.getUserId(),
-                                            productIds.toString(),
-                                            skuIds.toString(),
-                                            quantities.toString()
-                                        );
-
-                                        log.error("【库存泄漏警告】{}", leakageInfo);
-
-                                        // TODO: 发送告警通知
-                                        // alertService.sendAlert("库存泄漏", leakageInfo);
-
-                                        // TODO: 写入补偿任务表，供定时任务处理
-                                        // compensationTaskService.createUnlockStockTask(
-                                        //     productIds, skuIds, quantities, null, leakageInfo);
+                                        log.error("【库存泄漏警告】订单创建失败但归还库存失败，orderId: {}", order.getId());
                                     }
                                 }
                             }
-
-                            if (!unlockSuccess) {
-                                log.error("库存解锁失败，已达最大重试次数: {}，需要人工介入", maxRetries);
+                            if (!returnSuccess) {
+                                log.error("库存归还失败，已达最大重试次数: {}，需要人工介入", maxRetries);
                             }
                         }
                         throw e;
@@ -1316,25 +1301,18 @@ public class OrderService {
             return;
         }
 
-        // 支付成功（status = 100）：扣减库存
+        // 支付成功（status = 100）：下单时已按渠道扣减，此处无需再扣
         if (oldStatus != null && oldStatus == 1 && newStatus != null && newStatus == 100) {
-            log.info("订单支付成功，扣减库存（SKU级别），订单ID: {}", order.getId());
-            ProductServiceClient.DeductStockBatchRequest deductRequest = new ProductServiceClient.DeductStockBatchRequest();
-            deductRequest.setProductIds(productIds);
-            deductRequest.setSkuIds(skuIds);
-            deductRequest.setQuantities(quantities);
-            deductRequest.setOrderId(order.getId());
-            productServiceClient.deductStockBatch(deductRequest);
+            log.debug("订单支付成功，库存已在创建时按渠道扣减，订单ID: {}", order.getId());
         }
-            // 订单取消（status = -1）：解锁库存
+        // 订单取消（status = -1）：按订单归还库存
         else if (newStatus != null && newStatus == -1) {
-            log.info("订单取消，解锁库存（SKU级别），订单ID: {}", order.getId());
-            ProductServiceClient.UnlockStockBatchRequest unlockRequest = new ProductServiceClient.UnlockStockBatchRequest();
-            unlockRequest.setProductIds(productIds);
-            unlockRequest.setSkuIds(skuIds);
-            unlockRequest.setQuantities(quantities);
-            unlockRequest.setOrderId(order.getId());
-            productServiceClient.unlockStockBatch(unlockRequest);
+            log.info("订单取消，按订单归还库存，订单ID: {}", order.getId());
+            try {
+                productServiceClient.returnByOrder(String.valueOf(order.getId()));
+            } catch (Exception ex) {
+                log.error("按订单归还库存失败，订单ID: {}", order.getId(), ex);
+            }
         }
     }
     
