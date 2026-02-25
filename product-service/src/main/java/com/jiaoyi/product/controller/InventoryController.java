@@ -20,6 +20,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
 
@@ -517,6 +518,65 @@ public class InventoryController {
         private Long channelId;
         private Integer channelPriority;
         private BigDecimal safetyStock;
+    }
+
+    /**
+     * 更新库存恢复配置
+     * 支持三种模式：MANUAL（手动）、TOMORROW（次日）、SCHEDULED（指定时间）
+     */
+    @PutMapping("/{inventoryId}/restore-config")
+    public ResponseEntity<ApiResponse<Void>> updateRestoreConfig(
+            @PathVariable Long inventoryId,
+            @RequestBody UpdateRestoreConfigRequest request) {
+        log.info("更新库存恢复配置，库存ID: {}, 模式: {}, 启用: {}", inventoryId, request.getRestoreMode(), request.getRestoreEnabled());
+        try {
+            com.jiaoyi.product.entity.Inventory.RestoreMode restoreMode =
+                    com.jiaoyi.product.entity.Inventory.RestoreMode.valueOf(request.getRestoreMode().toUpperCase());
+            inventoryService.updateRestoreConfig(
+                    inventoryId,
+                    restoreMode,
+                    request.getRestoreTime(),
+                    request.getRestoreStock(),
+                    request.getRestoreEnabled()
+            );
+            return ResponseEntity.ok(ApiResponse.success("库存恢复配置更新成功", null));
+        } catch (IllegalArgumentException e) {
+            return ResponseEntity.ok(ApiResponse.error(400, "参数错误: " + e.getMessage()));
+        } catch (Exception e) {
+            log.error("更新库存恢复配置失败，库存ID: {}", inventoryId, e);
+            return ResponseEntity.ok(ApiResponse.error(500, "更新失败: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 手动触发库存恢复
+     * 用于运营人员手动恢复某条库存记录
+     */
+    @PostMapping("/{inventoryId}/restore")
+    public ResponseEntity<ApiResponse<Void>> manualRestoreInventory(@PathVariable Long inventoryId) {
+        log.info("手动触发库存恢复，库存ID: {}", inventoryId);
+        try {
+            inventoryService.restoreInventory(inventoryId);
+            return ResponseEntity.ok(ApiResponse.success("库存恢复成功", null));
+        } catch (Exception e) {
+            log.error("手动恢复库存失败，库存ID: {}", inventoryId, e);
+            return ResponseEntity.ok(ApiResponse.error(500, "恢复失败: " + e.getMessage()));
+        }
+    }
+
+    /**
+     * 更新库存恢复配置请求DTO
+     */
+    @Data
+    public static class UpdateRestoreConfigRequest {
+        /** 恢复模式：MANUAL / TOMORROW / SCHEDULED */
+        private String restoreMode;
+        /** 指定恢复时间（SCHEDULED 模式必填） */
+        private LocalDateTime restoreTime;
+        /** 恢复后的库存数量（null 表示恢复为 UNLIMITED） */
+        private Integer restoreStock;
+        /** 是否启用自动恢复 */
+        private Boolean restoreEnabled;
     }
 
     /**
