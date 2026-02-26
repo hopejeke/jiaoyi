@@ -4,6 +4,8 @@ import com.jiaoyi.product.entity.InventoryTransaction;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 /**
@@ -98,5 +100,44 @@ public interface InventoryTransactionMapper {
     InventoryTransaction selectByOrderIdAndSkuId(
             @Param("orderId") Long orderId,
             @Param("skuId") Long skuId);
+
+    // ========================= POI 渠道库存扩展方法 =========================
+
+    /**
+     * 查询某时刻之后所有 RELATIVE_DELTA 操作的 delta 总和（绝对设置冲突合并用）
+     */
+    BigDecimal sumDeltaSince(
+        @Param("inventoryId") Long inventoryId,
+        @Param("since") LocalDateTime since
+    );
+
+    /**
+     * 查询该订单所有扣减日志（delta < 0），用于订单取消归还
+     */
+    List<InventoryTransaction> selectDeductLogsByOrderId(@Param("orderId") String orderId);
+
+    /**
+     * 归还幂等检查：查询 orderId + inventoryId 是否已有归还记录
+     */
+    int countReturnByOrderIdAndInventoryId(
+        @Param("orderId") String orderId,
+        @Param("inventoryId") Long inventoryId
+    );
+
+    /**
+     * 扣减幂等检查：查询 orderId + inventoryId 是否已有扣减记录
+     */
+    int countDeductByOrderIdAndInventoryId(
+        @Param("orderId") String orderId,
+        @Param("inventoryId") Long inventoryId
+    );
+
+    /**
+     * 按库存ID查询变动记录（POI 库存日志，支持 limit）
+     */
+    List<InventoryTransaction> selectByInventoryId(
+        @Param("inventoryId") Long inventoryId,
+        @Param("limit") int limit
+    );
 }
 

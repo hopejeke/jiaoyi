@@ -4,6 +4,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -164,6 +165,28 @@ public class Inventory {
      * 是否启用自动恢复
      */
     private Boolean restoreEnabled = false;
+
+    // ========================= POI 渠道库存扩展字段 =========================
+
+    /**
+     * 计划库存（POS设置值）
+     */
+    private BigDecimal planQuantity = BigDecimal.ZERO;
+
+    /**
+     * 渠道分配模式：WEIGHTED_QUOTA=加权配额+共享池, SAFETY_STOCK=安全线保护
+     */
+    private String allocationMode = "WEIGHTED_QUOTA";
+
+    /**
+     * 共享池库存（不分配给任何渠道的弹性库存）
+     */
+    private BigDecimal sharedPoolQuantity = BigDecimal.ZERO;
+
+    /**
+     * 最后手动绝对设置时间（冲突合并用）
+     */
+    private LocalDateTime lastManualSetTime;
 
     /**
      * 创建时间

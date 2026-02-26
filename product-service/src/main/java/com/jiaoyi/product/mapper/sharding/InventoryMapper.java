@@ -4,6 +4,7 @@ import com.jiaoyi.product.entity.Inventory;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -157,5 +158,63 @@ public interface InventoryMapper {
      * 设置为 restore_enabled = false
      */
     int disableExpiredRestoreConfig(@Param("cutoffTime") LocalDateTime cutoffTime);
+
+    // ========================= POI 渠道库存扩展方法 =========================
+
+    /**
+     * 加行锁查询（用于绝对设置冲突合并）
+     */
+    Inventory selectByIdForUpdate(@Param("id") Long id);
+
+    /**
+     * 原子扣减 current_stock（WHERE current_stock >= delta）
+     * 返回 affected rows：1=成功，0=库存不足
+     */
+    int atomicDeductCurrentStock(@Param("id") Long id, @Param("delta") BigDecimal delta);
+
+    /**
+     * 原子扣减 current_stock，同时保证不低于安全线
+     * WHERE current_stock - delta >= safetyFloor
+     * 返回 affected rows：1=成功，0=库存不足
+     */
+    int atomicDeductCurrentStockWithFloor(
+        @Param("id") Long id,
+        @Param("delta") BigDecimal delta,
+        @Param("safetyFloor") BigDecimal safetyFloor
+    );
+
+    /**
+     * 强制更新 current_stock（绝对设置，离线回放超卖时使用）
+     */
+    int forceUpdateCurrentStock(
+        @Param("id") Long id,
+        @Param("currentStock") BigDecimal currentStock,
+        @Param("lastManualSetTime") LocalDateTime lastManualSetTime,
+        @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    /**
+     * 原子增加 current_stock（订单取消归还时使用）
+     */
+    int atomicIncreaseCurrentStock(@Param("id") Long id, @Param("qty") BigDecimal qty);
+
+    /**
+     * 更新渠道分配模式
+     */
+    int updateAllocationMode(@Param("id") Long id, @Param("allocationMode") String allocationMode);
+
+    /**
+     * 更新库存状态（STATUS_CHANGE 用）
+     */
+    int updateStockStatusDirect(
+        @Param("id") Long id,
+        @Param("stockStatus") Integer stockStatus,
+        @Param("updatedAt") LocalDateTime updatedAt
+    );
+
+    /**
+     * 更新共享池库存（渠道额度重新分配时使用）
+     */
+    int updateSharedPoolQuantity(@Param("id") Long id, @Param("sharedPoolQuantity") BigDecimal sharedPoolQuantity);
 }
 

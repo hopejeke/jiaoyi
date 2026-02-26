@@ -6,7 +6,9 @@
       "WebFetch(domain:github.com)",
       "Bash(xargs cat:*)",
       "Bash(find:*)",
-      "Bash(grep:*)"
+      "Bash(grep:*)",
+      "Bash(find D:/软件/ideaproject/jiaoyi -path \"*/mapper/sharding/Inventory*.java\" -o -path \"*/mapper/primary/PoiItem*.java\" | xargs ls -la 2>/dev/null)",
+      "Bash(head:*)"
     ]
   }
 }

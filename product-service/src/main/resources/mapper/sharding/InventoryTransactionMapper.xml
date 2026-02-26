@@ -5,6 +5,7 @@
     <!-- 结果映射 -->
     <resultMap id="InventoryTransactionResultMap" type="com.jiaoyi.product.entity.InventoryTransaction">
         <id column="id" property="id"/>
+        <result column="inventory_id" property="inventoryId"/>
         <result column="product_id" property="productId"/>
         <result column="sku_id" property="skuId"/>
         <result column="product_shard_id" property="productShardId"/>
@@ -16,28 +17,38 @@
         <result column="before_locked" property="beforeLocked"/>
         <result column="after_locked" property="afterLocked"/>
         <result column="remark" property="remark"/>
+        <result column="delta" property="delta"/>
+        <result column="deduct_source" property="deductSource"/>
+        <result column="channel_code" property="channelCode"/>
+        <result column="change_type_poi" property="changeTypePoi"/>
+        <result column="source_poi" property="sourcePoi"/>
+        <result column="content" property="content"/>
         <result column="create_time" property="createTime"/>
     </resultMap>
 
     <!-- 插入库存变动记录 -->
     <insert id="insert" parameterType="com.jiaoyi.product.entity.InventoryTransaction" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO inventory_transactions (
-            product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, before_stock, after_stock,
-            before_locked, after_locked, remark, create_time
+            inventory_id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity,
+            before_stock, after_stock, before_locked, after_locked, remark,
+            delta, deduct_source, channel_code, change_type_poi, source_poi, content, create_time
         ) VALUES (
-            #{productId}, #{skuId}, #{productShardId}, #{orderId}, #{transactionType}, #{quantity}, #{beforeStock}, #{afterStock},
-            #{beforeLocked}, #{afterLocked}, #{remark}, #{createTime}
+            #{inventoryId}, #{productId}, #{skuId}, #{productShardId}, #{orderId}, #{transactionType}, #{quantity},
+            #{beforeStock}, #{afterStock}, #{beforeLocked}, #{afterLocked}, #{remark},
+            #{delta}, #{deductSource}, #{channelCode}, #{changeTypePoi}, #{sourcePoi}, #{content}, #{createTime}
         )
     </insert>
 
     <!-- 尝试插入库存变动记录（用于幂等性校验） -->
     <insert id="tryInsert" parameterType="com.jiaoyi.product.entity.InventoryTransaction" useGeneratedKeys="true" keyProperty="id">
         INSERT IGNORE INTO inventory_transactions (
-            product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, before_stock, after_stock,
-            before_locked, after_locked, remark, create_time
+            inventory_id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity,
+            before_stock, after_stock, before_locked, after_locked, remark,
+            delta, deduct_source, channel_code, change_type_poi, source_poi, content, create_time
         ) VALUES (
-            #{productId}, #{skuId}, #{productShardId}, #{orderId}, #{transactionType}, #{quantity}, #{beforeStock}, #{afterStock},
-            #{beforeLocked}, #{afterLocked}, #{remark}, #{createTime}
+            #{inventoryId}, #{productId}, #{skuId}, #{productShardId}, #{orderId}, #{transactionType}, #{quantity},
+            #{beforeStock}, #{afterStock}, #{beforeLocked}, #{afterLocked}, #{remark},
+            #{delta}, #{deductSource}, #{channelCode}, #{changeTypePoi}, #{sourcePoi}, #{content}, #{createTime}
         )
     </insert>
 
@@ -126,12 +137,65 @@
 
     <!-- 根据订单ID和SKU ID查询当前状态（用于检查） -->
     <select id="selectByOrderIdAndSkuId" resultMap="InventoryTransactionResultMap">
-        SELECT id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity, 
-               before_stock, after_stock, before_locked, after_locked, remark, create_time
-        FROM inventory_transactions 
-        WHERE order_id = #{orderId} 
+        SELECT id, inventory_id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity,
+               before_stock, after_stock, before_locked, after_locked, remark,
+               delta, deduct_source, channel_code, change_type_poi, source_poi, content, create_time
+        FROM inventory_transactions
+        WHERE order_id = #{orderId}
           AND sku_id = #{skuId}
         LIMIT 1
+    </select>
+
+    <!-- ==================== POI 渠道库存扩展方法 ==================== -->
+
+    <!-- 查询某时刻之后所有 RELATIVE_DELTA 操作的 delta 总和（绝对设置冲突合并用） -->
+    <select id="sumDeltaSince" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(delta), 0)
+        FROM inventory_transactions
+        WHERE inventory_id = #{inventoryId}
+          AND change_type_poi = 'RELATIVE_DELTA'
+          AND create_time >= #{since}
+    </select>
+
+    <!-- 查询该订单所有扣减日志（delta &lt; 0），用于订单取消归还 -->
+    <select id="selectDeductLogsByOrderId" resultMap="InventoryTransactionResultMap">
+        SELECT id, inventory_id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity,
+               before_stock, after_stock, before_locked, after_locked, remark,
+               delta, deduct_source, channel_code, change_type_poi, source_poi, content, create_time
+        FROM inventory_transactions
+        WHERE order_id = #{orderId}
+          AND delta &lt; 0
+        ORDER BY create_time DESC
+    </select>
+
+    <!-- 归还幂等检查 -->
+    <select id="countReturnByOrderIdAndInventoryId" resultType="int">
+        SELECT COUNT(*)
+        FROM inventory_transactions
+        WHERE order_id = #{orderId}
+          AND inventory_id = #{inventoryId}
+          AND change_type_poi = 'RETURN'
+    </select>
+
+    <!-- 扣减幂等检查 -->
+    <select id="countDeductByOrderIdAndInventoryId" resultType="int">
+        SELECT COUNT(*)
+        FROM inventory_transactions
+        WHERE order_id = #{orderId}
+          AND inventory_id = #{inventoryId}
+          AND change_type_poi = 'RELATIVE_DELTA'
+          AND delta &lt; 0
+    </select>
+
+    <!-- 按库存ID查询变动记录（POI 库存日志） -->
+    <select id="selectByInventoryId" resultMap="InventoryTransactionResultMap">
+        SELECT id, inventory_id, product_id, sku_id, product_shard_id, order_id, transaction_type, quantity,
+               before_stock, after_stock, before_locked, after_locked, remark,
+               delta, deduct_source, channel_code, change_type_poi, source_poi, content, create_time
+        FROM inventory_transactions
+        WHERE inventory_id = #{inventoryId}
+        ORDER BY create_time DESC
+        LIMIT #{limit}
     </select>
 
 </mapper>

@@ -2,19 +2,33 @@ package com.jiaoyi.product.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.jiaoyi.common.exception.InsufficientStockException;
+import com.jiaoyi.outbox.OutboxService;
+import com.jiaoyi.product.config.RocketMQConfig;
+import com.jiaoyi.product.dto.*;
 import com.jiaoyi.product.entity.Inventory;
+import com.jiaoyi.product.entity.InventoryChannel;
 import com.jiaoyi.product.entity.InventoryDeductionIdempotency;
+import com.jiaoyi.product.entity.InventoryOversellRecord;
 import com.jiaoyi.product.entity.InventoryTransaction;
+import com.jiaoyi.product.mapper.sharding.InventoryChannelMapper;
 import com.jiaoyi.product.mapper.sharding.InventoryDeductionIdempotencyMapper;
 import com.jiaoyi.product.mapper.sharding.InventoryMapper;
+import com.jiaoyi.product.mapper.sharding.InventoryOversellRecordMapper;
 import com.jiaoyi.product.mapper.sharding.InventoryTransactionMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.stream.Collectors;
 
 /**
  * 库存服务层
@@ -29,7 +43,18 @@ public class InventoryService {
     private final InventoryTransactionMapper transactionMapper;
     private final InventoryCacheService inventoryCacheService;
     private final InventoryDeductionIdempotencyMapper idempotencyMapper;
+    private final InventoryChannelMapper channelMapper;
+    private final InventoryOversellRecordMapper oversellRecordMapper;
+    private final OutboxService outboxService;
     private final ObjectMapper objectMapper;
+
+    private static final String OUTBOX_TYPE_STOCK_SYNC = "INVENTORY_STOCK_SYNC_MQ";
+    private static final String ALLOCATION_MODE_WEIGHTED_QUOTA = "WEIGHTED_QUOTA";
+    private static final String ALLOCATION_MODE_SAFETY_STOCK = "SAFETY_STOCK";
+    private static final String DEDUCT_SOURCE_FROM_CHANNEL = "FROM_CHANNEL";
+    private static final String DEDUCT_SOURCE_FROM_SHARED_POOL = "FROM_SHARED_POOL";
+    private static final String DEDUCT_SOURCE_FROM_SAFETY_STOCK = "FROM_SAFETY_STOCK";
+    private static final String DEDUCT_SOURCE_FROM_POOL = "FROM_POOL";
     
     /**
      * 创建库存记录（商品创建时调用，商品级别库存）
@@ -1175,6 +1200,705 @@ public class InventoryService {
 
         // 清除缓存
         inventoryCacheService.evictAllInventoriesCache();
+    }
+
+    // ========================= POI 渠道库存功能（从 PoiItemStockService 迁移） =========================
+
+    /**
+     * 辅助方法：根据 storeId + productId + skuId 查找 Inventory
+     */
+    private Inventory findInventoryByRequest(Long storeId, Long productId, Long skuId) {
+        if (skuId != null) {
+            return inventoryMapper.selectByStoreIdAndProductIdAndSkuId(storeId, productId, skuId);
+        }
+        return inventoryMapper.selectByStoreIdAndProductId(storeId, productId);
+    }
+
+    /**
+     * 接收POS上报库存变更（POS在线时）
+     */
+    @Transactional
+    public void syncFromPos(StockSyncFromPosRequest request) {
+        log.info("接收POS上报库存变更: storeId={}, productId={}, skuId={}",
+            request.getStoreId(), request.getProductId(), request.getSkuId());
+
+        Inventory inventory = findInventoryByRequest(
+            request.getStoreId(), request.getProductId(), request.getSkuId());
+
+        if (inventory != null && request.getUpdatedAt() != null) {
+            if (!inventory.getUpdateTime().equals(request.getUpdatedAt())) {
+                log.warn("库存已被其他操作修改: inventoryId={}", inventory.getId());
+                throw new RuntimeException("库存已被其他操作修改，请刷新后重试");
+            }
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+
+        if (inventory == null) {
+            int shardId = com.jiaoyi.product.util.ProductShardUtil.calculateProductShardId(request.getStoreId());
+            inventory = new Inventory();
+            inventory.setStoreId(request.getStoreId());
+            inventory.setProductId(request.getProductId());
+            inventory.setSkuId(request.getSkuId());
+            inventory.setProductShardId(shardId);
+            inventory.setStockMode(request.getStockType() != null && request.getStockType() == 1
+                ? Inventory.StockMode.UNLIMITED : Inventory.StockMode.LIMITED);
+            inventory.setCurrentStock(request.getRealQuantity() != null
+                ? request.getRealQuantity().intValue() : 0);
+            inventory.setPlanQuantity(request.getPlanQuantity() != null
+                ? request.getPlanQuantity() : BigDecimal.ZERO);
+            inventory.setLockedStock(0);
+            inventory.setMinStock(0);
+            inventory.setCreateTime(now);
+            inventory.setUpdateTime(now);
+            inventoryMapper.insert(inventory);
+        } else {
+            int rows = inventoryMapper.forceUpdateCurrentStock(
+                inventory.getId(),
+                request.getRealQuantity() != null ? request.getRealQuantity() : BigDecimal.ZERO,
+                inventory.getLastManualSetTime(),
+                now
+            );
+            if (rows == 0) {
+                throw new RuntimeException("库存更新失败，可能已被其他操作修改");
+            }
+        }
+
+        // 更新渠道库存
+        if (request.getChannelStocks() != null && !request.getChannelStocks().isEmpty()) {
+            channelMapper.deleteByInventoryId(inventory.getId());
+            for (StockSyncFromPosRequest.ChannelStock cs : request.getChannelStocks()) {
+                InventoryChannel channel = new InventoryChannel();
+                channel.setInventoryId(inventory.getId());
+                channel.setStoreId(request.getStoreId());
+                channel.setProductId(request.getProductId());
+                channel.setSkuId(request.getSkuId());
+                channel.setProductShardId(inventory.getProductShardId());
+                channel.setStockStatus(cs.getStockStatus());
+                channel.setStockType(cs.getStockType());
+                channel.setChannelCode(cs.getChannelCode());
+                channel.setCreatedAt(now);
+                channel.setUpdatedAt(now);
+                channelMapper.insert(channel);
+            }
+        }
+
+        // 写变更日志
+        writePoiLog(inventory, "ABSOLUTE_SET", BigDecimal.ZERO, "POS", null, request);
+    }
+
+    /**
+     * 商品中心设置库存（会同步到POS）
+     */
+    @Transactional
+    public void updateStockFromCloud(StockSyncFromPosRequest request) {
+        log.info("商品中心设置库存: storeId={}, productId={}, skuId={}",
+            request.getStoreId(), request.getProductId(), request.getSkuId());
+
+        syncFromPos(request);
+
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                try {
+                    sendStockSyncToOutbox(request);
+                } catch (Exception e) {
+                    log.error("库存已更新但写入outbox失败: storeId={}, productId={}",
+                        request.getStoreId(), request.getProductId(), e);
+                }
+            }
+        });
+    }
+
+    /**
+     * POS 离线事件批量回放
+     */
+    @Transactional
+    public PosOfflineReplayResult replayOfflineEvents(PosOfflineReplayRequest request) {
+        log.info("开始POS离线事件回放: storeId={}, posInstance={}, events={}",
+            request.getStoreId(), request.getPosInstanceId(), request.getEvents().size());
+
+        PosOfflineReplayResult result = new PosOfflineReplayResult();
+        result.setTotalEvents(request.getEvents().size());
+
+        int successCount = 0, skippedCount = 0, failedCount = 0;
+
+        for (StockChangeEvent event : request.getEvents()) {
+            if (event.getStoreId() == null) event.setStoreId(request.getStoreId());
+            event.setSource(StockChangeEvent.Source.POS_OFFLINE);
+
+            try {
+                boolean applied = applyStockChangeEvent(event);
+                if (applied) successCount++; else skippedCount++;
+            } catch (Exception e) {
+                failedCount++;
+                log.error("离线事件回放失败: orderId={}, error={}", event.getOrderId(), e.getMessage());
+                result.getFailedEvents().add(
+                    new PosOfflineReplayResult.FailedEvent(event.getOrderId(), e.getMessage()));
+            }
+        }
+
+        result.setSuccessCount(successCount);
+        result.setSkippedCount(skippedCount);
+        result.setFailedCount(failedCount);
+
+        if (successCount > 0) {
+            detectOversellAfterReplay(request, result);
+        }
+
+        log.info("POS离线事件回放完成: total={}, success={}, skipped={}, failed={}, oversell={}",
+            result.getTotalEvents(), successCount, skippedCount, failedCount, result.isOversellDetected());
+
+        return result;
+    }
+
+    private boolean applyStockChangeEvent(StockChangeEvent event) {
+        Inventory inventory = findInventoryByRequest(event.getStoreId(), event.getProductId(), event.getSkuId());
+        if (inventory == null) {
+            throw new RuntimeException("库存记录不存在: productId=" + event.getProductId() + ", skuId=" + event.getSkuId());
+        }
+        switch (event.getChangeType()) {
+            case RELATIVE_DELTA: return handleRelativeDelta(inventory, event);
+            case ABSOLUTE_SET:   return handleAbsoluteSet(inventory, event);
+            case STATUS_CHANGE:  return handleStatusChange(inventory, event);
+            default: throw new RuntimeException("未知变更类型: " + event.getChangeType());
+        }
+    }
+
+    /**
+     * 渠道级别库存扣减（单品）
+     */
+    @Transactional
+    public ChannelDeductResult deductByChannel(ChannelDeductRequest request) {
+        log.info("渠道库存扣减: storeId={}, productId={}, skuId={}, channel={}, qty={}, orderId={}",
+            request.getStoreId(), request.getProductId(), request.getSkuId(),
+            request.getChannelCode(), request.getQuantity(), request.getOrderId());
+
+        Inventory inventory = findInventoryByRequest(
+            request.getStoreId(), request.getProductId(), request.getSkuId());
+        if (inventory == null) {
+            throw new RuntimeException("库存记录不存在: productId=" + request.getProductId());
+        }
+
+        // 幂等检查
+        if (request.getOrderId() != null) {
+            int count = transactionMapper.countDeductByOrderIdAndInventoryId(
+                request.getOrderId(), inventory.getId());
+            if (count > 0) {
+                log.info("重复扣减请求，跳过: orderId={}, inventoryId={}", request.getOrderId(), inventory.getId());
+                return ChannelDeductResult.duplicate();
+            }
+        }
+
+        // 不限量直接通过
+        if (inventory.getStockMode() == Inventory.StockMode.UNLIMITED) {
+            writeDeductLog(inventory, request, "UNLIMITED_PASS");
+            return ChannelDeductResult.success(ChannelDeductResult.Status.SUCCESS_FROM_CHANNEL, null, null);
+        }
+
+        String mode = inventory.getAllocationMode() != null
+            ? inventory.getAllocationMode() : ALLOCATION_MODE_WEIGHTED_QUOTA;
+        if (ALLOCATION_MODE_SAFETY_STOCK.equalsIgnoreCase(mode)) {
+            return deductBySafetyStock(request, inventory);
+        }
+        return deductByWeightedQuota(request, inventory);
+    }
+
+    private ChannelDeductResult deductByWeightedQuota(ChannelDeductRequest request, Inventory inventory) {
+        BigDecimal delta = request.getQuantity();
+        InventoryChannel channelStock = channelMapper.selectByInventoryIdAndChannel(
+            inventory.getId(), request.getChannelCode());
+
+        Inventory locked = inventoryMapper.selectByIdForUpdate(inventory.getId());
+        if (locked == null) throw new RuntimeException("库存记录不存在: id=" + inventory.getId());
+
+        BigDecimal realQty = locked.getCurrentStock() != null
+            ? new BigDecimal(locked.getCurrentStock()) : BigDecimal.ZERO;
+        if (realQty.compareTo(delta) < 0) {
+            log.warn("库存不足: inventoryId={}, real={}, need={}", inventory.getId(), realQty, delta);
+            return ChannelDeductResult.outOfStock(BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+
+        if (channelStock != null) {
+            int updated = channelMapper.atomicIncreaseChannelSoldWithCap(
+                inventory.getId(), request.getChannelCode(), delta);
+            BigDecimal cap = channelStock.getChannelMax();
+            if (cap != null && cap.compareTo(BigDecimal.ZERO) > 0 && updated == 0) {
+                BigDecimal sold = channelStock.getChannelSold() != null ? channelStock.getChannelSold() : BigDecimal.ZERO;
+                return new ChannelDeductResult(
+                    ChannelDeductResult.Status.CHANNEL_OUT_OF_STOCK,
+                    cap.subtract(sold), BigDecimal.ZERO, "超过该渠道可售上限");
+            }
+        }
+
+        int deducted = inventoryMapper.atomicDeductCurrentStock(inventory.getId(), delta);
+        if (deducted == 0) {
+            return ChannelDeductResult.outOfStock(BigDecimal.ZERO, BigDecimal.ZERO);
+        }
+        String deductSource = channelStock != null ? DEDUCT_SOURCE_FROM_CHANNEL : DEDUCT_SOURCE_FROM_POOL;
+        writeDeductLog(inventory, request, deductSource);
+
+        InventoryChannel updatedCh = channelMapper.selectByInventoryIdAndChannel(
+            inventory.getId(), request.getChannelCode());
+        BigDecimal channelRemaining = BigDecimal.ZERO;
+        if (updatedCh != null && updatedCh.getChannelMax() != null && updatedCh.getChannelMax().compareTo(BigDecimal.ZERO) > 0) {
+            channelRemaining = updatedCh.getChannelMax().subtract(
+                updatedCh.getChannelSold() != null ? updatedCh.getChannelSold() : BigDecimal.ZERO);
+        }
+        Inventory after = findInventoryByRequest(request.getStoreId(), request.getProductId(), request.getSkuId());
+        BigDecimal sharedPool = after != null && after.getSharedPoolQuantity() != null
+            ? after.getSharedPoolQuantity() : BigDecimal.ZERO;
+        return ChannelDeductResult.success(
+            ChannelDeductResult.Status.SUCCESS_FROM_CHANNEL, channelRemaining, sharedPool);
+    }
+
+    private ChannelDeductResult deductBySafetyStock(ChannelDeductRequest request, Inventory inventory) {
+        InventoryChannel myChannel = channelMapper.selectByInventoryIdAndChannel(
+            inventory.getId(), request.getChannelCode());
+        int myPriority = (myChannel != null && myChannel.getChannelPriority() != null)
+            ? myChannel.getChannelPriority() : 0;
+        BigDecimal reservedByHigher = channelMapper.sumSafetyStockForHigherPriority(inventory.getId(), myPriority);
+        if (reservedByHigher == null) reservedByHigher = BigDecimal.ZERO;
+
+        Inventory locked = inventoryMapper.selectByIdForUpdate(inventory.getId());
+        if (locked == null) throw new RuntimeException("库存记录不存在: id=" + inventory.getId());
+
+        BigDecimal realQty = locked.getCurrentStock() != null
+            ? new BigDecimal(locked.getCurrentStock()) : BigDecimal.ZERO;
+        BigDecimal availableForMe = realQty.subtract(reservedByHigher);
+        BigDecimal delta = request.getQuantity();
+        if (availableForMe.compareTo(delta) < 0) {
+            return ChannelDeductResult.outOfStock(availableForMe, BigDecimal.ZERO);
+        }
+        int updated = inventoryMapper.atomicDeductCurrentStockWithFloor(
+            inventory.getId(), delta, reservedByHigher);
+        if (updated == 0) {
+            return ChannelDeductResult.outOfStock(availableForMe, BigDecimal.ZERO);
+        }
+        writeDeductLog(inventory, request, DEDUCT_SOURCE_FROM_SAFETY_STOCK);
+        Inventory after = findInventoryByRequest(request.getStoreId(), request.getProductId(), request.getSkuId());
+        BigDecimal sharedPool = after != null && after.getSharedPoolQuantity() != null
+            ? after.getSharedPoolQuantity() : BigDecimal.ZERO;
+        return ChannelDeductResult.success(
+            ChannelDeductResult.Status.SUCCESS_FROM_CHANNEL, availableForMe.subtract(delta), sharedPool);
+    }
+
+    /**
+     * 按渠道批量扣减（一单多品）
+     */
+    @Transactional
+    public void deductByChannelBatch(ChannelDeductBatchRequest request) {
+        if (request.getItems() == null || request.getItems().isEmpty()) return;
+        for (ChannelDeductBatchRequest.Item item : request.getItems()) {
+            ChannelDeductRequest req = new ChannelDeductRequest(
+                request.getStoreId(), item.getProductId(), item.getSkuId(),
+                request.getChannelCode(), item.getQuantity(), request.getOrderId());
+            ChannelDeductResult res = deductByChannel(req);
+            if (res.isSuccess() || res.getStatus() == ChannelDeductResult.Status.DUPLICATE) continue;
+            throw new RuntimeException("库存扣减失败: " +
+                (res.getMessage() != null ? res.getMessage() : res.getStatus().name()));
+        }
+    }
+
+    /**
+     * 按权重重新分配渠道额度
+     */
+    @Transactional
+    public void allocateChannelQuotas(Long storeId, Long productId, Long skuId) {
+        log.info("开始渠道额度分配: storeId={}, productId={}, skuId={}", storeId, productId, skuId);
+
+        Inventory inventory = findInventoryByRequest(storeId, productId, skuId);
+        if (inventory == null) throw new RuntimeException("库存记录不存在");
+
+        if (inventory.getStockMode() == Inventory.StockMode.UNLIMITED) {
+            log.info("不限量库存，跳过渠道额度分配");
+            return;
+        }
+
+        List<InventoryChannel> channels = channelMapper.selectByInventoryId(inventory.getId());
+        if (channels.isEmpty()) {
+            log.info("没有渠道库存记录，跳过分配");
+            return;
+        }
+
+        BigDecimal totalQuantity = inventory.getCurrentStock() != null
+            ? new BigDecimal(inventory.getCurrentStock()) : BigDecimal.ZERO;
+        if (totalQuantity.compareTo(BigDecimal.ZERO) <= 0) {
+            for (InventoryChannel ch : channels) {
+                channelMapper.updateChannelQuotaAndWeight(ch.getId(), BigDecimal.ZERO, ch.getChannelWeight());
+            }
+            inventoryMapper.updateSharedPoolQuantity(inventory.getId(), BigDecimal.ZERO);
+            return;
+        }
+
+        BigDecimal totalWeight = channels.stream()
+            .map(InventoryChannel::getChannelWeight)
+            .reduce(BigDecimal.ZERO, BigDecimal::add);
+        if (totalWeight.compareTo(BigDecimal.ZERO) <= 0) {
+            totalWeight = new BigDecimal(channels.size());
+            for (InventoryChannel ch : channels) ch.setChannelWeight(BigDecimal.ONE);
+        }
+
+        BigDecimal allocated = BigDecimal.ZERO;
+        for (InventoryChannel ch : channels) {
+            BigDecimal quota = totalQuantity
+                .multiply(ch.getChannelWeight())
+                .divide(totalWeight, 1, RoundingMode.DOWN);
+            channelMapper.updateChannelQuotaAndWeight(ch.getId(), quota, ch.getChannelWeight());
+            allocated = allocated.add(quota);
+        }
+
+        BigDecimal sharedPool = totalQuantity.subtract(allocated);
+        inventoryMapper.updateSharedPoolQuantity(inventory.getId(), sharedPool);
+        channelMapper.resetChannelSold(inventory.getId());
+
+        log.info("渠道额度分配完成: total={}, allocated={}, sharedPool={}", totalQuantity, allocated, sharedPool);
+    }
+
+    /**
+     * 设置渠道库存分配模式
+     */
+    @Transactional
+    public void setAllocationMode(Long storeId, Long productId, Long skuId, String allocationMode) {
+        Inventory inventory = findInventoryByRequest(storeId, productId, skuId);
+        if (inventory == null) throw new RuntimeException("库存记录不存在");
+        if (!ALLOCATION_MODE_WEIGHTED_QUOTA.equalsIgnoreCase(allocationMode)
+            && !ALLOCATION_MODE_SAFETY_STOCK.equalsIgnoreCase(allocationMode)) {
+            throw new IllegalArgumentException("allocationMode 必须为 WEIGHTED_QUOTA 或 SAFETY_STOCK");
+        }
+        inventoryMapper.updateAllocationMode(inventory.getId(), allocationMode.toUpperCase());
+        log.info("分配模式已更新: inventoryId={}, mode={}", inventory.getId(), allocationMode);
+    }
+
+    /**
+     * 更新渠道优先级与安全线（方案二 SAFETY_STOCK 用）
+     */
+    @Transactional
+    public void updateChannelPriorityAndSafetyStock(Long channelId, Integer channelPriority, BigDecimal safetyStock) {
+        channelMapper.updatePriorityAndSafetyStock(
+            channelId,
+            channelPriority != null ? channelPriority : 0,
+            safetyStock != null ? safetyStock : BigDecimal.ZERO);
+        log.info("渠道优先级/安全线已更新: channelId={}, priority={}, safetyStock={}", channelId, channelPriority, safetyStock);
+    }
+
+    /**
+     * 按订单ID归还库存（订单取消时调用）
+     */
+    @Transactional
+    public void returnStockByOrderId(String orderId) {
+        if (orderId == null || orderId.isEmpty()) return;
+        List<InventoryTransaction> deductLogs = transactionMapper.selectDeductLogsByOrderId(orderId);
+        if (deductLogs.isEmpty()) {
+            log.info("归还跳过：无扣减记录 orderId={}", orderId);
+            return;
+        }
+        for (InventoryTransaction logRow : deductLogs) {
+            Long inventoryId = logRow.getInventoryId();
+            int alreadyReturned = transactionMapper.countReturnByOrderIdAndInventoryId(orderId, inventoryId);
+            if (alreadyReturned > 0) {
+                log.info("归还幂等跳过: orderId={}, inventoryId={}", orderId, inventoryId);
+                continue;
+            }
+            BigDecimal returnQty = logRow.getDelta() != null ? logRow.getDelta().abs() : BigDecimal.ZERO;
+            if (returnQty.compareTo(BigDecimal.ZERO) <= 0) continue;
+
+            String deductSource = logRow.getDeductSource();
+            String channelCode = logRow.getChannelCode();
+
+            if (DEDUCT_SOURCE_FROM_CHANNEL.equals(deductSource) && channelCode != null && !channelCode.isEmpty()) {
+                int chUpdated = channelMapper.atomicDecreaseChannelSold(inventoryId, channelCode, returnQty);
+                if (chUpdated == 0) {
+                    log.warn("归还渠道失败: orderId={}, inventoryId={}, channel={}", orderId, inventoryId, channelCode);
+                    continue;
+                }
+                inventoryMapper.atomicIncreaseCurrentStock(inventoryId, returnQty);
+            } else if (DEDUCT_SOURCE_FROM_SAFETY_STOCK.equals(deductSource)
+                    || DEDUCT_SOURCE_FROM_POOL.equals(deductSource)) {
+                inventoryMapper.atomicIncreaseCurrentStock(inventoryId, returnQty);
+            } else {
+                log.debug("归还跳过: orderId={}, inventoryId={}, deductSource={}", orderId, inventoryId, deductSource);
+                continue;
+            }
+            writeReturnLog(logRow, returnQty, orderId);
+        }
+        log.info("按订单归还完成: orderId={}, 条数={}", orderId, deductLogs.size());
+    }
+
+    /**
+     * 查询超卖记录
+     */
+    public List<InventoryOversellRecord> getOversellRecords(Long storeId, String status) {
+        if (status != null && !status.isEmpty()) {
+            return oversellRecordMapper.selectByStoreIdAndStatus(storeId, status);
+        }
+        return oversellRecordMapper.selectByStoreId(storeId);
+    }
+
+    /**
+     * 处理超卖记录（店长确认）
+     */
+    @Transactional
+    public void resolveOversellRecord(Long recordId, String status, String resolvedBy, String remark) {
+        oversellRecordMapper.updateStatus(recordId, status, resolvedBy, LocalDateTime.now(), remark);
+        log.info("超卖记录已处理: id={}, status={}, by={}", recordId, status, resolvedBy);
+    }
+
+    /**
+     * 查询库存详情（附带渠道信息）
+     */
+    public Inventory getInventoryWithChannels(Long storeId, Long productId, Long skuId) {
+        return findInventoryByRequest(storeId, productId, skuId);
+    }
+
+    /**
+     * 查询库存变更记录（POI 库存日志）
+     */
+    public List<InventoryTransaction> getInventoryTransactionLogs(Long inventoryId, Integer limit) {
+        int limitVal = limit != null && limit > 0 ? limit : 100;
+        return transactionMapper.selectByInventoryId(inventoryId, limitVal);
+    }
+
+    // ========================= 私有辅助方法 =========================
+
+    private boolean handleRelativeDelta(Inventory inventory, StockChangeEvent event) {
+        if (event.getOrderId() != null) {
+            int count = transactionMapper.countDeductByOrderIdAndInventoryId(
+                event.getOrderId(), inventory.getId());
+            if (count > 0) {
+                log.info("相对变更幂等跳过: orderId={}", event.getOrderId());
+                return false;
+            }
+        }
+
+        BigDecimal absDelta = event.getDelta().abs();
+        boolean isDeduct = event.getDelta().compareTo(BigDecimal.ZERO) < 0;
+
+        if (isDeduct) {
+            int updated = inventoryMapper.atomicDeductCurrentStock(inventory.getId(), absDelta);
+            if (updated == 0) {
+                BigDecimal current = inventory.getCurrentStock() != null
+                    ? new BigDecimal(inventory.getCurrentStock()) : BigDecimal.ZERO;
+                inventoryMapper.forceUpdateCurrentStock(
+                    inventory.getId(), current.add(event.getDelta()),
+                    inventory.getLastManualSetTime(), LocalDateTime.now());
+            }
+        } else {
+            BigDecimal current = inventory.getCurrentStock() != null
+                ? new BigDecimal(inventory.getCurrentStock()) : BigDecimal.ZERO;
+            inventoryMapper.forceUpdateCurrentStock(
+                inventory.getId(), current.add(event.getDelta()),
+                inventory.getLastManualSetTime(), LocalDateTime.now());
+        }
+
+        Inventory updated = findInventoryByRequest(event.getStoreId(), event.getProductId(), event.getSkuId());
+        if (updated != null && updated.getCurrentStock() != null && updated.getCurrentStock() <= 0) {
+            inventoryMapper.updateStockStatusDirect(inventory.getId(), 2, LocalDateTime.now());
+        }
+
+        writePoiEventLog(inventory, event);
+        return true;
+    }
+
+    private boolean handleAbsoluteSet(Inventory inventory, StockChangeEvent event) {
+        Inventory lockedInv = inventoryMapper.selectByIdForUpdate(inventory.getId());
+        if (lockedInv.getLastManualSetTime() != null && event.getOperateTime() != null) {
+            if (!event.getOperateTime().isAfter(lockedInv.getLastManualSetTime())) {
+                log.info("绝对设置已过期，跳过: operateTime={}, lastManualSetTime={}",
+                    event.getOperateTime(), lockedInv.getLastManualSetTime());
+                return false;
+            }
+        }
+
+        LocalDateTime sinceTime = event.getOperateTime() != null
+            ? event.getOperateTime() : lockedInv.getUpdateTime();
+        BigDecimal deltaSinceT1 = transactionMapper.sumDeltaSince(inventory.getId(), sinceTime);
+        BigDecimal finalQuantity = event.getNewQuantity().add(deltaSinceT1 != null ? deltaSinceT1 : BigDecimal.ZERO);
+
+        log.info("绝对设置冲突合并: newQty={}, deltaSinceT1={}, finalQty={}",
+            event.getNewQuantity(), deltaSinceT1, finalQuantity);
+
+        LocalDateTime manualSetTime = event.getOperateTime() != null ? event.getOperateTime() : LocalDateTime.now();
+        inventoryMapper.forceUpdateCurrentStock(inventory.getId(), finalQuantity, manualSetTime, LocalDateTime.now());
+
+        writePoiEventLog(inventory, event);
+        return true;
+    }
+
+    private boolean handleStatusChange(Inventory inventory, StockChangeEvent event) {
+        inventoryMapper.updateStockStatusDirect(inventory.getId(), event.getNewStockStatus(), LocalDateTime.now());
+        writePoiEventLog(inventory, event);
+        return true;
+    }
+
+    private void detectOversellAfterReplay(PosOfflineReplayRequest request, PosOfflineReplayResult result) {
+        List<Long> productIds = request.getEvents().stream()
+            .map(StockChangeEvent::getProductId).distinct().collect(Collectors.toList());
+        List<Long> skuIds = request.getEvents().stream()
+            .map(StockChangeEvent::getSkuId).distinct().collect(Collectors.toList());
+
+        for (int i = 0; i < productIds.size(); i++) {
+            Long productId = productIds.get(i);
+            Long skuId = i < skuIds.size() ? skuIds.get(i) : null;
+            Inventory inventory = findInventoryByRequest(request.getStoreId(), productId, skuId);
+
+            if (inventory != null && inventory.getCurrentStock() != null && inventory.getCurrentStock() < 0) {
+                BigDecimal oversellQty = new BigDecimal(-inventory.getCurrentStock());
+                log.warn("检测到超卖: productId={}, skuId={}, oversellQty={}", productId, skuId, oversellQty);
+
+                InventoryOversellRecord record = new InventoryOversellRecord();
+                record.setInventoryId(inventory.getId());
+                record.setStoreId(request.getStoreId());
+                record.setProductId(productId);
+                record.setSkuId(skuId);
+                record.setProductShardId(inventory.getProductShardId());
+                record.setOversellQuantity(oversellQty);
+                record.setSource("POS_OFFLINE");
+                record.setStatus(InventoryOversellRecord.Status.PENDING.name());
+                record.setRemark("POS离线回放后检测到超卖，POS实例: " + request.getPosInstanceId());
+                record.setCreatedAt(LocalDateTime.now());
+                oversellRecordMapper.insert(record);
+
+                inventoryMapper.forceUpdateCurrentStock(inventory.getId(), BigDecimal.ZERO,
+                    inventory.getLastManualSetTime(), LocalDateTime.now());
+                inventoryMapper.updateStockStatusDirect(inventory.getId(), 2, LocalDateTime.now());
+
+                result.setOversellDetected(true);
+                result.setOversellQuantity(oversellQty);
+                result.setOversellRecordId(record.getId());
+            }
+        }
+    }
+
+    private void writePoiLog(Inventory inventory, String changeType, BigDecimal delta,
+                              String sourcePoi, String orderId, Object content) {
+        try {
+            InventoryTransaction tx = new InventoryTransaction();
+            tx.setInventoryId(inventory.getId());
+            tx.setProductId(inventory.getProductId());
+            tx.setSkuId(inventory.getSkuId());
+            tx.setProductShardId(inventory.getProductShardId());
+            tx.setChangeTypePoi(changeType);
+            tx.setDelta(delta);
+            tx.setSourcePoi(sourcePoi);
+            if (orderId != null) {
+                try { tx.setOrderId(Long.parseLong(orderId)); } catch (NumberFormatException ignored) {}
+            }
+            tx.setContent(objectMapper.writeValueAsString(content));
+            tx.setCreateTime(LocalDateTime.now());
+            transactionMapper.insert(tx);
+        } catch (Exception e) {
+            log.error("写入变更记录失败", e);
+            throw new RuntimeException("写入变更记录失败", e);
+        }
+    }
+
+    private void writePoiEventLog(Inventory inventory, StockChangeEvent event) {
+        writePoiLog(inventory, event.getChangeType().name(),
+            event.getDelta() != null ? event.getDelta() : BigDecimal.ZERO,
+            event.getSource() != null ? event.getSource().name() : "CLOUD",
+            event.getOrderId(), event);
+    }
+
+    private void writeDeductLog(Inventory inventory, ChannelDeductRequest request, String deductSource) {
+        try {
+            InventoryTransaction tx = new InventoryTransaction();
+            tx.setInventoryId(inventory.getId());
+            tx.setProductId(inventory.getProductId());
+            tx.setSkuId(inventory.getSkuId());
+            tx.setProductShardId(inventory.getProductShardId());
+            tx.setChangeTypePoi("RELATIVE_DELTA");
+            tx.setDelta(request.getQuantity().negate());
+            tx.setSourcePoi("CLOUD");
+            tx.setDeductSource(deductSource);
+            tx.setChannelCode(request.getChannelCode());
+            if (request.getOrderId() != null) {
+                try { tx.setOrderId(Long.parseLong(request.getOrderId())); } catch (NumberFormatException ignored) {}
+            }
+            tx.setContent(objectMapper.writeValueAsString(request));
+            tx.setCreateTime(LocalDateTime.now());
+            transactionMapper.insert(tx);
+        } catch (Exception e) {
+            log.error("写入扣减记录失败", e);
+            throw new RuntimeException("写入扣减记录失败", e);
+        }
+    }
+
+    private void writeReturnLog(InventoryTransaction deductLog, BigDecimal returnQty, String orderId) {
+        try {
+            java.util.Map<String, Object> content = new java.util.HashMap<>();
+            content.put("reason", "order_cancel_return");
+            content.put("orderId", orderId);
+            InventoryTransaction tx = new InventoryTransaction();
+            tx.setInventoryId(deductLog.getInventoryId());
+            tx.setProductId(deductLog.getProductId());
+            tx.setSkuId(deductLog.getSkuId());
+            tx.setProductShardId(deductLog.getProductShardId());
+            tx.setChangeTypePoi("RETURN");
+            tx.setDelta(returnQty);
+            tx.setSourcePoi("CLOUD");
+            tx.setDeductSource(deductLog.getDeductSource());
+            tx.setChannelCode(deductLog.getChannelCode());
+            if (orderId != null) {
+                try { tx.setOrderId(Long.parseLong(orderId)); } catch (NumberFormatException ignored) {}
+            }
+            tx.setContent(objectMapper.writeValueAsString(content));
+            tx.setCreateTime(LocalDateTime.now());
+            transactionMapper.insert(tx);
+        } catch (Exception e) {
+            log.error("写入归还记录失败", e);
+            throw new RuntimeException("写入归还记录失败", e);
+        }
+    }
+
+    private void sendStockSyncToOutbox(StockSyncFromPosRequest request) {
+        try {
+            StockSyncToPosMessage message = buildSyncToPosMessage(request);
+            String payload = objectMapper.writeValueAsString(message);
+            String bizKey = request.getStoreId() + ":" + request.getProductId() + ":" + System.currentTimeMillis();
+            String messageKey = "stock-sync:" + request.getStoreId() + ":" + request.getProductId();
+            String shardingKey = String.valueOf(request.getStoreId());
+
+            outboxService.enqueue(
+                OUTBOX_TYPE_STOCK_SYNC, bizKey, payload,
+                RocketMQConfig.INVENTORY_STOCK_SYNC_TOPIC,
+                RocketMQConfig.INVENTORY_STOCK_SYNC_TAG,
+                messageKey, shardingKey, null
+            );
+            log.info("库存变更已写入outbox: bizKey={}", bizKey);
+        } catch (Exception e) {
+            log.error("构建库存同步消息失败", e);
+            throw new RuntimeException("构建库存同步消息失败", e);
+        }
+    }
+
+    private StockSyncToPosMessage buildSyncToPosMessage(StockSyncFromPosRequest request) {
+        StockSyncToPosMessage message = new StockSyncToPosMessage();
+        message.setStoreId(request.getStoreId());
+
+        StockSyncToPosMessage.StockData data = new StockSyncToPosMessage.StockData();
+        data.setProductId(request.getProductId());
+        data.setSkuId(request.getSkuId());
+        data.setStockStatus(request.getStockStatus());
+        data.setStockType(request.getStockType());
+        data.setPlanQuantity(request.getPlanQuantity());
+        data.setRealQuantity(request.getRealQuantity());
+        data.setAutoRestoreType(request.getAutoRestoreType());
+        data.setAutoRestoreAt(request.getAutoRestoreAt());
+
+        if (request.getChannelStocks() != null) {
+            List<StockSyncToPosMessage.ChannelStock> channelStocks = request.getChannelStocks().stream()
+                .map(cs -> {
+                    StockSyncToPosMessage.ChannelStock ch = new StockSyncToPosMessage.ChannelStock();
+                    ch.setStockStatus(cs.getStockStatus());
+                    ch.setStockType(cs.getStockType());
+                    ch.setChannelCode(cs.getChannelCode());
+                    return ch;
+                }).collect(Collectors.toList());
+            data.setChannelStocks(channelStocks);
+        }
+        message.setData(data);
+        return message;
     }
 }
 

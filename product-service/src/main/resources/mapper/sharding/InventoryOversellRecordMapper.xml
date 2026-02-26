@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.sharding.InventoryOversellRecordMapper">
+
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.InventoryOversellRecord">
+        <id column="id" property="id"/>
+        <result column="inventory_id" property="inventoryId"/>
+        <result column="store_id" property="storeId"/>
+        <result column="product_id" property="productId"/>
+        <result column="sku_id" property="skuId"/>
+        <result column="product_shard_id" property="productShardId"/>
+        <result column="oversell_quantity" property="oversellQuantity"/>
+        <result column="source" property="source"/>
+        <result column="status" property="status"/>
+        <result column="resolved_by" property="resolvedBy"/>
+        <result column="resolved_at" property="resolvedAt"/>
+        <result column="remark" property="remark"/>
+        <result column="created_at" property="createdAt"/>
+    </resultMap>
+
+    <!-- 插入超卖记录 -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.InventoryOversellRecord" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO inventory_oversell_records (
+            inventory_id, store_id, product_id, sku_id, product_shard_id,
+            oversell_quantity, source, status, remark, created_at
+        ) VALUES (
+            #{inventoryId}, #{storeId}, #{productId}, #{skuId}, #{productShardId},
+            #{oversellQuantity}, #{source}, #{status}, #{remark}, #{createdAt}
+        )
+    </insert>
+
+    <!-- 根据门店ID查询超卖记录 -->
+    <select id="selectByStoreId" resultMap="BaseResultMap">
+        SELECT id, inventory_id, store_id, product_id, sku_id, product_shard_id,
+               oversell_quantity, source, status, resolved_by, resolved_at, remark, created_at
+        FROM inventory_oversell_records
+        WHERE store_id = #{storeId}
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 根据门店ID和状态查询超卖记录 -->
+    <select id="selectByStoreIdAndStatus" resultMap="BaseResultMap">
+        SELECT id, inventory_id, store_id, product_id, sku_id, product_shard_id,
+               oversell_quantity, source, status, resolved_by, resolved_at, remark, created_at
+        FROM inventory_oversell_records
+        WHERE store_id = #{storeId}
+          AND status = #{status}
+        ORDER BY created_at DESC
+    </select>
+
+    <!-- 更新超卖记录状态 -->
+    <update id="updateStatus">
+        UPDATE inventory_oversell_records
+        SET status = #{status},
+            resolved_by = #{resolvedBy},
+            resolved_at = #{resolvedAt},
+            remark = #{remark}
+        WHERE id = #{id}
+    </update>
+
+</mapper>

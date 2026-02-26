@@ -1,0 +1,117 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.jiaoyi.product.mapper.sharding.InventoryChannelMapper">
+
+    <resultMap id="BaseResultMap" type="com.jiaoyi.product.entity.InventoryChannel">
+        <id column="id" property="id"/>
+        <result column="inventory_id" property="inventoryId"/>
+        <result column="store_id" property="storeId"/>
+        <result column="product_id" property="productId"/>
+        <result column="sku_id" property="skuId"/>
+        <result column="product_shard_id" property="productShardId"/>
+        <result column="channel_code" property="channelCode"/>
+        <result column="channel_quota" property="channelQuota"/>
+        <result column="channel_sold" property="channelSold"/>
+        <result column="channel_weight" property="channelWeight"/>
+        <result column="channel_max" property="channelMax"/>
+        <result column="channel_priority" property="channelPriority"/>
+        <result column="safety_stock" property="safetyStock"/>
+        <result column="stock_status" property="stockStatus"/>
+        <result column="stock_type" property="stockType"/>
+        <result column="created_at" property="createdAt"/>
+        <result column="updated_at" property="updatedAt"/>
+    </resultMap>
+
+    <!-- 根据inventoryId和渠道代码查询 -->
+    <select id="selectByInventoryIdAndChannel" resultMap="BaseResultMap">
+        SELECT id, inventory_id, store_id, product_id, sku_id, product_shard_id,
+               channel_code, channel_quota, channel_sold, channel_weight, channel_max,
+               channel_priority, safety_stock, stock_status, stock_type, created_at, updated_at
+        FROM inventory_channels
+        WHERE inventory_id = #{inventoryId} AND channel_code = #{channelCode}
+        LIMIT 1
+    </select>
+
+    <!-- 根据inventoryId查询所有渠道库存 -->
+    <select id="selectByInventoryId" resultMap="BaseResultMap">
+        SELECT id, inventory_id, store_id, product_id, sku_id, product_shard_id,
+               channel_code, channel_quota, channel_sold, channel_weight, channel_max,
+               channel_priority, safety_stock, stock_status, stock_type, created_at, updated_at
+        FROM inventory_channels
+        WHERE inventory_id = #{inventoryId}
+        ORDER BY channel_priority DESC, channel_code
+    </select>
+
+    <!-- 插入渠道库存记录 -->
+    <insert id="insert" parameterType="com.jiaoyi.product.entity.InventoryChannel" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO inventory_channels (
+            inventory_id, store_id, product_id, sku_id, product_shard_id,
+            channel_code, channel_quota, channel_sold, channel_weight, channel_max,
+            channel_priority, safety_stock, stock_status, stock_type, created_at, updated_at
+        ) VALUES (
+            #{inventoryId}, #{storeId}, #{productId}, #{skuId}, #{productShardId},
+            #{channelCode}, #{channelQuota}, #{channelSold}, #{channelWeight}, #{channelMax},
+            #{channelPriority}, #{safetyStock}, #{stockStatus}, #{stockType}, #{createdAt}, #{updatedAt}
+        )
+    </insert>
+
+    <!-- 删除指定inventory的所有渠道库存 -->
+    <delete id="deleteByInventoryId">
+        DELETE FROM inventory_channels WHERE inventory_id = #{inventoryId}
+    </delete>
+
+    <!-- 方案一：增加渠道已售数，校验不超过 channel_max（0=不设上限） -->
+    <update id="atomicIncreaseChannelSoldWithCap">
+        UPDATE inventory_channels
+        SET channel_sold = channel_sold + #{delta},
+            updated_at = NOW()
+        WHERE inventory_id = #{inventoryId}
+          AND channel_code = #{channelCode}
+          AND (channel_max = 0 OR channel_sold + #{delta} &lt;= channel_max)
+    </update>
+
+    <!-- 原子减少渠道已售数量（归还时） -->
+    <update id="atomicDecreaseChannelSold">
+        UPDATE inventory_channels
+        SET channel_sold = channel_sold - #{qty},
+            updated_at = NOW()
+        WHERE inventory_id = #{inventoryId}
+          AND channel_code = #{channelCode}
+          AND channel_sold >= #{qty}
+    </update>
+
+    <!-- 更新渠道额度和权重 -->
+    <update id="updateChannelQuotaAndWeight">
+        UPDATE inventory_channels
+        SET channel_quota = #{channelQuota},
+            channel_weight = #{channelWeight},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 重置渠道已售数量 -->
+    <update id="resetChannelSold">
+        UPDATE inventory_channels
+        SET channel_sold = 0,
+            updated_at = NOW()
+        WHERE inventory_id = #{inventoryId}
+    </update>
+
+    <!-- 查询比当前渠道优先级更高的安全线总和（方案二） -->
+    <select id="sumSafetyStockForHigherPriority" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(safety_stock), 0)
+        FROM inventory_channels
+        WHERE inventory_id = #{inventoryId}
+          AND channel_priority > #{myPriority}
+    </select>
+
+    <!-- 更新渠道优先级与安全线 -->
+    <update id="updatePriorityAndSafetyStock">
+        UPDATE inventory_channels
+        SET channel_priority = #{channelPriority},
+            safety_stock = #{safetyStock},
+            updated_at = NOW()
+        WHERE id = #{id}
+    </update>
+
+</mapper>

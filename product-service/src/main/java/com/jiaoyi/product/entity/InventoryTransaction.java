@@ -4,6 +4,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 import lombok.AllArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -15,7 +16,12 @@ import java.time.LocalDateTime;
 public class InventoryTransaction {
     
     private Long id;
-    
+
+    /**
+     * 关联 inventory.id（POI渠道扣减用）
+     */
+    private Long inventoryId;
+
     /**
      * 商品ID
      */
@@ -71,7 +77,40 @@ public class InventoryTransaction {
      * 备注
      */
     private String remark;
-    
+
+    // ========================= POI 渠道库存扩展字段 =========================
+
+    /**
+     * BigDecimal版变更量（POI渠道扣减用）
+     * 负数表示扣减，正数表示补货
+     */
+    private BigDecimal delta;
+
+    /**
+     * 扣减来源：FROM_CHANNEL / FROM_SHARED_POOL / FROM_SAFETY_STOCK / FROM_POOL
+     */
+    private String deductSource;
+
+    /**
+     * 渠道代码：POS / KIOSK / ONLINE_ORDER
+     */
+    private String channelCode;
+
+    /**
+     * POI变更类型：ABSOLUTE_SET / RELATIVE_DELTA / STATUS_CHANGE
+     */
+    private String changeTypePoi;
+
+    /**
+     * 来源：POS / CLOUD / POS_OFFLINE
+     */
+    private String sourcePoi;
+
+    /**
+     * JSON快照（记录操作时的请求内容）
+     */
+    private String content;
+
     /**
      * 创建时间
      */

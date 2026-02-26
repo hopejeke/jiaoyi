@@ -57,7 +57,6 @@ public class DatabaseInitializer {
                 createOutboxNodeTable(conn, metaData);
                 // outbox 表已在分片库中创建，不再在基础库创建
                 createSnowflakeWorkerTable(conn, metaData);
-                createPoiItemStockTables(conn, metaData); // 商品中心库存管理相关表（不分片）
             }
             
             // 3. 创建 online-order-v2 相关的分片表（merchants, store_services, menu_items）
@@ -1458,127 +1457,6 @@ public class DatabaseInitializer {
     
     // 订单表相关方法已迁移到 order-service，不再在此维护
     
-    /**
-     * 创建商品中心库存管理相关表（不分片，存储在 primary 数据源 jiaoyi 库）
-     * - poi_item_stock: 商品库存主表
-     * - poi_item_channel_stock: 商品渠道库存表
-     * - poi_item_stock_log: 库存变更记录表
-     * - oversell_record: 超卖记录表
-     */
-    private void createPoiItemStockTables(Connection conn, DatabaseMetaData metaData) {
-        log.info("开始创建商品中心库存管理相关表...");
-        try (Statement stmt = conn.createStatement()) {
-            // 1. poi_item_stock
-            stmt.executeUpdate(
-                "CREATE TABLE IF NOT EXISTS poi_item_stock (" +
-                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
-                "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
-                "store_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
-                "object_type INT NOT NULL COMMENT '对象类型：1-SPU, 2-SKU', " +
-                "object_id BIGINT NOT NULL COMMENT '对象ID', " +
-                "stock_status INT NOT NULL COMMENT '库存状态：1-可售, 2-售罄', " +
-                "stock_type INT DEFAULT 0 COMMENT '库存类型：1-不限量, 2-限量', " +
-                "plan_quantity DECIMAL(10,1) DEFAULT 0 COMMENT '计划库存份数', " +
-                "real_quantity DECIMAL(10,1) DEFAULT 0 COMMENT '实时库存', " +
-                "auto_restore_type INT DEFAULT 0 COMMENT '自动恢复类型', " +
-                "auto_restore_at TIMESTAMP NULL COMMENT '恢复时间', " +
-                "shared_pool_quantity DECIMAL(10,1) DEFAULT 0 COMMENT '共享池库存', " +
-                "last_manual_set_time TIMESTAMP NULL COMMENT '最后手动设置时间', " +
-                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
-                "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
-                "UNIQUE KEY uk_brand_store_object (brand_id, store_id, object_id), " +
-                "INDEX idx_brand_store (brand_id, store_id), " +
-                "INDEX idx_updated_at (updated_at)" +
-                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品库存主表'"
-            );
-            log.info("  ✓ poi_item_stock 表创建成功");
-            
-            // 2. poi_item_channel_stock
-            stmt.executeUpdate(
-                "CREATE TABLE IF NOT EXISTS poi_item_channel_stock (" +
-                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
-                "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
-                "store_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
-                "stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id', " +
-                "stock_status INT NOT NULL COMMENT '库存状态：1-可售, 2-售罄', " +
-                "stock_type INT DEFAULT 0 COMMENT '库存类型', " +
-                "channel_code VARCHAR(32) NOT NULL COMMENT '渠道代码', " +
-                "channel_quota DECIMAL(10,1) DEFAULT 0 COMMENT '渠道分配额度', " +
-                "channel_sold DECIMAL(10,1) DEFAULT 0 COMMENT '渠道已售数量', " +
-                "channel_weight DECIMAL(3,2) DEFAULT 0.33 COMMENT '渠道权重', " +
-                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
-                "updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP, " +
-                "UNIQUE KEY uk_stock_channel (stock_id, channel_code), " +
-                "INDEX idx_brand_store (brand_id, store_id), " +
-                "INDEX idx_stock_id (stock_id)" +
-                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='商品渠道库存表'"
-            );
-            log.info("  ✓ poi_item_channel_stock 表创建成功");
-            
-            // 3. poi_item_stock_log
-            stmt.executeUpdate(
-                "CREATE TABLE IF NOT EXISTS poi_item_stock_log (" +
-                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
-                "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
-                "store_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
-                "stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id', " +
-                "content TEXT NOT NULL COMMENT '变更内容JSON', " +
-                "change_type VARCHAR(20) NOT NULL DEFAULT 'ABSOLUTE_SET' COMMENT '变更类型', " +
-                "delta DECIMAL(10,1) DEFAULT 0 COMMENT '变更量', " +
-                "source VARCHAR(20) NOT NULL DEFAULT 'CLOUD' COMMENT '来源', " +
-                "order_id VARCHAR(64) NULL COMMENT '关联订单ID', " +
-                "deduct_source VARCHAR(32) NULL COMMENT '扣减来源：FROM_CHANNEL/FROM_SHARED_POOL', " +
-                "channel_code VARCHAR(32) NULL COMMENT '渠道代码（归还时用）', " +
-                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
-                "INDEX idx_stock_id (stock_id), " +
-                "INDEX idx_brand_store (brand_id, store_id), " +
-                "INDEX idx_created_at (created_at), " +
-                "INDEX idx_order_id (order_id), " +
-                "INDEX idx_stock_change_time (stock_id, change_type, created_at)" +
-                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='库存变更记录表'"
-            );
-            log.info("  ✓ poi_item_stock_log 表创建成功");
-            // 兼容已存在表：补充 deduct_source、channel_code 列（用于按源头归还）
-            try (ResultSet deductSourceCol = metaData.getColumns(null, null, "poi_item_stock_log", "deduct_source")) {
-                if (!deductSourceCol.next()) {
-                    stmt.executeUpdate("ALTER TABLE poi_item_stock_log ADD COLUMN deduct_source VARCHAR(32) NULL COMMENT '扣减来源：FROM_CHANNEL/FROM_SHARED_POOL' AFTER order_id");
-                    log.info("  ✓ poi_item_stock_log 已添加 deduct_source 列");
-                }
-            }
-            try (ResultSet channelCodeCol = metaData.getColumns(null, null, "poi_item_stock_log", "channel_code")) {
-                if (!channelCodeCol.next()) {
-                    stmt.executeUpdate("ALTER TABLE poi_item_stock_log ADD COLUMN channel_code VARCHAR(32) NULL COMMENT '渠道代码（归还时用）' AFTER deduct_source");
-                    log.info("  ✓ poi_item_stock_log 已添加 channel_code 列");
-                }
-            }
-            
-            // 4. oversell_record
-            stmt.executeUpdate(
-                "CREATE TABLE IF NOT EXISTS oversell_record (" +
-                "id BIGINT AUTO_INCREMENT PRIMARY KEY, " +
-                "brand_id VARCHAR(32) NOT NULL COMMENT '品牌ID', " +
-                "store_id VARCHAR(32) NOT NULL COMMENT '门店ID', " +
-                "stock_id BIGINT NOT NULL COMMENT '关联 poi_item_stock.id', " +
-                "object_id BIGINT NOT NULL COMMENT '商品对象ID', " +
-                "oversell_quantity DECIMAL(10,1) NOT NULL COMMENT '超卖数量', " +
-                "source VARCHAR(20) NOT NULL COMMENT '触发来源', " +
-                "status VARCHAR(20) NOT NULL DEFAULT 'PENDING' COMMENT '状态', " +
-                "resolved_by VARCHAR(64) NULL COMMENT '处理人', " +
-                "resolved_at TIMESTAMP NULL COMMENT '处理时间', " +
-                "remark TEXT NULL COMMENT '备注', " +
-                "created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP, " +
-                "INDEX idx_brand_store (brand_id, store_id), " +
-                "INDEX idx_stock_id (stock_id), " +
-                "INDEX idx_status (status), " +
-                "INDEX idx_created_at (created_at)" +
-                ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='超卖记录表'"
-            );
-            log.info("  ✓ oversell_record 表创建成功");
-            
-        } catch (Exception e) {
-            log.error("创建商品中心库存管理表失败: {}", e.getMessage(), e);
-        }
-    }
 }
 
 

@@ -13,7 +13,7 @@ import org.springframework.stereotype.Component;
  * 
  * 处理以 _MQ 结尾的任务类型，包括：
  * - PRODUCT_CACHE_UPDATE_TOPIC_MQ：商品缓存更新
- * - POI_ITEM_STOCK_SYNC_MQ：商品中心库存同步到POS
+ * - INVENTORY_STOCK_SYNC_MQ：库存同步到 POS
  */
 @Component
 @RequiredArgsConstructor

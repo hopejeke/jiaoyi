@@ -21,6 +21,10 @@
         <result column="restore_stock" property="restoreStock"/>
         <result column="last_restore_time" property="lastRestoreTime"/>
         <result column="restore_enabled" property="restoreEnabled"/>
+        <result column="plan_quantity" property="planQuantity"/>
+        <result column="allocation_mode" property="allocationMode"/>
+        <result column="shared_pool_quantity" property="sharedPoolQuantity"/>
+        <result column="last_manual_set_time" property="lastManualSetTime"/>
         <result column="create_time" property="createTime"/>
         <result column="update_time" property="updateTime"/>
     </resultMap>
@@ -284,6 +288,78 @@
           AND restore_time &lt; #{cutoffTime}
           AND last_restore_time IS NOT NULL
           AND restore_enabled = TRUE
+    </update>
+
+    <!-- ==================== POI 渠道库存扩展方法 ==================== -->
+
+    <!-- 加行锁查询（绝对设置冲突合并用） -->
+    <select id="selectByIdForUpdate" resultMap="BaseResultMap">
+        SELECT id, store_id, product_shard_id, product_id, sku_id, product_name, sku_name,
+               stock_mode, current_stock, locked_stock, min_stock, max_stock,
+               restore_mode, restore_time, restore_stock, last_restore_time, restore_enabled,
+               plan_quantity, allocation_mode, shared_pool_quantity, last_manual_set_time,
+               create_time, update_time
+        FROM inventory WHERE id = #{id}
+        FOR UPDATE
+    </select>
+
+    <!-- 原子扣减 current_stock（WHERE current_stock >= delta） -->
+    <update id="atomicDeductCurrentStock">
+        UPDATE inventory
+        SET current_stock = current_stock - #{delta},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND current_stock >= #{delta}
+    </update>
+
+    <!-- 原子扣减 current_stock，保证不低于安全线 -->
+    <update id="atomicDeductCurrentStockWithFloor">
+        UPDATE inventory
+        SET current_stock = current_stock - #{delta},
+            update_time = NOW()
+        WHERE id = #{id}
+          AND current_stock - #{delta} >= #{safetyFloor}
+    </update>
+
+    <!-- 强制更新 current_stock（绝对设置） -->
+    <update id="forceUpdateCurrentStock">
+        UPDATE inventory
+        SET current_stock = #{currentStock},
+            last_manual_set_time = #{lastManualSetTime},
+            update_time = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 原子增加 current_stock（归还） -->
+    <update id="atomicIncreaseCurrentStock">
+        UPDATE inventory
+        SET current_stock = current_stock + #{qty},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新渠道分配模式 -->
+    <update id="updateAllocationMode">
+        UPDATE inventory
+        SET allocation_mode = #{allocationMode},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新库存状态 -->
+    <update id="updateStockStatusDirect">
+        UPDATE inventory
+        SET current_stock = current_stock,
+            update_time = #{updatedAt}
+        WHERE id = #{id}
+    </update>
+
+    <!-- 更新共享池库存 -->
+    <update id="updateSharedPoolQuantity">
+        UPDATE inventory
+        SET shared_pool_quantity = #{sharedPoolQuantity},
+            update_time = NOW()
+        WHERE id = #{id}
     </update>
 
 </mapper>
