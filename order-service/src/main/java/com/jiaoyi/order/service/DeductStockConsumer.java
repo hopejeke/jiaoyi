@@ -16,7 +16,7 @@ import org.springframework.stereotype.Service;
  * 处理库存扣减命令：调用 product-service 扣减库存
  * 
  * 【幂等性】：使用 idempotencyKey（orderId + paymentIntentId）作为幂等键
- * 【注意】：product-service 的 deductStockBatch 接口必须支持幂等性
+ * 【注意】：库存扣减统一走渠道接口 deductByChannelBatch（下单时扣），支付成功不再扣减
  */
 @Service
 @RequiredArgsConstructor
